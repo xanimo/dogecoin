@@ -31,11 +31,8 @@ bool AllowMinDifficultyForBlock(const CBlockIndex* pindexLast, const CBlockHeade
 
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock, const Consensus::Params& params)
 {
+    assert(pindexLast != NULL);
     unsigned int nProofOfWorkLimit = UintToArith256(params.powLimit).GetCompact();
-
-    // Genesis block
-    if (pindexLast == NULL)
-        return nProofOfWorkLimit;
 
     // Dogecoin: Special rules for minimum difficulty blocks with Digishield
     if (AllowDigishieldMinDifficultyForBlock(pindexLast, pblock, params))
