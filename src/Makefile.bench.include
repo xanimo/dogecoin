@@ -24,7 +24,8 @@ bench_bench_dogecoin_SOURCES = \
   bench/lockedpool.cpp \
   bench/perf.cpp \
   bench/perf.h \
-  bench/scrypt.cpp
+  bench/scrypt.cpp \
+  bench/prevector_destructor.cpp
 
 # bench_bench_dogecoin_SOURCES_DISABLED = \
 #   bench/checkblock.cpp \        # disabled because this checks a specific bitcoin block
