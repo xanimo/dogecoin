@@ -1343,8 +1343,10 @@ int ApplyTxInUndo(Coin&& undo, CCoinsViewCache& view, const COutPoint& out)
 }
 
 /** Undo the effects of this block (with given index) on the UTXO set represented by coins.
- *  When FAILED is returned, view is left in an indeterminate state. */
-static DisconnectResult DisconnectBlock(const CBlock& block, const CBlockIndex* pindex, CCoinsViewCache& view)
+ *  In case pfClean is provided, operation will try to be tolerant about errors, and *pfClean
+ *  will be true if no problems were found. Otherwise, the return value will be false in case
+ *  of problems. Note that in any case, coins may be modified. */
+static DisconnectResult DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockIndex* pindex, CCoinsViewCache& view, bool* pfClean = NULL)
 {
     bool fClean = true;
 
@@ -1490,8 +1492,11 @@ static int64_t nTimeIndex = 0;
 static int64_t nTimeCallbacks = 0;
 static int64_t nTimeTotal = 0;
 
-bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pindex,
-                  CCoinsViewCache& view, const CChainParams& chainparams, bool fJustCheck)
+/** Apply the effects of this block (with given index) on the UTXO set represented by coins.
+ *  Validity checks that depend on the UTXO set are also done; ConnectBlock()
+ *  can fail if those validity checks fail (among other reasons). */
+static bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pindex,
+                  CCoinsViewCache& view, const CChainParams& chainparams, bool fJustCheck = false)
 {
     AssertLockHeld(cs_main);
 
@@ -1960,7 +1965,7 @@ bool static DisconnectTip(CValidationState& state, const CChainParams& chainpara
     {
         CCoinsViewCache view(pcoinsTip);
         assert(view.GetBestBlock() == pindexDelete->GetBlockHash());
-        if (DisconnectBlock(block, pindexDelete, view) != DISCONNECT_OK)
+        if (DisconnectBlock(block, state, pindexDelete, view) != DISCONNECT_OK)
             return error("DisconnectTip(): DisconnectBlock %s failed", pindexDelete->GetBlockHash().ToString());
         bool flushed = view.Flush();
         assert(flushed);
@@ -3577,7 +3582,7 @@ bool CVerifyDB::VerifyDB(const CChainParams& chainparams, CCoinsView *coinsview,
         // check level 3: check for inconsistencies during memory-only disconnect of tip blocks
         if (nCheckLevel >= 3 && pindex == pindexState && (coins.DynamicMemoryUsage() + pcoinsTip->DynamicMemoryUsage()) <= nCoinCacheUsage) {
             assert(coins.GetBestBlock() == pindex->GetBlockHash());
-            DisconnectResult res = DisconnectBlock(block, pindex, coins);
+            DisconnectResult res = DisconnectBlock(block, state, pindex, coins);
             if (res == DISCONNECT_FAILED) {
                 return error("VerifyDB(): *** irrecoverable inconsistency in block data at %d, hash=%s", pindex->nHeight, pindex->GetBlockHash().ToString());
             }
@@ -3676,7 +3681,8 @@ bool ReplayBlocks(const CChainParams& params, CCoinsView* view)
                 return error("RollbackBlock(): ReadBlockFromDisk() failed at %d, hash=%s", pindexOld->nHeight, pindexOld->GetBlockHash().ToString());
             }
             LogPrintf("Rolling back %s (%i)\n", pindexOld->GetBlockHash().ToString(), pindexOld->nHeight);
-            DisconnectResult res = DisconnectBlock(block, pindexOld, cache);
+            CValidationState state;
+            DisconnectResult res = DisconnectBlock(block, state, pindexOld, cache);
             if (res == DISCONNECT_FAILED) {
                 return error("RollbackBlock(): DisconnectBlock failed at %d, hash=%s", pindexOld->nHeight, pindexOld->GetBlockHash().ToString());
             }
