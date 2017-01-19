@@ -7,7 +7,6 @@
 #ifndef BITCOIN_VALIDATIONINTERFACE_H
 #define BITCOIN_VALIDATIONINTERFACE_H
 
-#include <boost/signals2/signal.hpp>
 #include <memory>
 
 class CBlock;
@@ -32,23 +31,8 @@ void UnregisterAllValidationInterfaces();
 
 class CValidationInterface {
 protected:
-    virtual void UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload) {}
-    virtual void SyncTransaction(const CTransaction &tx, const CBlockIndex *pindex, int posInBlock) {}
-    virtual void SetBestChain(const CBlockLocator &locator) {}
-    virtual void UpdatedTransaction(const uint256 &hash) {}
-    virtual void ResendWalletTransactions(int64_t nBestBlockTime, CConnman* connman) {}
-    virtual void BlockChecked(const CBlock&, const CValidationState&) {}
-    virtual void GetScriptForMining(std::shared_ptr<CReserveScript>&) {};
-    virtual void ResetRequestCount(const uint256 &hash) {};
-    virtual void NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock>& block) {};
-    friend void ::RegisterValidationInterface(CValidationInterface*);
-    friend void ::UnregisterValidationInterface(CValidationInterface*);
-    friend void ::UnregisterAllValidationInterfaces();
-};
-
-struct CMainSignals {
     /** Notifies listeners of updated block chain tip */
-    boost::signals2::signal<void (const CBlockIndex *, const CBlockIndex *, bool fInitialDownload)> UpdatedBlockTip;
+    virtual void UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload) {};
     /** A posInBlock value for SyncTransaction calls for transactions not
      * included in connected blocks such as transactions removed from mempool,
      * accepted to mempool or appearing in disconnected blocks.*/
@@ -59,23 +43,55 @@ struct CMainSignals {
      * transaction was accepted to mempool, removed from mempool (only when
      * removal was due to conflict from connected block), or appeared in a
      * disconnected block.*/
-    boost::signals2::signal<void (const CTransaction &, const CBlockIndex *pindex, int posInBlock)> SyncTransaction;
+    virtual void SyncTransaction(const CTransaction &tx, const CBlockIndex *pindex, int posInBlock) {};
+    /** Notifies listeners of the new active block chain on-disk. */
+    virtual void SetBestChain(const CBlockLocator &locator) {};
     /** Notifies listeners of an updated transaction without new data (for now: a coinbase potentially becoming visible). */
-    boost::signals2::signal<void (const uint256 &)> UpdatedTransaction;
-    /** Notifies listeners of a new active block chain. */
-    boost::signals2::signal<void (const CBlockLocator &)> SetBestChain;
+    virtual void UpdatedTransaction(const uint256 &hash) {};
+    /** Notifies listeners about an inventory item being seen on the network. */
+    virtual void Inventory(const uint256 &hash) {};
     /** Tells listeners to broadcast their data. */
-    boost::signals2::signal<void (int64_t nBestBlockTime, CConnman* connman)> Broadcast;
-    /** Notifies listeners of a block validation result */
-    boost::signals2::signal<void (const CBlock&, const CValidationState&)> BlockChecked;
+    virtual void ResendWalletTransactions(int64_t nBestBlockTime, CConnman* connman) {};
+    /**
+     * Notifies listeners of a block validation result.
+     * If the provided CValidationState IsValid, the provided block
+     * is guaranteed to be the current best block at the time the
+     * callback was generated (not necessarily now)
+     */
+    virtual void BlockChecked(const CBlock& block, const CValidationState& state) {};
     /** Notifies listeners that a key for mining is required (coinbase) */
-    boost::signals2::signal<void (std::shared_ptr<CReserveScript>&)> ScriptForMining;
-    /** Notifies listeners that a block has been successfully mined */
-    boost::signals2::signal<void (const uint256 &)> BlockFound;
+    virtual void GetScriptForMining(std::shared_ptr<CReserveScript>& script) {};
+    virtual void ResetRequestCount(const uint256 &hash) {};
     /**
      * Notifies listeners that a block which builds directly on our current tip
      * has been received and connected to the headers tree, though not validated yet */
-    boost::signals2::signal<void (const CBlockIndex *, const std::shared_ptr<const CBlock>&)> NewPoWValidBlock;
+    virtual void NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock>& block) {};
+    friend void ::RegisterValidationInterface(CValidationInterface*);
+    friend void ::UnregisterValidationInterface(CValidationInterface*);
+    friend void ::UnregisterAllValidationInterfaces();
+};
+
+struct MainSignalsInstance;
+class CMainSignals {
+private:
+    std::unique_ptr<MainSignalsInstance> m_internals;
+
+    friend void ::RegisterValidationInterface(CValidationInterface*);
+    friend void ::UnregisterValidationInterface(CValidationInterface*);
+    friend void ::UnregisterAllValidationInterfaces();
+public:
+    CMainSignals();
+    void UpdatedBlockTip(const CBlockIndex *, const CBlockIndex *, bool);
+    static const int SYNC_TRANSACTION_NOT_IN_BLOCK = -1;
+    void SyncTransaction(const CTransaction &, const CBlockIndex *, int);
+    void UpdatedTransaction(const uint256 &);
+    void SetBestChain(const CBlockLocator &);
+    void Inventory(const uint256 &);
+    void Broadcast(int64_t, CConnman*);
+    void BlockChecked(const CBlock&, const CValidationState&);
+    void ScriptForMining(std::shared_ptr<CReserveScript>&);
+    void BlockFound(const uint256 &);
+    void NewPoWValidBlock(const CBlockIndex *, const std::shared_ptr<const CBlock>&);
 };
 
 CMainSignals& GetMainSignals();
