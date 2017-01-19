@@ -884,7 +884,7 @@ public:
     void UpdatedTransaction(const uint256 &hashTx) override;
 
     void GetScriptForMining(boost::shared_ptr<CReserveScript> &script) override;
-
+    
     unsigned int GetKeyPoolSize()
     {
         AssertLockHeld(cs_wallet); // setKeyPool
