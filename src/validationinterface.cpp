@@ -58,7 +58,6 @@ void RegisterValidationInterface(CValidationInterface* pwalletIn) {
     g_signals.m_internals->Broadcast.connect(boost::bind(&CValidationInterface::ResendWalletTransactions, pwalletIn, boost::placeholders::_1, boost::placeholders::_2));
     g_signals.m_internals->BlockChecked.connect(boost::bind(&CValidationInterface::BlockChecked, pwalletIn, boost::placeholders::_1, boost::placeholders::_2));
     g_signals.m_internals->ScriptForMining.connect(boost::bind(&CValidationInterface::GetScriptForMining, pwalletIn, boost::placeholders::_1));
-    g_signals.m_internals->BlockFound.connect(boost::bind(&CValidationInterface::ResetRequestCount, pwalletIn, boost::placeholders::_1));
     g_signals.m_internals->NewPoWValidBlock.connect(boost::bind(&CValidationInterface::NewPoWValidBlock, pwalletIn, boost::placeholders::_1, boost::placeholders::_2));
 }
 
@@ -73,7 +72,6 @@ void UnregisterValidationInterface(CValidationInterface* pwalletIn) {
     g_signals.m_internals->Broadcast.disconnect(boost::bind(&CValidationInterface::ResendWalletTransactions, pwalletIn, boost::placeholders::_1, boost::placeholders::_2));
     g_signals.m_internals->BlockChecked.disconnect(boost::bind(&CValidationInterface::BlockChecked, pwalletIn, boost::placeholders::_1, boost::placeholders::_2));
     g_signals.m_internals->ScriptForMining.disconnect(boost::bind(&CValidationInterface::GetScriptForMining, pwalletIn, boost::placeholders::_1));
-    g_signals.m_internals->BlockFound.disconnect(boost::bind(&CValidationInterface::ResetRequestCount, pwalletIn, boost::placeholders::_1));
     g_signals.m_internals->NewPoWValidBlock.disconnect(boost::bind(&CValidationInterface::NewPoWValidBlock, pwalletIn, boost::placeholders::_1, boost::placeholders::_2));
 }
 
@@ -88,7 +86,6 @@ void UnregisterAllValidationInterfaces() {
     g_signals.m_internals->Broadcast.disconnect_all_slots();
     g_signals.m_internals->BlockChecked.disconnect_all_slots();
     g_signals.m_internals->ScriptForMining.disconnect_all_slots();
-    g_signals.m_internals->BlockFound.disconnect_all_slots();
     g_signals.m_internals->NewPoWValidBlock.disconnect_all_slots();
 }
 
@@ -130,10 +127,6 @@ void CMainSignals::BlockChecked(const CBlock& block, const CValidationState& sta
 
 void CMainSignals::ScriptForMining(std::shared_ptr<CReserveScript>& script) {
     m_internals->ScriptForMining(script);
-}
-
-void CMainSignals::BlockFound(const uint256 &hash) {
-    m_internals->BlockFound(hash);
 }
 
 void CMainSignals::NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock> &block) {
