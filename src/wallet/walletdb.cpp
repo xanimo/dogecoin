@@ -777,7 +777,7 @@ DBErrors CWalletDB::ZapWalletTx(vector<CWalletTx>& vWtx)
     return DB_LOAD_OK;
 }
 
-void MaybeFlushWalletDB()
+void MaybeCompactWalletDB()
 {
     // Make this thread recognisable as the wallet flushing thread
     RenameThread("dogecoin-wallet");
