@@ -31,18 +31,16 @@ extern UniValue importwallet(const JSONRPCRequest& request);
 // we repeat those tests this many times and only complain if all iterations of the test fail
 #define RANDOM_REPEATS 5
 
-using namespace std;
-
 std::vector<std::unique_ptr<CWalletTx>> wtxn;
 
-typedef set<pair<const CWalletTx*,unsigned int> > CoinSet;
+typedef std::set<std::pair<const CWalletTx*,unsigned int> > CoinSet;
 
 extern CAmount nDustLimit;
 
 BOOST_FIXTURE_TEST_SUITE(wallet_tests, WalletTestingSetup)
 
 static const CWallet wallet;
-static vector<COutput> vCoins;
+static std::vector<COutput> vCoins;
 
 static void add_coin(const CAmount& nValue, int nAge = 6*24, bool fIsFromMe = false, int nInput=0)
 {
@@ -75,7 +73,7 @@ static void empty_wallet(void)
 
 static bool equal_sets(CoinSet a, CoinSet b)
 {
-    pair<CoinSet::iterator, CoinSet::iterator> ret = mismatch(a.begin(), a.end(), b.begin());
+    std::pair<CoinSet::iterator, CoinSet::iterator> ret = mismatch(a.begin(), a.end(), b.begin());
     return ret.first == a.end() && ret.second == b.end();
 }
 
@@ -500,7 +498,7 @@ BOOST_AUTO_TEST_CASE(GetMinimumFee_test)
 
     CMutableTransaction tx;
     CTxMemPool pool(payTxFee);
-    CTxOut txout1(value, (CScript)vector<unsigned char>(24, 0));
+    CTxOut txout1(value, (CScript)std::vector<unsigned char>(24, 0));
     tx.vout.push_back(txout1);
 
     int64_t nMinTxFee = COIN / 100;
@@ -515,8 +513,8 @@ BOOST_AUTO_TEST_CASE(GetMinimumFee_dust_test)
     // Derived from main net TX 3d6ec3ae2aca3ae0a6c65074fd8ee888cd7ed262f2cbaa25d33861989324a14e
     CMutableTransaction tx;
     CTxMemPool pool(payTxFee);
-    CTxOut txout1(139496846, (CScript)vector<unsigned char>(24, 0)); // Regular output
-    CTxOut txout2(154996, (CScript)vector<unsigned char>(24, 0)); // Dust output
+    CTxOut txout1(139496846, (CScript)std::vector<unsigned char>(24, 0)); // Regular output
+    CTxOut txout2(154996, (CScript)std::vector<unsigned char>(24, 0)); // Dust output
     tx.vout.push_back(txout1);
     tx.vout.push_back(txout2);
 
