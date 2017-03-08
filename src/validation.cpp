@@ -2202,7 +2202,8 @@ bool static DisconnectTip(CValidationState& state, const CChainParams& chainpara
     CBlockIndex *pindexDelete = chainActive.Tip();
     assert(pindexDelete);
     // Read block from disk.
-    CBlock block;
+    std::shared_ptr<CBlock> pblock = std::make_shared<CBlock>();
+    CBlock& block = *pblock;
     if (!ReadBlockFromDisk(block, pindexDelete, chainparams.GetConsensus(chainActive.Height())))
         return AbortNode(state, "Failed to read block");
     // Apply the block atomically to the chain state.
