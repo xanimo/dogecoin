@@ -86,9 +86,9 @@ these dependencies.
 Unit tests can be compiled and ran with `make check`. Further details on running
 and extending unit tests can be found in [/src/test/README.md](/src/test/README.md).
 
-There are also [regression and integration tests](/qa) written in Python, that
+There are also [regression and integration tests](/test) written in Python, that
 are run automatically on the build server. These tests can be run (if the
-[test dependencies](/qa) are installed) with: `qa/pull-tester/rpc-tests.py`
+[test dependencies](/test) are installed) with: `test/pull-tester/rpc-tests.py`
 
 ### Tips and tricks
 
@@ -114,7 +114,7 @@ Run with the `-testnet` option to run with "play dogecoins" on the test network,
 are testing multi-machine code that needs to operate across the internet.
 
 If you are testing something that can run on one machine, run with the `-regtest` option.
-In regression test mode, blocks can be created on-demand; see qa/rpc-tests/ for tests
+In regression test mode, blocks can be created on-demand; see test/rpc-tests/ for tests
 that run in `-regtest` mode.
 
 **DEBUG_LOCKORDER**

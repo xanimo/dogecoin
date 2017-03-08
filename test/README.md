@@ -1,5 +1,5 @@
-The [pull-tester](/qa/pull-tester/) folder contains a script to call
-multiple tests from the [rpc-tests](/qa/rpc-tests/) folder.
+The [pull-tester](/test/pull-tester/) folder contains a script to call
+multiple tests from the [rpc-tests](/test/rpc-tests/) folder.
 
 Every pull request to the dogecoin repository is built and run through
 the regression test suite. You can also run all or only individual
@@ -15,7 +15,7 @@ Unix
 ```
 sudo apt-get update
 sudo apt-get install -y curl gcc python3-pip python3-setuptools python3-zmq
-./qa/pull-tester/install-deps.sh
+./test/pull-tester/install-deps.sh
 ```
 
 OS X
@@ -23,7 +23,7 @@ OS X
 ```
 brew install curl
 pip3 install pyzmq
-./qa/pull-tester/install-deps.sh
+./test/pull-tester/install-deps.sh
 ```
 
 Running tests
@@ -31,19 +31,19 @@ Running tests
 
 You can run any single test by calling
 
-    qa/pull-tester/rpc-tests.py <testname>
+    test/pull-tester/rpc-tests.py <testname>
 
 Or you can run any combination of tests by calling
 
-    qa/pull-tester/rpc-tests.py <testname1> <testname2> <testname3> ...
+    test/pull-tester/rpc-tests.py <testname1> <testname2> <testname3> ...
 
 Run the regression test suite with
 
-    qa/pull-tester/rpc-tests.py
+    test/pull-tester/rpc-tests.py
 
 Run all possible tests with
 
-    qa/pull-tester/rpc-tests.py -extended
+    test/pull-tester/rpc-tests.py -extended
 
 By default, tests will be run in parallel. To specify how many jobs to run,
 append `-parallel=n` (default n=4).
@@ -65,7 +65,7 @@ Possible options, which apply to each individual test run:
 ```
 
 If you set the environment variable `PYTHON_DEBUG=1` you will get some debug
-output (example: `PYTHON_DEBUG=1 qa/pull-tester/rpc-tests.py wallet`).
+output (example: `PYTHON_DEBUG=1 test/pull-tester/rpc-tests.py wallet`).
 
 A 200-block -regtest blockchain and wallets for four nodes
 is created the first time a regression test is run and
@@ -88,4 +88,4 @@ Writing tests
 =============
 You are encouraged to write tests for new or existing features.
 Further information about the test framework and individual rpc
-tests is found in [qa/rpc-tests](/qa/rpc-tests).
+tests is found in [test/rpc-tests](/test/rpc-tests).

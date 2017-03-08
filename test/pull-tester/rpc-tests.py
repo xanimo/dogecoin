@@ -18,7 +18,7 @@ than:
       interface.
 
 For a description of arguments recognized by test scripts, see
-`qa/pull-tester/test_framework/test_framework.py:BitcoinTestFramework.main`.
+`test/pull-tester/test_framework/test_framework.py:BitcoinTestFramework.main`.
 
 """
 
@@ -30,7 +30,7 @@ import subprocess
 import tempfile
 import re
 
-sys.path.append("qa/pull-tester/")
+sys.path.append("test/pull-tester/")
 from tests_config import *
 
 BOLD = ("","")
@@ -39,7 +39,7 @@ if os.name == 'posix':
     # terminal via ANSI escape sequences:
     BOLD = ('\033[0m', '\033[1m')
 
-RPC_TESTS_DIR = SRCDIR + '/qa/rpc-tests/'
+RPC_TESTS_DIR = SRCDIR + '/test/rpc-tests/'
 
 #If imported values are not defined then set to zero (or disabled)
 if 'ENABLE_WALLET' not in vars():
@@ -95,7 +95,7 @@ if ENABLE_ZMQ:
         import zmq
     except ImportError:
         print("ERROR: \"import zmq\" failed. Set ENABLE_ZMQ=0 or "
-              "to run zmq tests, see dependency info in /qa/README.md.")
+              "to run zmq tests, see dependency info in /test/README.md.")
         # ENABLE_ZMQ=0
         raise
 
@@ -240,7 +240,7 @@ def runtests():
         coverage = RPCCoverage()
         print("Initializing coverage directory at %s\n" % coverage.dir)
     flags = ["--srcdir=%s/src" % BUILDDIR] + passon_args
-    flags.append("--cachedir=%s/qa/cache" % BUILDDIR)
+    flags.append("--cachedir=%s/test/cache" % BUILDDIR)
     if coverage:
         flags.append(coverage.flag)
 
@@ -341,7 +341,7 @@ class RPCCoverage(object):
     After all tests complete, the commands run are combined and diff'd against
     the complete list to calculate uncovered RPC commands.
 
-    See also: qa/rpc-tests/test_framework/coverage.py
+    See also: test/rpc-tests/test_framework/coverage.py
 
     """
     def __init__(self):
@@ -369,7 +369,7 @@ class RPCCoverage(object):
         Return a set of currently untested RPC commands.
 
         """
-        # This is shared from `qa/rpc-tests/test-framework/coverage.py`
+        # This is shared from `test/rpc-tests/test-framework/coverage.py`
         REFERENCE_FILENAME = 'rpc_interface.txt'
         COVERAGE_FILE_PREFIX = 'coverage.'
 
