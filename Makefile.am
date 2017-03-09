@@ -191,7 +191,7 @@ test_bitcoin_filtered.info: test_bitcoin.info
 	$(LCOV) -r $< "/usr/include/*" -o $@
 
 functional_test.info: test_bitcoin_filtered.info
-	-@TIMEOUT=15 python test/pull-tester/rpc-tests.py $(EXTENDED_RPC_TESTS)
+	-@TIMEOUT=15 python test/functional/test_runner.py $(EXTENDED_RPC_TESTS)
 	$(LCOV) -c -d $(abs_builddir)/src --t functional-tests -o $@
 	$(LCOV) -z -d $(abs_builddir)/src
 	$(LCOV) -z -d $(abs_builddir)/src/leveldb
@@ -219,12 +219,12 @@ endif
 
 dist_noinst_SCRIPTS = autogen.sh
 
-EXTRA_DIST = $(top_srcdir)/share/genbuild.sh test/pull-tester/rpc-tests.py test/functional $(DIST_CONTRIB) $(DIST_DOCS) $(WINDOWS_PACKAGING) $(OSX_PACKAGING) $(BIN_CHECKS)
+EXTRA_DIST = $(top_srcdir)/share/genbuild.sh test/functional/test_runner.py test/functional $(DIST_CONTRIB) $(DIST_DOCS) $(WINDOWS_PACKAGING) $(OSX_PACKAGING) $(BIN_CHECKS)
 
 CLEANFILES = $(OSX_DMG) $(BITCOIN_WIN_INSTALLER)
 
 # This file is problematic for out-of-tree builds if it exists.
-DISTCLEANFILES = test/pull-tester/tests_config.pyc
+DISTCLEANFILES = test/functional/tests_config.pyc
 
 .INTERMEDIATE: $(COVERAGE_INFO)
 
@@ -232,4 +232,4 @@ DISTCHECK_CONFIGURE_FLAGS = --enable-man
 
 clean-local:
 	rm -rf coverage_percent.txt test_bitcoin.coverage/ total.coverage/ test/tmp/ cache/ $(OSX_APP)
-	rm -rf test/pull-tester/__pycache__
+	rm -rf test/functional/__pycache__

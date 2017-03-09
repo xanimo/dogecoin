@@ -18,7 +18,7 @@ than:
       interface.
 
 For a description of arguments recognized by test scripts, see
-`test/pull-tester/test_framework/test_framework.py:BitcoinTestFramework.main`.
+`test/functional/test_framework/test_framework.py:BitcoinTestFramework.main`.
 
 """
 
@@ -30,7 +30,7 @@ import subprocess
 import tempfile
 import re
 
-sys.path.append("test/pull-tester/")
+sys.path.append("test/functional/")
 from tests_config import *
 
 BOLD = ("","")
@@ -331,7 +331,7 @@ class RPCTestHandler:
 
 class RPCCoverage(object):
     """
-    Coverage reporting utilities for pull-tester.
+    Coverage reporting utilities for test_runner.
 
     Coverage calculation works by having each test script subprocess write
     coverage files into a particular directory. These files contain the RPC

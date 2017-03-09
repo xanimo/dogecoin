@@ -88,7 +88,7 @@ and extending unit tests can be found in [/src/test/README.md](/src/test/README.
 
 There are also [regression and integration tests](/test) written in Python, that
 are run automatically on the build server. These tests can be run (if the
-[test dependencies](/test) are installed) with: `test/pull-tester/rpc-tests.py`
+[test dependencies](/test) are installed) with: `test/functional/test_runner.py`
 
 ### Tips and tricks
 
