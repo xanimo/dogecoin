@@ -39,7 +39,7 @@ if os.name == 'posix':
     # terminal via ANSI escape sequences:
     BOLD = ('\033[0m', '\033[1m')
 
-RPC_TESTS_DIR = SRCDIR + '/test/rpc-tests/'
+RPC_TESTS_DIR = SRCDIR + '/test/functional/'
 
 #If imported values are not defined then set to zero (or disabled)
 if 'ENABLE_WALLET' not in vars():
@@ -341,7 +341,7 @@ class RPCCoverage(object):
     After all tests complete, the commands run are combined and diff'd against
     the complete list to calculate uncovered RPC commands.
 
-    See also: test/rpc-tests/test_framework/coverage.py
+    See also: test/functional/test_framework/coverage.py
 
     """
     def __init__(self):
@@ -369,7 +369,7 @@ class RPCCoverage(object):
         Return a set of currently untested RPC commands.
 
         """
-        # This is shared from `test/rpc-tests/test-framework/coverage.py`
+        # This is shared from `test/functional/test-framework/coverage.py`
         REFERENCE_FILENAME = 'rpc_interface.txt'
         COVERAGE_FILE_PREFIX = 'coverage.'
 

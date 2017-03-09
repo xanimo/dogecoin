@@ -114,7 +114,7 @@ Run with the `-testnet` option to run with "play dogecoins" on the test network,
 are testing multi-machine code that needs to operate across the internet.
 
 If you are testing something that can run on one machine, run with the `-regtest` option.
-In regression test mode, blocks can be created on-demand; see test/rpc-tests/ for tests
+In regression test mode, blocks can be created on-demand; see test/functional/ for tests
 that run in `-regtest` mode.
 
 **DEBUG_LOCKORDER**
