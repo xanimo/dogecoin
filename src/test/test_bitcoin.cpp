@@ -3,8 +3,6 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#define BOOST_TEST_MODULE Bitcoin Test Suite
-
 #include "test_bitcoin.h"
 
 #include "chainparams.h"
@@ -74,11 +72,14 @@ TestingSetup::TestingSetup(const std::string& chainName) : BasicTestingSetup(cha
         pblocktree = new CBlockTreeDB(1 << 20, true);
         pcoinsdbview = new CCoinsViewDB(1 << 23, true);
         pcoinsTip = new CCoinsViewCache(pcoinsdbview);
-        InitBlockIndex(chainparams);
+        if (!InitBlockIndex(chainparams)) {
+            throw std::runtime_error("InitBlockIndex failed.");
+        }
         {
             CValidationState state;
-            bool ok = ActivateBestChain(state, chainparams);
-            BOOST_CHECK(ok);
+            if (!ActivateBestChain(state, chainparams)) {
+                throw std::runtime_error("ActivateBestChain failed.");
+            }
         }
         nScriptCheckThreads = 3;
         for (int i=0; i < nScriptCheckThreads-1; i++)
@@ -157,19 +158,4 @@ CTxMemPoolEntry TestMemPoolEntryHelper::FromTx(const CTransaction &txn, CTxMemPo
 
     return CTxMemPoolEntry(MakeTransactionRef(txn), nFee, nTime, dPriority, nHeight,
                            inChainValue, spendsCoinbase, sigOpCost, lp);
-}
-
-void Shutdown(void* parg)
-{
-  exit(0);
-}
-
-void StartShutdown()
-{
-  exit(0);
-}
-
-bool ShutdownRequested()
-{
-  return false;
 }
