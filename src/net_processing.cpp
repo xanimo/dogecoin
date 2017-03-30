@@ -823,21 +823,32 @@ PeerLogicValidation::PeerLogicValidation(CConnman* connmanIn) : connman(connmanI
     recentRejects.reset(new CRollingBloomFilter(120000, 0.000001));
 }
 
-void PeerLogicValidation::SyncTransaction(const CTransaction& tx, const CBlockIndex* pindex, int nPosInBlock) {
-    if (nPosInBlock == CMainSignals::SYNC_TRANSACTION_NOT_IN_BLOCK)
-        return;
+void PeerLogicValidation::BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindex, const std::vector<CTransactionRef>& vtxConflicted) {
+    // Forget tracked announcements for transactions included in a block.
+    // (Taken before, not under, g_cs_orphans: elsewhere the order is cs_main -> g_cs_orphans.)
+    {
+        LOCK(cs_main);
+        for (const CTransactionRef& ptx : pblock->vtx) {
+            g_txrequest.ForgetTxHash(ptx->GetHash());
+        }
+    }
 
     LOCK(cs_main);
 
     std::vector<uint256> vOrphanErase;
-    // Which orphan pool entries must we evict?
-    for (size_t j = 0; j < tx.vin.size(); j++) {
-        auto itByPrev = mapOrphanTransactionsByPrev.find(tx.vin[j].prevout);
-        if (itByPrev == mapOrphanTransactionsByPrev.end()) continue;
-        for (auto mi = itByPrev->second.begin(); mi != itByPrev->second.end(); ++mi) {
-            const CTransaction& orphanTx = *(*mi)->second.tx;
-            const uint256& orphanHash = orphanTx.GetHash();
-            vOrphanErase.push_back(orphanHash);
+
+    for (const CTransactionRef& ptx : pblock->vtx) {
+        const CTransaction& tx = *ptx;
+
+        // Which orphan pool entries must we evict?
+        for (size_t j = 0; j < tx.vin.size(); j++) {
+            auto itByPrev = mapOrphanTransactionsByPrev.find(tx.vin[j].prevout);
+            if (itByPrev == mapOrphanTransactionsByPrev.end()) continue;
+            for (auto mi = itByPrev->second.begin(); mi != itByPrev->second.end(); ++mi) {
+                const CTransaction& orphanTx = *(*mi)->second.tx;
+                const uint256& orphanHash = orphanTx.GetHash();
+                vOrphanErase.push_back(orphanHash);
+            }
         }
     }
 
@@ -849,9 +860,6 @@ void PeerLogicValidation::SyncTransaction(const CTransaction& tx, const CBlockIn
         }
         LogPrint("mempool", "Erased %d orphan tx included or conflicted by block\n", nErased);
     }
-
-    // Forget tracked announcements for transactions included in a block.
-    g_txrequest.ForgetTxHash(tx.GetHash());
 }
 
 static CCriticalSection cs_most_recent_block;
