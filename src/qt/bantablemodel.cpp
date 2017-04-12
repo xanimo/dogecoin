@@ -53,7 +53,7 @@ public:
 
         cachedBanlist.clear();
         cachedBanlist.reserve(banMap.size());
-#endif
+
         for (const auto& entry : banMap)
         {
             CCombinedBan banEntry;

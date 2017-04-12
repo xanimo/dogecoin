@@ -25,6 +25,7 @@
 #include "primitives/pureheader.h"
 #include "primitives/transaction.h"
 #include "random.h"
+#include "reverse_iterator.h"
 #include "script/script.h"
 #include "script/sigcache.h"
 #include "script/standard.h"
