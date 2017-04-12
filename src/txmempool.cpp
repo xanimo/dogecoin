@@ -13,6 +13,7 @@
 #include "validation.h"
 #include "policy/policy.h"
 #include "policy/fees.h"
+#include "reverse_iterator.h"
 #include "streams.h"
 #include "timedata.h"
 #include "util.h"
