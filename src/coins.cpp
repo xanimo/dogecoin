@@ -243,7 +243,7 @@ double CCoinsViewCache::GetPriority(const CTransaction &tx, int nHeight, CAmount
     if (tx.IsCoinBase())
         return 0.0;
     double dResult = 0.0;
-    BOOST_FOREACH(const CTxIn& txin, tx.vin)
+    for (const CTxIn& txin : tx.vin)
     {
         const Coin &coin = AccessCoin(txin.prevout);
         assert(!coin.out.IsNull());
