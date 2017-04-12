@@ -129,6 +129,7 @@ BITCOIN_CORE_H = \
   primitives/pureheader.h \
   protocol.h \
   random.h \
+  reverse_iterator.h \
   reverselock.h \
   rpc/client.h \
   rpc/protocol.h \
