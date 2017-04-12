@@ -19,7 +19,6 @@
 #include <atomic>
 
 #include <boost/version.hpp>
-#include <boost/foreach.hpp>
 #include <boost/thread.hpp>
 
 using namespace std;
