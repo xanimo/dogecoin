@@ -28,7 +28,6 @@
 #include <univalue.h>
 
 #include <boost/assign/list_of.hpp>
-#include <boost/foreach.hpp>
 
 void EnsureWalletIsUnlocked();
 bool EnsureWalletIsAvailable(bool avoidException);

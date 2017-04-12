@@ -15,7 +15,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include <boost/foreach.hpp>
 #include <boost/unordered_set.hpp>
 #include <boost/unordered_map.hpp>
 
