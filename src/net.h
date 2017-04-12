@@ -34,7 +34,6 @@
 #include <arpa/inet.h>
 #endif
 
-#include <boost/foreach.hpp>
 #include <boost/signals2/signal.hpp>
 
 class CAddrMan;
