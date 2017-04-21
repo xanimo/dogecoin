@@ -763,14 +763,6 @@ struct TxCoinAgePriorityCompare
             return CompareTxMemPoolEntryByScore()(*(b.second), *(a.second)); //Reverse order to make sort less than
         return a.first < b.first;
     }
-
-    /** Clear all data structures and return the list of transactions. */
-    std::list<CTransactionRef> take()
-    {
-        std::list<CTransactionRef> ret = std::move(queuedTx);
-        clear();
-        return ret;
-    }
 };
 
 #endif // BITCOIN_TXMEMPOOL_H
