@@ -8,7 +8,7 @@
 #include <core_memusage.h>
 #include <memusage.h>
 #include <primitives/transaction.h>
-#include <util/hasher.h>
+#include "txmempool.h"
 
 #include <list>
 #include <unordered_map>
