@@ -21,9 +21,12 @@ uint256 BroadcastTransaction(CTransactionRef tx, bool fLimitFree, CAmount nMaxRa
     LOCK(cs_main);
 
     CCoinsViewCache& view = *pcoinsTip;
-    const CCoins* existingCoins = view.AccessCoins(hashTx);
+    bool fHaveChain = false;
+    for (size_t o = 0; !fHaveChain && o < tx->vout.size(); o++) {
+        const Coin& existingCoin = view.AccessCoin(COutPoint(hashTx, o));
+        fHaveChain = !existingCoin.IsPruned();
+    }
     bool fHaveMempool = mempool.exists(hashTx);
-    bool fHaveChain = existingCoins && existingCoins->nHeight < 1000000000;
     if (!fHaveMempool && !fHaveChain) {
         // push to local node and sync with wallets
         CValidationState state;
