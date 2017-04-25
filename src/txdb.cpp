@@ -278,7 +278,7 @@ public:
         unsigned int nCode = 0;
         // version
         int nVersionDummy;
-        ::Unserialize(s, VARINT(nVersionDummy));
+        ::Unserialize(s, VARINT_MODE(nVersionDummy, VarIntMode::NONNEGATIVE_SIGNED));
         // header code
         ::Unserialize(s, VARINT(nCode));
         fCoinBase = nCode & 1;
@@ -304,7 +304,7 @@ public:
                 ::Unserialize(s, REF(CTxOutCompressor(vout[i])));
         }
         // coinbase height
-        ::Unserialize(s, VARINT(nHeight));
+        ::Unserialize(s, VARINT_MODE(nHeight, VarIntMode::NONNEGATIVE_SIGNED));
     }
 };
 
