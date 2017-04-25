@@ -286,11 +286,6 @@ public:
 
 private:
     CCoinsMap::iterator FetchCoin(const COutPoint &outpoint) const;
-
-    /**
-     * By making the copy constructor private, we prevent accidentally using it when one intends to create a cache on top of a base cache.
-     */
-    CCoinsViewCache(const CCoinsViewCache &);
 };
 
 //! Utility function to add all of a transaction's outputs to a cache.
