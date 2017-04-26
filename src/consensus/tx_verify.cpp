@@ -214,22 +214,22 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
         for (unsigned int i = 0; i < tx.vin.size(); i++)
         {
             const COutPoint &prevout = tx.vin[i].prevout;
-            const CCoins *coins = inputs.AccessCoins(prevout.hash);
-            assert(coins);
+            const Coin& coin = inputs.AccessCoin(prevout);
+            assert(!coin.IsPruned());
 
             // If prev is coinbase, check that it's matured
-            if (coins->IsCoinBase()) {
+            if (coin.IsCoinBase()) {
                 // Dogecoin: Switch maturity at depth 145,000
-                int nCoinbaseMaturity = params.GetConsensus(coins->nHeight).nCoinbaseMaturity;
-                if (nSpendHeight - coins->nHeight < nCoinbaseMaturity)
+                int nCoinbaseMaturity = params.GetConsensus(coin.nHeight).nCoinbaseMaturity;
+                if (nSpendHeight - (int)coin.nHeight < nCoinbaseMaturity)
                     return state.Invalid(false,
                         REJECT_INVALID, "bad-txns-premature-spend-of-coinbase",
-                        strprintf("tried to spend coinbase at depth %d", nSpendHeight - coins->nHeight));
+                        strprintf("tried to spend coinbase at depth %d", nSpendHeight - coin.nHeight));
             }
 
             // Check for negative or overflow input values
-            nValueIn += coins->vout[prevout.n].nValue;
-            if (!MoneyRange(coins->vout[prevout.n].nValue) || !MoneyRange(nValueIn))
+            nValueIn += coin.out.nValue;
+            if (!MoneyRange(coin.out.nValue) || !MoneyRange(nValueIn))
                 return state.DoS(100, false, REJECT_INVALID, "bad-txns-inputvalues-outofrange");
 
         }
