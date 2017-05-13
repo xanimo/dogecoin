@@ -157,7 +157,7 @@ BOOST_AUTO_TEST_CASE(coins_cache_simulation_test)
         // Once every 1000 iterations and at the end, verify the full cache.
         if (InsecureRandRange(1000) == 1 || i == NUM_SIMULATION_ITERATIONS - 1) {
             for (const auto& entry : result) {
-                const CCoins* coins = stack.back()->AccessCoins(it->first);
+                const CCoins* coins = stack.back()->AccessCoins(entry.first);
                 if (coins) {
                     BOOST_CHECK(*coins == entry.second);
                     found_an_entry = true;

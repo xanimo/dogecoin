@@ -4,6 +4,7 @@
 
 #include "bench.h"
 
+#include <assert.h>
 #include <cstddef>     // for NULL
 #include <sys/time.h>  // for gettimeofday, timeval
 #include <iomanip>     // for operator<<, setprecision

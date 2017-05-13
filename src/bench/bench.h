@@ -7,10 +7,10 @@
 
 #include <cstdint>                               // for uint64_t
 
-#include <boost/function.hpp>                    // for function
 #include <boost/preprocessor/cat.hpp>            // for BOOST_PP_CAT
 #include <boost/preprocessor/stringize.hpp>      // for BOOST_PP_STRINGIZE
 
+#include <functional>
 #include <limits>                                // for numeric_limits
 #include <map>                                   // for map
 #include <string>                                // for string
@@ -62,7 +62,7 @@ namespace benchmark {
         bool KeepRunning();
     };
 
-    typedef boost::function<void(State&)> BenchFunction;
+    typedef std::function<void(State&)> BenchFunction;
 
     class BenchRunner
     {
