@@ -246,7 +246,7 @@ bool RemoveLocal(const CService& addr)
 
 void SetReachable(enum Network net, bool reachable)
 {
-    if (net == NET_UNROUTABLE)
+    if (net == NET_UNROUTABLE || net == NET_INTERNAL)
         return;
     LOCK(cs_mapLocalHost);
     vfLimited[net] = !reachable;
