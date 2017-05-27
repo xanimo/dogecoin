@@ -1285,7 +1285,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     // sanitize comments per BIP-0014, format user agent and check total size
     std::vector<std::string> uacomments;
     if (gArgs.IsArgSet("-uacomment")) {
-        for (std::string cmt : mapMultiArgs.at("-uacomment"))
+        for (std::string cmt : gArgs.GetArgs("-uacomment"))
         {
             if (cmt != SanitizeString(cmt, SAFE_CHARS_UA_COMMENT))
                 return InitError(strprintf(_("User Agent comment (%s) contains unsafe characters."), cmt));
@@ -1402,11 +1402,6 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
             else
                 return InitError(ResolveErrMsg("externalip", strAddr));
         }
-    }
-
-    if (gArgs.IsArgSet("-seednode")) {
-        for (const std::string& strDest : gArgs.GetArgs("-seednode"))
-            connman.AddOneShot(strDest);
     }
 
 #if ENABLE_ZMQ
@@ -1683,6 +1678,10 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
 
     connOptions.nMaxOutboundTimeframe = nMaxOutboundTimeframe;
     connOptions.nMaxOutboundLimit = nMaxOutboundLimit;
+
+    if (gArgs.IsArgSet("-seednode")) {
+        connOptions.vSeedNodes = gArgs.GetArgs("-seednode");
+    }
 
     if (!connman.Start(scheduler, strNodeError, connOptions))
         return InitError(strNodeError);
