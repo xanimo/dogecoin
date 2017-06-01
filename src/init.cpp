@@ -90,14 +90,6 @@ static CZMQNotificationInterface* pzmqNotificationInterface = NULL;
 #define MIN_CORE_FILEDESCRIPTORS 150
 #endif
 
-/** Used to pass flags to the Bind() function */
-enum BindFlags {
-    BF_NONE         = 0,
-    BF_EXPLICIT     = (1U << 0),
-    BF_REPORT_ERROR = (1U << 1),
-    BF_WHITELIST    = (1U << 2),
-};
-
 static const char* FEE_ESTIMATES_FILENAME="fee_estimates.dat";
 
 //////////////////////////////////////////////////////////////////////////////
@@ -285,17 +277,17 @@ void HandleSIGHUP(int)
     fReopenDebugLog = true;
 }
 
-bool static Bind(CConnman& connman, const CService &addr, unsigned int flags) {
-    if (!(flags & BF_EXPLICIT) && IsLimited(addr))
-        return false;
-    std::string strError;
-    if (!connman.BindListenPort(addr, strError, (flags & BF_WHITELIST) != 0)) {
-        if (flags & BF_REPORT_ERROR)
-            return InitError(strError);
-        return false;
-    }
-    return true;
+#ifndef WIN32
+static void registerSignalHandler(int signal, void(*handler)(int))
+{
+    struct sigaction sa;
+    sa.sa_handler = handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(signal, &sa, NULL);
 }
+#endif
+
 void OnRPCStarted()
 {
     uiInterface.NotifyBlockTip.connect(&RPCNotifyBlockChange);
@@ -894,10 +886,16 @@ bool AppInitParameterInteraction()
             return InitError(_("Prune mode is incompatible with -txindex."));
     }
 
+    // -bind and -whitebind can't be set when not listening
+    size_t nUserBind =
+        (IsArgSet("-bind") ? mapMultiArgs.at("-bind").size() : 0) +
+        (IsArgSet("-whitebind") ? mapMultiArgs.at("-whitebind").size() : 0);
+    if (nUserBind != 0 && !GetBoolArg("-listen", DEFAULT_LISTEN)) {
+        return InitError("Cannot set -bind or -whitebind together with -listen=0");
+    }
+
     // Make sure enough file descriptors are available
-    int nBind = std::max(
-                (mapMultiArgs.count("-bind") ? mapMultiArgs.at("-bind").size() : 0) +
-                (mapMultiArgs.count("-whitebind") ? mapMultiArgs.at("-whitebind").size() : 0), size_t(1));
+    int nBind = std::max(nUserBind, size_t(1));
     nUserMaxConnections = GetArg("-maxconnections", DEFAULT_MAX_PEER_CONNECTIONS);
     nMaxConnections = std::max(nUserMaxConnections, 0);
 
@@ -1352,37 +1350,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     fNameLookup = GetBoolArg("-dns", DEFAULT_NAME_LOOKUP);
     fRelayTxes = !GetBoolArg("-blocksonly", DEFAULT_BLOCKSONLY);
 
-    if (fListen) {
-        bool fBound = false;
-        if (mapMultiArgs.count("-bind")) {
-            for (const std::string& strBind : mapMultiArgs.at("-bind")) {
-                CService addrBind;
-                if (!Lookup(strBind, addrBind, GetListenPort(), false))
-                    return InitError(ResolveErrMsg("bind", strBind));
-                fBound |= Bind(connman, addrBind, (BF_EXPLICIT | BF_REPORT_ERROR));
-            }
-        }
-        if (mapMultiArgs.count("-whitebind")) {
-            for (const std::string& strBind : mapMultiArgs.at("-whitebind")) {
-                CService addrBind;
-                if (!Lookup(strBind, addrBind, 0, false))
-                    return InitError(ResolveErrMsg("whitebind", strBind));
-                if (addrBind.GetPort() == 0)
-                    return InitError(strprintf(_("Need to specify a port with -whitebind: '%s'"), strBind));
-                fBound |= Bind(connman, addrBind, (BF_EXPLICIT | BF_REPORT_ERROR | BF_WHITELIST));
-            }
-        }
-        if (!mapMultiArgs.count("-bind") && !mapMultiArgs.count("-whitebind")) {
-            struct in_addr inaddr_any;
-            inaddr_any.s_addr = INADDR_ANY;
-            fBound |= Bind(connman, CService((in6_addr)IN6ADDR_ANY_INIT, GetListenPort()), BF_NONE);
-            fBound |= Bind(connman, CService(inaddr_any, GetListenPort()), !fBound ? BF_REPORT_ERROR : BF_NONE);
-        }
-        if (!fBound)
-            return InitError(_("Failed to listen on any port. Use -listen=0 if you want this."));
-    }
-
-    if (mapMultiArgs.count("-externalip")) {
+    if (IsArgSet("-externalip")) {
         for (const std::string& strAddr : mapMultiArgs.at("-externalip")) {
             CService addrLocal;
             if (Lookup(strAddr, addrLocal, GetListenPort(), fNameLookup) && addrLocal.IsValid())
@@ -1644,7 +1612,6 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     // Map ports with UPnP
     MapPort(GetBoolArg("-upnp", DEFAULT_UPNP));
 
-    std::string strNodeError;
     CConnman::Options connOptions;
     connOptions.nLocalServices = nLocalServices;
     connOptions.nRelevantServices = nRelevantServices;
@@ -1661,6 +1628,28 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     connOptions.nMaxOutboundTimeframe = nMaxOutboundTimeframe;
     connOptions.nMaxOutboundLimit = nMaxOutboundLimit;
 
+    if (IsArgSet("-bind")) {
+        for (const std::string& strBind : mapMultiArgs.at("-bind")) {
+            CService addrBind;
+            if (!Lookup(strBind.c_str(), addrBind, GetListenPort(), false)) {
+                return InitError(ResolveErrMsg("bind", strBind));
+            }
+            connOptions.vBinds.push_back(addrBind);
+        }
+    }
+    if (IsArgSet("-whitebind")) {
+        for (const std::string& strBind : mapMultiArgs.at("-whitebind")) {
+            CService addrBind;
+            if (!Lookup(strBind.c_str(), addrBind, 0, false)) {
+                return InitError(ResolveErrMsg("whitebind", strBind));
+            }
+            if (addrBind.GetPort() == 0) {
+                return InitError(strprintf(_("Need to specify a port with -whitebind: '%s'"), strBind));
+            }
+            connOptions.vWhiteBinds.push_back(addrBind);
+        }
+    }
+
     if (IsArgSet("-whitelist")) {
         for (const auto& net : mapMultiArgs.at("-whitelist")) {
             CSubNet subnet;
@@ -1675,8 +1664,9 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
         connOptions.vSeedNodes = mapMultiArgs.at("-seednode");
     }
 
-    if (!connman.Start(scheduler, strNodeError, connOptions))
-        return InitError(strNodeError);
+    if (!connman.Start(scheduler, connOptions)) {
+        return false;
+    }
 
     // ********************************************************* Step 12: finished
 
