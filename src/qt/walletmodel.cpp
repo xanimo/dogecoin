@@ -210,7 +210,7 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
     int nAddresses = 0;
 
     // Pre-check input data for validity
-    Q_FOREACH(const SendCoinsRecipient &rcp, recipients)
+    for (const SendCoinsRecipient &rcp : recipients)
     {
         if (rcp.fSubtractFeeFromAmount)
             fSubtractFeeFromAmount = true;
@@ -290,7 +290,7 @@ WalletModel::SendCoinsReturn WalletModel::sendCoins(WalletModelTransaction &tran
         LOCK2(cs_main, wallet->cs_wallet);
         CWalletTx *newTx = transaction.getTransaction();
 
-        Q_FOREACH(const SendCoinsRecipient &rcp, transaction.getRecipients())
+        for (const SendCoinsRecipient &rcp : transaction.getRecipients())
         {
             if (!rcp.message.isEmpty()) // Message from normal bitcoin:URI (bitcoin:123...?message=example)
                 newTx->vOrderForm.push_back(make_pair("Message", rcp.message.toStdString()));
@@ -308,7 +308,7 @@ WalletModel::SendCoinsReturn WalletModel::sendCoins(WalletModelTransaction &tran
 
     // Add addresses / update labels that we've sent to to the address book,
     // and emit coinsSent signal for each recipient
-    Q_FOREACH(const SendCoinsRecipient &rcp, transaction.getRecipients())
+    for (const SendCoinsRecipient &rcp : transaction.getRecipients())
     {
         std::string strAddress = rcp.address.toStdString();
         CTxDestination dest = CBitcoinAddress(strAddress).Get();
