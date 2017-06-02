@@ -199,7 +199,7 @@ void SplashScreen::unsubscribeFromCoreSignals()
                                                     boost::placeholders::_1,
                                                     boost::placeholders::_2));
 #ifdef ENABLE_WALLET
-    Q_FOREACH(CWallet* const & pwallet, connectedWallets) {
+    for (CWallet* const & pwallet : connectedWallets) {
         pwallet->ShowProgress.disconnect(boost::bind(ShowProgress, this,
                                                      boost::placeholders::_1,
                                                      boost::placeholders::_2));
