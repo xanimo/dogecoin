@@ -94,7 +94,7 @@ void WalletTxToJSON(const CWalletTx& wtx, UniValue& entry)
     }
     entry.pushKV("bip125-replaceable", rbfStatus);
 
-    for (const PAIRTYPE(string,string)& item : wtx.mapValue)
+    for (const std::pair<std::string, std::string>& item : wtx.mapValue)
         entry.pushKV(item.first, item.second);
 }
 
@@ -1832,7 +1832,7 @@ UniValue listaccounts(const JSONRPCRequest& request)
         mapAccountBalances[entry.strAccount] += entry.nCreditDebit;
 
     UniValue ret(UniValue::VOBJ);
-    for (const PAIRTYPE(string, CAmount)& accountBalance : mapAccountBalances) {
+    for (const std::pair<std::string, CAmount>& accountBalance : mapAccountBalances) {
         ret.pushKV(accountBalance.first, ValueFromAmount(accountBalance.second));
     }
     return ret;
