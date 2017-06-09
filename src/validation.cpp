@@ -1544,8 +1544,13 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
     return true;
 }
 
-bool UndoReadFromDisk(CBlockUndo& blockundo, const CDiskBlockPos& pos, const uint256& hashBlock)
+bool UndoReadFromDisk(CBlockUndo& blockundo, const CBlockIndex *pindex)
 {
+    CDiskBlockPos pos = pindex->GetUndoPos();
+    if (pos.IsNull()) {
+        return error("%s: no undo data available", __func__);
+    }
+
     // Open history file to read
     CAutoFile filein(OpenUndoFile(pos, true), SER_DISK, CLIENT_VERSION);
     if (filein.IsNull())
@@ -1553,8 +1558,10 @@ bool UndoReadFromDisk(CBlockUndo& blockundo, const CDiskBlockPos& pos, const uin
 
     // Read block
     uint256 hashChecksum;
+    CHashVerifier<CAutoFile> verifier(&filein); // We need a CHashVerifier as reserializing may lose data
     try {
-        filein >> blockundo;
+        verifier << pindex->pprev->GetBlockHash();
+        verifier >> blockundo;
         filein >> hashChecksum;
     }
     catch (const std::exception& e) {
@@ -1562,10 +1569,7 @@ bool UndoReadFromDisk(CBlockUndo& blockundo, const CDiskBlockPos& pos, const uin
     }
 
     // Verify checksum
-    CHashWriter hasher(SER_GETHASH, PROTOCOL_VERSION);
-    hasher << hashBlock;
-    hasher << blockundo;
-    if (hashChecksum != hasher.GetHash())
+    if (hashChecksum != verifier.GetHash())
         return error("%s: Checksum mismatch", __func__);
 
     return true;
@@ -1669,12 +1673,7 @@ static DisconnectResult DisconnectBlock(const CBlock& block, const CBlockIndex* 
     bool fClean = true;
 
     CBlockUndo blockUndo;
-    CDiskBlockPos pos = pindex->GetUndoPos();
-    if (pos.IsNull()) {
-        error("DisconnectBlock(): no undo data available");
-        return DISCONNECT_FAILED;
-    }
-    if (!UndoReadFromDisk(blockUndo, pos, pindex->pprev->GetBlockHash())) {
+    if (!UndoReadFromDisk(blockUndo, pindex)) {
         error("DisconnectBlock(): failure reading undo data");
         return DISCONNECT_FAILED;
     }
@@ -3845,10 +3844,10 @@ bool CVerifyDB::VerifyDB(const CChainParams& chainparams, CCoinsView *coinsview,
         // check level 2: verify undo validity
         if (nCheckLevel >= 2 && pindex) {
             CBlockUndo undo;
-            CDiskBlockPos pos = pindex->GetUndoPos();
-            if (!pos.IsNull()) {
-                if (!UndoReadFromDisk(undo, pos, pindex->pprev->GetBlockHash()))
+            if (!pindex->GetUndoPos().IsNull()) {
+                if (!UndoReadFromDisk(undo, pindex)) {
                     return error("VerifyDB(): *** found bad undo data at %d, hash=%s\n", pindex->nHeight, pindex->GetBlockHash().ToString());
+                }
             }
         }
         // check level 3: check for inconsistencies during memory-only disconnect of tip blocks
