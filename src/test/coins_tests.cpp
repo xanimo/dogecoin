@@ -56,7 +56,7 @@ public:
         return GetCoin(outpoint, coin);
     }
 
-    uint256 GetBestBlock() const { return hashBestBlock_; }
+    uint256 GetBestBlock() const override { return hashBestBlock_; }
 
     bool BatchWrite(CCoinsMap& mapCoins, const uint256& hashBlock)
     {
@@ -147,8 +147,22 @@ BOOST_AUTO_TEST_CASE(coins_cache_simulation_test)
         {
             uint256 txid = txids[InsecureRandRange(500) % txids.size()]; // txid we're going to modify in this iteration.
             Coin& coin = result[COutPoint(txid, 0)];
+
+            // Determine whether to test HaveCoin before or after Access* (or both). As these functions
+            // can influence each other's behaviour by pulling things into the cache, all combinations
+            // are tested.
+            bool test_havecoin_before = InsecureRandBits(2) == 0;
+            bool test_havecoin_after = InsecureRandBits(2) == 0;
+
+            bool result_havecoin = test_havecoin_before ? stack.back()->HaveCoin(COutPoint(txid, 0)) : false;
             const Coin& entry = (InsecureRandRange(500) == 0) ? AccessByTxid(*stack.back(), txid) : stack.back()->AccessCoin(COutPoint(txid, 0));
             BOOST_CHECK(coin == entry);
+            BOOST_CHECK(!test_havecoin_before || result_havecoin == !entry.IsSpent());
+
+            if (test_havecoin_after) {
+                bool ret = stack.back()->HaveCoin(COutPoint(txid, 0));
+                BOOST_CHECK(ret == !entry.IsSpent());
+            }
 
             if (InsecureRandRange(5) == 0 || coin.IsSpent()) {
                 Coin newcoin;
@@ -628,7 +642,7 @@ BOOST_AUTO_TEST_CASE(ccoins_access)
     CheckAccessCoin(ABSENT, VALUE2, VALUE2, FRESH      , FRESH      );
     CheckAccessCoin(ABSENT, VALUE2, VALUE2, DIRTY      , DIRTY      );
     CheckAccessCoin(ABSENT, VALUE2, VALUE2, DIRTY|FRESH, DIRTY|FRESH);
-    CheckAccessCoin(PRUNED, ABSENT, PRUNED, NO_ENTRY   , FRESH      );
+    CheckAccessCoin(PRUNED, ABSENT, ABSENT, NO_ENTRY   , NO_ENTRY   );
     CheckAccessCoin(PRUNED, PRUNED, PRUNED, 0          , 0          );
     CheckAccessCoin(PRUNED, PRUNED, PRUNED, FRESH      , FRESH      );
     CheckAccessCoin(PRUNED, PRUNED, PRUNED, DIRTY      , DIRTY      );
