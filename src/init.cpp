@@ -1663,7 +1663,14 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     if (IsArgSet("-seednode")) {
         connOptions.vSeedNodes = mapMultiArgs.at("-seednode");
     }
-
+    // Initiate outbound connections unless connect=0
+    connOptions.m_use_addrman_outgoing = !IsArgSet("-connect");
+    if (!connOptions.m_use_addrman_outgoing) {
+        const auto connect = mapMultiArgs.at("-connect");
+        if (connect.size() != 1 || connect[0] != "0") {
+            connOptions.m_specified_outgoing = connect;
+        }
+    }
     if (!connman.Start(scheduler, connOptions)) {
         return false;
     }
