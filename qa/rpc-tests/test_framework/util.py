@@ -228,6 +228,9 @@ def wait_for_dogecoind_start(process, url, i):
                 raise # unknown JSON RPC exception
         time.sleep(0.25)
 
+def wait_for_node_exit(node_index, timeout):
+    bitcoind_processes[node_index].wait(timeout)
+
 def initialize_chain(test_dir, num_nodes, cachedir):
     """
     Create a cache of a 120-block-long chain (with wallet) for MAX_NODES
