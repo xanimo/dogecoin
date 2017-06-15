@@ -85,7 +85,6 @@ bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock) {
     size_t changed = 0;
     size_t batch_size = (size_t)GetArg("-dbbatchsize", nDefaultDbBatchSize);
     int crash_simulate = GetArg("-dbcrashratio", 0);
-    assert(!hashBlock.IsNull());
 
     uint256 old_tip = GetBestBlock();
     if (old_tip.IsNull()) {
@@ -95,6 +94,13 @@ bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock) {
             assert(old_heads[0] == hashBlock);
             old_tip = old_heads[1];
         }
+    }
+
+    if (hashBlock.IsNull()) {
+        // Initial flush, nothing to write.
+        assert(mapCoins.empty());
+        assert(old_tip.IsNull());
+        return true;
     }
 
     // In the first batch, mark the database as being in the middle of a
@@ -117,7 +123,7 @@ bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock) {
         CCoinsMap::iterator itOld = it++;
         mapCoins.erase(itOld);
         if (batch.SizeEstimate() > batch_size) {
-            LogPrint(BCLog::COINDB, "Writing partial batch of %.2f MiB\n", batch.SizeEstimate() * (1.0 / 1048576.0));
+            LogPrintf("Writing partial batch of %.2f MiB\n", batch.SizeEstimate() * (1.0 / 1048576.0));
             db.WriteBatch(batch);
             batch.Clear();
             if (crash_simulate) {
@@ -134,7 +140,7 @@ bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock) {
     batch.Erase(DB_HEAD_BLOCKS);
     batch.Write(DB_BEST_BLOCK, hashBlock);
 
-    LogPrint(BCLog::COINDB, "Writing final batch of %.2f MiB\n", batch.SizeEstimate() * (1.0 / 1048576.0));
+    LogPrintf("Writing final batch of %.2f MiB\n", batch.SizeEstimate() * (1.0 / 1048576.0));
     bool ret = db.WriteBatch(batch);
     LogPrintf("Committed %u changed transaction outputs (out of %u) to coin database...\n", (unsigned int)changed, (unsigned int)count);
     return ret;

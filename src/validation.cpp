@@ -3619,7 +3619,7 @@ static bool RollforwardBlock(const CBlockIndex* pindex, CCoinsViewCache& inputs,
 {
     // TODO: merge with ConnectBlock
     CBlock block;
-    if (!ReadBlockFromDisk(block, pindex, params.GetConsensus())) {
+    if (!ReadBlockFromDisk(block, pindex, params.GetConsensus(pindex->nHeight))) {
         return error("ReplayBlock(): ReadBlockFromDisk failed at %d, hash=%s", pindex->nHeight, pindex->GetBlockHash().ToString());
     }
 
@@ -3670,7 +3670,7 @@ bool ReplayBlocks(const CChainParams& params, CCoinsView* view)
     while (pindexOld != pindexFork) {
         if (pindexOld->nHeight > 0) { // Never disconnect the genesis block.
             CBlock block;
-            if (!ReadBlockFromDisk(block, pindexOld, params.GetConsensus())) {
+            if (!ReadBlockFromDisk(block, pindexOld, params.GetConsensus(pindexOld->nHeight))) {
                 return error("RollbackBlock(): ReadBlockFromDisk() failed at %d, hash=%s", pindexOld->nHeight, pindexOld->GetBlockHash().ToString());
             }
             LogPrintf("Rolling back %s (%i)\n", pindexOld->GetBlockHash().ToString(), pindexOld->nHeight);
