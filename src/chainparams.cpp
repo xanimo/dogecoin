@@ -162,7 +162,7 @@ public:
 
         // Note that of those with the service bits flag, most only support a subset of possible options
         vSeeds.emplace_back("seed.multidoge.org", true);
-        vSeeds.emplace_back("seed2.multidoge.org");
+        vSeeds.emplace_back("seed2.multidoge.org", false);
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,30);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,22);
@@ -322,7 +322,8 @@ public:
 
         vSeeds.clear();
         // nodes with support for servicebits filtering should be at the top
-        vSeeds.emplace_back("testseed.jrn.me.uk");
+        vSeeds.emplace_back("jrn.me.uk", true);
+        vSeeds.emplace_back("testseed.jrn.me.uk", false);
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,113); // 0x71
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,196); // 0xc4
