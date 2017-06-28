@@ -425,6 +425,6 @@ bool CCoinsViewDB::Upgrade() {
     }
     db.WriteBatch(batch);
     uiInterface.SetProgressBreakAction(std::function<void(void)>());
-    LogPrintf("[DONE].\n");
+    LogPrintf("[%s].\n", ShutdownRequested() ? "CANCELLED" : "DONE");
     return true;
 }
