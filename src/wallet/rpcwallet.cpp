@@ -3213,10 +3213,11 @@ UniValue bumpfee(const JSONRPCRequest& request)
 UniValue generate(const JSONRPCRequest& request)
 {
 
-    if (!EnsureWalletIsAvailable(request.fHelp))
+    if (!EnsureWalletIsAvailable(request.fHelp)) {
         return NullUniValue;
+    }
 
-    if (request.fHelp || request.params.size() < 1 || request.params.size() > 2)
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 2) {
         throw std::runtime_error(
             "generate nblocks ( maxtries )\n"
             "\nMine up to nblocks blocks immediately (before the RPC call returns) to an address in the wallet.\n"
@@ -3229,29 +3230,32 @@ UniValue generate(const JSONRPCRequest& request)
             "\nGenerate 11 blocks\n"
             + HelpExampleCli("generate", "11")
         );
-
-    int nGenerate = request.params[0].get_int();
-    uint64_t nMaxTries = 1000000;
-    if (request.params.size() > 1) {
-        nMaxTries = request.params[1].get_int();
     }
     int nMineAuxPow = 0;
     if (request.params.size() > 2) {
         nMineAuxPow = request.params[2].get_int();
     }
 
-    std::shared_ptr<CReserveScript> coinbaseScript;
-    pwalletMain->GetScriptForMining(coinbaseScript);
+    int num_generate = request.params[0].get_int();
+    uint64_t max_tries = 1000000;
+    if (request.params.size() > 1 && !request.params[1].isNull()) {
+        max_tries = request.params[1].get_int();
+    }
+
+    std::shared_ptr<CReserveScript> coinbase_script;
+    pwalletMain->GetScriptForMining(coinbase_script);
 
     // If the keypool is exhausted, no script is returned at all.  Catch this.
-    if (!coinbaseScript)
+    if (!coinbase_script) {
         throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, "Error: Keypool ran out, please call keypoolrefill first");
+    }
 
     //throw an error if no script was provided
-    if (coinbaseScript->reserveScript.empty())
-        throw JSONRPCError(RPC_INTERNAL_ERROR, "No coinbase script available (mining requires a wallet)");
+    if (coinbase_script->reserveScript.empty()) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "No coinbase script available");
+    }
 
-    return generateBlocks(coinbaseScript, nGenerate, nMaxTries, true, nMineAuxPow);
+    return generateBlocks(coinbase_script, num_generate, max_tries, true, nMineAuxPow);
 }
 
 extern UniValue abortrescan(const JSONRPCRequest& request); // in rpcdump.cpp
