@@ -19,12 +19,9 @@ static const unsigned int MAX_BLOCK_BASE_SIZE = 1000000;
 static const int64_t MAX_BLOCK_SIGOPS_COST = 80000;
 
 /** Flags for nSequence and nLockTime locks */
-enum {
-    /* Interpret sequence numbers as relative lock-time constraints. */
-    LOCKTIME_VERIFY_SEQUENCE = (1 << 0),
-
-    /* Use GetMedianTimePast() instead of nTime for end point timestamp. */
-    LOCKTIME_MEDIAN_TIME_PAST = (1 << 1),
-};
+/** Interpret sequence numbers as relative lock-time constraints. */
+static constexpr unsigned int LOCKTIME_VERIFY_SEQUENCE = (1 << 0);
+/** Use GetMedianTimePast() instead of nTime for end point timestamp. */
+static constexpr unsigned int LOCKTIME_MEDIAN_TIME_PAST = (1 << 1);
 
 #endif // BITCOIN_CONSENSUS_CONSENSUS_H
