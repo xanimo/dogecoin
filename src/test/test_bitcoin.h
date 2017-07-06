@@ -9,6 +9,7 @@
 #include "fs.h"
 #include "key.h"
 #include "pubkey.h"
+#include "scheduler.h"
 #include "txdb.h"
 #include "txmempool.h"
 
@@ -28,11 +29,14 @@ struct BasicTestingSetup {
  * Included are data directory, coins database, script check threads setup.
  */
 class CConnman;
+class PeerLogicValidation;
 struct TestingSetup: public BasicTestingSetup {
     CCoinsViewDB *pcoinsdbview;
     fs::path pathTemp;
     boost::thread_group threadGroup;
     CConnman* connman;
+    CScheduler scheduler;
+    std::unique_ptr<PeerLogicValidation> peerLogic;
 
     explicit TestingSetup(const std::string& chainName = CBaseChainParams::MAIN);
     ~TestingSetup();
