@@ -4,11 +4,11 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "crypto/sha256.h"
-
 #include "crypto/common.h"
 #include "support/experimental.h"
 
 #include <string.h>
+#include <atomic>
 
 #if (defined(__ia64__) || defined(__x86_64__)) && \
     !defined(__APPLE__) && \
@@ -54,6 +54,14 @@ static const uint32_t K[] =
     0x90BEFFFA, 0xA4506CEB, 0xBEF9A3F7, 0xC67178F2,
 };
 #endif  /** ARM Headers */
+
+#if defined(__x86_64__) || defined(__amd64__)
+#include <cpuid.h>
+namespace sha256_sse4
+{
+void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks);
+}
+#endif
 
 // Internal implementation code.
 namespace
@@ -357,12 +365,15 @@ void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks)
 #if defined(__linux__)
 #define HWCAP_SHA2  (1<<6)
 #include <sys/auxv.h>
-#elif defined(__WIN64__)
-#include <intrin.h>
-bool isAVX (void) {
-  int cpuinfo[4];
-  __cpuid(cpuinfo, 1);
-  return ((cpuinfo[2] & (1 << 28)) != 0);
+#endif
+
+#if (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
+/** Check whether the OS has enabled AVX registers. */
+bool AVXEnabled()
+{
+    uint32_t a, d;
+    __asm__("xgetbv" : "=a"(a), "=d"(d) : "c"(0));
+    return (a & 6) == 6;
 }
 #endif
 
@@ -383,8 +394,14 @@ void inline Initialize_transform_ptr(void)
     if (__builtin_cpu_supports("avx2"))
        transform_ptr = &Transform_AVX2;
 #elif USE_AVX2 && defined(__WIN64__)
-    if (isAVX)
+    if (AVXEnabled)
        transform_ptr = &Transform_AVX2;
+#elif USE_ASM
+#if defined(__x86_64__) || defined(__amd64__)
+    uint32_t eax, ebx, ecx, edx;
+    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx) && (ecx >> 19) & 1)
+        transform_ptr = &sha256_sse4::Transform;
+#endif
 #endif
 }
 
