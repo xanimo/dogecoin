@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "bench.h"  // for BenchRunner
+#include "crypto/sha256.h"
 #include "key.h"    // for ECC_Start, ECC_Stop
 #include "util.h"   // for SetupEnvironment, fPrintToDebugLog
 #include "validation.h"
@@ -11,6 +12,7 @@
 int
 main(int argc, char** argv)
 {
+    SHA256AutoDetect();
     RandomInit();
     ECC_Start();
     SetupEnvironment();
