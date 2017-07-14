@@ -10,6 +10,8 @@
 
 #include <string.h>
 
+#include <atomic>
+
 #if (defined(__ia64__) || defined(__x86_64__)) && \
     !defined(__APPLE__) && \
     (defined(INTEL_AVX2))
@@ -346,8 +348,19 @@ void Transform(uint32_t* s, const unsigned char* chunk)
 }
 
 } // namespace sha256
+
+#ifndef INTEL_AVX2
+void (*Transform)(uint32_t*, const unsigned char*, size_t) = sha256::Transform;
+#else
+void (*Transform)(uint32_t*, const unsigned char*) = sha256::Transform;
+#endif
+
 } // namespace
 
+std::string SHA256AutoDetect()
+{
+    return "standard";
+}
 
 ////// SHA-256
 
@@ -366,7 +379,7 @@ CSHA256& CSHA256::Write(const unsigned char* data, size_t len)
         bytes += 64 - bufsize;
         data += 64 - bufsize;
 #ifndef INTEL_AVX2
-        sha256::Transform(s, buf, 1);
+        Transform(s, buf, 1);
 #else
         sha256::Transform(s, buf);
 #endif
@@ -376,7 +389,7 @@ CSHA256& CSHA256::Write(const unsigned char* data, size_t len)
 #ifndef INTEL_AVX2
     if (end - data >= 64) {
         size_t blocks = (end - data) / 64;
-        sha256::Transform(s, data, blocks);
+        Transform(s, data, blocks);
         data += 64 * blocks;
         bytes += 64 * blocks;
     }
