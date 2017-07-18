@@ -270,7 +270,6 @@ crypto_libdogecoin_crypto_a_SOURCES = \
   crypto/sha1.cpp \
   crypto/sha1.h \
   crypto/sha256.cpp \
-  crypto/sha256_sse4.cpp \
   crypto/sha256.h \
   crypto/sha512.cpp \
   crypto/sha512.h
@@ -278,6 +277,10 @@ crypto_libdogecoin_crypto_a_SOURCES = \
 # only include SSE2 scrypt sources if USE_SCRYPT_SSE2 is defined
 if USE_SCRYPT_SSE2
 crypto_libdogecoin_crypto_a_SOURCES += crypto/scrypt-sse2.cpp
+endif
+
+if EXPERIMENTAL_ASM
+crypto_libdogecoin_crypto_a_SOURCES += crypto/sha256_sse4.cpp
 endif
 
 # consensus: shared between all executables that validate any consensus rules.
