@@ -13,7 +13,7 @@
 
 #if (defined(__ia64__) || defined(__x86_64__)) && \
     !defined(__APPLE__) && \
-    (defined(USE_AVX2))
+    (defined(USE_INTEL_AVX2))
 #include <intel-ipsec-mb.h>
 #endif
 
@@ -53,11 +53,13 @@ static const uint32_t K[] =
 };
 
 #if defined(__x86_64__) || defined(__amd64__)
+#if defined(EXPERIMENTAL_ASM) && !defined(USE_INTEL_AVX2)
 #include <cpuid.h>
 namespace sha256_sse4
 {
 void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks);
 }
+#endif
 #endif
 
 // Internal implementation code.
@@ -66,7 +68,7 @@ namespace
 /// Internal SHA-256 implementation.
 namespace sha256
 {
-#ifndef USE_AVX2
+#ifndef USE_INTEL_AVX2
 uint32_t inline Ch(uint32_t x, uint32_t y, uint32_t z) { return z ^ (x & (y ^ z)); }
 uint32_t inline Maj(uint32_t x, uint32_t y, uint32_t z) { return (x & y) | (z & (x | y)); }
 uint32_t inline Sigma0(uint32_t x) { return (x >> 2 | x << 30) ^ (x >> 13 | x << 19) ^ (x >> 22 | x << 10); }
@@ -258,7 +260,7 @@ void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks)
     vst1q_u32(&s[0], STATE0);
     vst1q_u32(&s[4], STATE1);
 
-#elif USE_AVX2
+#elif USE_INTEL_AVX2
     // Perform SHA256 one block (Intel AVX2)
     EXPERIMENTAL_FEATURE
     sha256_one_block_avx2(chunk, s);
@@ -386,7 +388,7 @@ TransformType Transform = sha256::Transform;
 
 std::string SHA256AutoDetect()
 {
-#if defined(__x86_64__) || defined(__amd64__)
+#if defined(EXPERIMENTAL_ASM) && !defined(USE_INTEL_AVX2) && (defined(__x86_64__) || defined(__amd64__))
     uint32_t eax, ebx, ecx, edx;
     if (__get_cpuid(1, &eax, &ebx, &ecx, &edx) && (ecx >> 19) & 1) {
         Transform = sha256_sse4::Transform;
