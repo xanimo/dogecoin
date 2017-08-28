@@ -281,7 +281,7 @@ crypto_libdogecoin_crypto_a_SOURCES = \
 if USE_SCRYPT_SSE2
 crypto_libdogecoin_crypto_a_SOURCES += crypto/scrypt-sse2.cpp
 endif
-if EXPERIMENTAL_ASM
+if USE_ASM
 crypto_libdogecoin_crypto_a_SOURCES += crypto/sha256_sse4.cpp
 endif
 
