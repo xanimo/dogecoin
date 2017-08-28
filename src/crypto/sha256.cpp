@@ -56,11 +56,13 @@ static const uint32_t K[] =
 #endif  /** ARM Headers */
 
 #if defined(__x86_64__) || defined(__amd64__)
+#if defined(USE_ASM)
 #include <cpuid.h>
 namespace sha256_sse4
 {
 void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks);
 }
+#endif
 #endif
 
 // Internal implementation code.
@@ -367,7 +369,7 @@ void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks)
 #include <sys/auxv.h>
 #endif
 
-#if (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
+#if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
 /** Check whether the OS has enabled AVX registers. */
 bool AVXEnabled()
 {
