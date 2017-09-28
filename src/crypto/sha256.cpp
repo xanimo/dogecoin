@@ -700,7 +700,7 @@ void inline Initialize_transform_ptr(void)
     uint32_t eax, ebx, ecx, edx;
     if (__get_cpuid(1, &eax, &ebx, &ecx, &edx) && (ecx >> 19) & 1)
         sha256::transform_ptr = sha256_sse4::Transform;
-        sha256::transfrom_ptr_d64 = &sha256::TransformD64Wrapper<sha256_sse4::Transform>;
+        sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256_sse4::Transform>;
 #endif
 }
 
