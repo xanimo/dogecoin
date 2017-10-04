@@ -267,6 +267,8 @@ public:
     size_t GetNodeCount(NumConnections num);
     void GetNodeStats(std::vector<CNodeStats>& vstats);
     bool DisconnectNode(const std::string& node);
+    bool DisconnectNode(const CSubNet& subnet);
+    bool DisconnectNode(const CNetAddr& addr);
     bool DisconnectNode(NodeId id);
 
     unsigned int GetSendBufferSize() const;
