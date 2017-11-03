@@ -109,10 +109,7 @@ typedef AnnotatedMixin<std::recursive_mutex> CCriticalSection;
 
 typedef CCriticalSection CDynamicCriticalSection;
 /** Wrapped mutex: supports waiting but not recursive locking */
-typedef AnnotatedMixin<std::mutex> CWaitableCriticalSection;
-
-/** Just a typedef for std::condition_variable, can be wrapped later if desired */
-typedef std::condition_variable CConditionVariable;
+typedef AnnotatedMixin<std::mutex> Mutex;
 
 #ifdef DEBUG_LOCKCONTENTION
 void PrintLockContention(const char* pszName, const char* pszFile, int nLine);
@@ -120,7 +117,7 @@ void PrintLockContention(const char* pszName, const char* pszFile, int nLine);
 
 /** Wrapper around std::unique_lock style lock for Mutex. */
 template <typename Mutex, typename Base = typename Mutex::UniqueLock>
-class SCOPED_LOCKABLE CCriticalBlock : public Base
+class SCOPED_LOCKABLE UniqueLock : public Base
 {
 private:
     void Enter(const char* pszName, const char* pszFile, int nLine)
@@ -146,7 +143,7 @@ private:
     }
 
 public:
-    CCriticalBlock(Mutex& mutexIn, const char* pszName, const char* pszFile, int nLine, bool fTry = false) EXCLUSIVE_LOCK_FUNCTION(mutexIn) : Base(mutexIn, std::defer_lock)
+    UniqueLock(Mutex& mutexIn, const char* pszName, const char* pszFile, int nLine, bool fTry = false) EXCLUSIVE_LOCK_FUNCTION(mutexIn) : Base(mutexIn, std::defer_lock)
     {
         if (fTry)
             TryEnter(pszName, pszFile, nLine);
@@ -154,7 +151,7 @@ public:
             Enter(pszName, pszFile, nLine);
     }
 
-    CCriticalBlock(Mutex* pmutexIn, const char* pszName, const char* pszFile, int nLine, bool fTry = false) EXCLUSIVE_LOCK_FUNCTION(pmutexIn)
+    UniqueLock(Mutex* pmutexIn, const char* pszName, const char* pszFile, int nLine, bool fTry = false) EXCLUSIVE_LOCK_FUNCTION(pmutexIn)
     {
         if (!pmutexIn) return;
 
@@ -165,7 +162,7 @@ public:
             Enter(pszName, pszFile, nLine);
     }
 
-    ~CCriticalBlock() UNLOCK_FUNCTION()
+    ~UniqueLock() UNLOCK_FUNCTION()
     {
         if (Base::owns_lock())
             LeaveCritical();
@@ -178,7 +175,7 @@ public:
 };
 
 template<typename MutexArg>
-using DebugLock = CCriticalBlock<typename std::remove_reference<typename std::remove_pointer<MutexArg>::type>::type>;
+using DebugLock = UniqueLock<typename std::remove_reference<typename std::remove_pointer<MutexArg>::type>::type>;
 
 #define PASTE(x, y) x ## y
 #define PASTE2(x, y) PASTE(x, y)
