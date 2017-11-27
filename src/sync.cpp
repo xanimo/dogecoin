@@ -13,6 +13,9 @@
 #include <boost/foreach.hpp>
 
 #ifdef DEBUG_LOCKCONTENTION
+#if !defined(HAVE_THREAD_LOCAL)
+static_assert(false, "thread_local is not supported");
+#endif
 void PrintLockContention(const char* pszName, const char* pszFile, int nLine)
 {
     LogPrintf("LOCKCONTENTION: %s\n", pszName);
