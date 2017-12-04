@@ -75,7 +75,7 @@ TestingSetup::TestingSetup(const std::string& chainName) : BasicTestingSetup(cha
         pblocktree = new CBlockTreeDB(1 << 20, true);
         pcoinsdbview = new CCoinsViewDB(1 << 23, true);
         pcoinsTip = new CCoinsViewCache(pcoinsdbview);
-        InitBlockIndex(chainparams);
+        LoadGenesisBlock(chainparams);
         {
             CValidationState state;
             bool ok = ActivateBestChain(state, chainparams);

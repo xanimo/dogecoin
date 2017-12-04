@@ -266,8 +266,8 @@ FILE* OpenBlockFile(const CDiskBlockPos &pos, bool fReadOnly = false);
 fs::path GetBlockPosFilename(const CDiskBlockPos &pos, const char *prefix);
 /** Import blocks from an external file */
 bool LoadExternalBlockFile(const CChainParams& chainparams, FILE* fileIn, CDiskBlockPos *dbp = NULL);
-/** Initialize a new block tree database + block data on disk */
-bool InitBlockIndex(const CChainParams& chainparams);
+/** Ensures we have a genesis block in the block tree database on disk */
+bool LoadGenesisBlock(const CChainParams& chainparams);
 /** Load the block tree and coins database from disk */
 bool LoadBlockIndex(const CChainParams& chainparams);
 /** Update the chain tip based on database information. */
@@ -307,8 +307,6 @@ void PruneOneBlockFile(const int fileNumber);
  */
 void UnlinkPrunedFiles(const std::set<int>& setFilesToPrune);
 
-/** Create a new block index entry for a given block hash */
-CBlockIndex * InsertBlockIndex(uint256 hash);
 /** Flush all state, indexes and buffers to disk. */
 void FlushStateToDisk();
 /** Prune block files and flush state to disk. */
