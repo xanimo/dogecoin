@@ -285,6 +285,11 @@ Minor Changes
 * Greatly improved the `gitian-build` script to ease doing deterministic builds
   for everyone, and the [documentation](gitian-building.md) of that process.
 
+Python Support
+--------------
+
+Support for Python 2 has been discontinued for all test files and tools.
+
 Credits
 =======
 

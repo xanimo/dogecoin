@@ -6,7 +6,7 @@
 '''
 Run this script from the root of the repository to check all translations
 '''
-
+import subprocess
 import re
 import sys
 import os
