@@ -188,6 +188,8 @@ namespace {
 
 CBlockIndex* FindForkInGlobalIndex(const CChain& chain, const CBlockLocator& locator)
 {
+    AssertLockHeld(cs_main);
+
     // Find the first block the caller has in the main chain
     BOOST_FOREACH(const uint256& hash, locator.vHave) {
         BlockMap::iterator mi = mapBlockIndex.find(hash);
@@ -2506,6 +2508,8 @@ bool ResetBlockFailureFlags(CBlockIndex *pindex) {
 
 CBlockIndex* AddToBlockIndex(const CBlockHeader& block)
 {
+    AssertLockHeld(cs_main);
+
     // Check for duplicate
     uint256 hash = block.GetHash();
     BlockMap::iterator it = mapBlockIndex.find(hash);
@@ -3371,6 +3375,8 @@ fs::path GetBlockPosFilename(const CDiskBlockPos &pos, const char *prefix)
 
 CBlockIndex * InsertBlockIndex(uint256 hash)
 {
+    AssertLockHeld(cs_main);
+
     if (hash.IsNull())
         return NULL;
 
@@ -3493,6 +3499,8 @@ bool static LoadBlockIndexDB(const CChainParams& chainparams)
 
 void LoadChainTip(const CChainParams& chainparams)
 {
+    AssertLockHeld(cs_main);
+
     if (chainActive.Tip() && chainActive.Tip()->GetBlockHash() == pcoinsTip->GetBestBlock()) return;
 
     // Load pointer to end of best chain
