@@ -230,7 +230,7 @@ UniValue importaddress(const JSONRPCRequest& request)
         );
 
 
-    std::string strLabel = "";
+    std::string strLabel;
     if (request.params.size() > 1)
         strLabel = request.params[1].get_str();
 
@@ -389,7 +389,7 @@ UniValue importpubkey(const JSONRPCRequest& request)
         );
 
 
-    std::string strLabel = "";
+    std::string strLabel;
     if (request.params.size() > 1)
         strLabel = request.params[1].get_str();
 
