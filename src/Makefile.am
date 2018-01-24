@@ -195,6 +195,7 @@ libdogecoin_server_a_SOURCES = \
   addrdb.cpp \
   bloom.cpp \
   blockencodings.cpp \
+  blockfilter.cpp \
   chain.cpp \
   checkpoints.cpp \
   consensus/tx_verify.cpp \
