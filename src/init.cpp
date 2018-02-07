@@ -1689,7 +1689,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     if (GetBoolArg("-listenonion", DEFAULT_LISTEN_ONION))
         StartTorControl(threadGroup, scheduler);
 
-    Discover(threadGroup);
+    Discover();
 
     // Map ports with UPnP
     if (GetBoolArg("-upnp", DEFAULT_UPNP)) {
