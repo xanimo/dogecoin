@@ -169,6 +169,7 @@ void Interrupt(boost::thread_group& threadGroup)
     InterruptRPC();
     InterruptREST();
     InterruptTorControl();
+    InterruptMapPort();
     if (g_connman)
         g_connman->Interrupt();
     threadGroup.interrupt_all();
@@ -198,8 +199,12 @@ void Shutdown()
     if (pwalletMain)
         pwalletMain->Flush(false);
 #endif
-    MapPort(false);
-    UnregisterValidationInterface(peerLogic.get());
+    StopMapPort();
+
+    // Because these depend on each-other, we make sure that neither can be
+    // using the other before destroying them.
+    if (peerLogic) UnregisterValidationInterface(peerLogic.get());
+    if (g_connman) g_connman->Stop();
     peerLogic.reset();
     g_connman.reset();
 
@@ -1632,7 +1637,9 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     Discover(threadGroup);
 
     // Map ports with UPnP
-    MapPort(gArgs.GetBoolArg("-upnp", DEFAULT_UPNP));
+    if (gArgs.GetBoolArg("-upnp", DEFAULT_UPNP)) {
+        StartMapPort();
+    }
 
     CConnman::Options connOptions;
     connOptions.nLocalServices = nLocalServices;
