@@ -1629,7 +1629,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     if (gArgs.GetBoolArg("-listenonion", DEFAULT_LISTEN_ONION))
         StartTorControl(threadGroup, scheduler);
 
-    Discover(threadGroup);
+    Discover();
 
     // Map ports with UPnP
     if (gArgs.GetBoolArg("-upnp", DEFAULT_UPNP)) {
