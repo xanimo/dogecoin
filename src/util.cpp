@@ -260,10 +260,16 @@ static std::string LogTimestampStr(const std::string &str, std::atomic_bool *fSt
         return str;
 
     if (*fStartedNewLine) {
-        int64_t nTimeMicros = GetLogTimeMicros();
-        strStamped = DateTimeStrFormat("%Y-%m-%d %H:%M:%S", nTimeMicros/1000000);
-        if (fLogTimeMicros)
-            strStamped += strprintf(".%06d", nTimeMicros%1000000);
+        int64_t nTimeMicros = GetTimeMicros();
+        strStamped = FormatISO8601DateTime(nTimeMicros/1000000);
+        if (fLogTimeMicros) {
+            strStamped.pop_back();
+            strStamped += strprintf(".%06dZ", nTimeMicros%1000000);
+        }
+        int64_t mocktime = GetMockTime();
+        if (mocktime) {
+            strStamped += " (mocktime: " + FormatISO8601DateTime(mocktime) + ")";
+        }
         strStamped += ' ' + str;
     } else
         strStamped = str;

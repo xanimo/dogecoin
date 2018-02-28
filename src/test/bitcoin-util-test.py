@@ -38,7 +38,7 @@ if __name__ == '__main__':
         level = logging.DEBUG
     else:
         level = logging.ERROR
-    formatter = '%(asctime)s - %(levelname)s - %(message)s'
+    formatter = '%(asctime)s.%(msecs)03d000Z %(name)s (%(levelname)s): %(message)s'
     # Add the format/level to the logger
     logging.basicConfig(format = formatter, level=level)
 
