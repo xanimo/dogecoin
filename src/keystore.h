@@ -9,6 +9,7 @@
 #include "key.h"
 #include "pubkey.h"
 #include "script/script.h"
+#include "script/sign.h"
 #include "script/standard.h"
 #include "sync.h"
 
@@ -16,20 +17,17 @@
 #include <boost/variant.hpp>
 
 /** A virtual base class for key stores */
-class CKeyStore
+class CKeyStore : public SigningProvider
 {
 protected:
     mutable CCriticalSection cs_KeyStore;
 
 public:
-    virtual ~CKeyStore() {}
-
     //! Add a key to the store.
     virtual bool AddKeyPubKey(const CKey &key, const CPubKey &pubkey) =0;
     virtual bool AddKey(const CKey &key);
 
     //! Check whether a key corresponding to a given address is present in the store.
-    virtual bool HaveKey(const CKeyID &address) const =0;
     virtual bool GetKey(const CKeyID &address, CKey& keyOut) const =0;
     virtual void GetKeys(std::set<CKeyID> &setAddress) const =0;
     virtual bool GetPubKey(const CKeyID &address, CPubKey& vchPubKeyOut) const =0;
