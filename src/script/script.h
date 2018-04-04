@@ -573,12 +573,12 @@ public:
         if (b.empty())
             return nFound;
         CScript result;
-        iterator pc = begin(), pc2 = begin();
+        const_iterator pc = begin(), pc2 = begin(), end = this->end();
         opcodetype opcode;
         do
         {
             result.insert(result.end(), pc2, pc);
-            while (static_cast<size_t>(end() - pc) >= b.size() && std::equal(b.begin(), b.end(), pc))
+            while (static_cast<size_t>(end - pc) >= b.size() && std::equal(b.begin(), b.end(), pc))
             {
                 pc = pc + b.size();
                 ++nFound;
@@ -588,7 +588,7 @@ public:
         while (GetOp(pc, opcode));
 
         if (nFound > 0) {
-            result.insert(result.end(), pc2, end());
+            result.insert(result.end(), pc2, end);
             *this = result;
         }
 
