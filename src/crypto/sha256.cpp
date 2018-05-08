@@ -66,6 +66,11 @@ void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks);
 #endif
 #endif
 
+namespace sha256d64_sse41
+{
+void Transform_4way(unsigned char* out, const unsigned char* in);
+}
+
 // Internal implementation code.
 namespace
 {
@@ -637,6 +642,7 @@ typedef void (*transform_d64_type)(unsigned char*, const unsigned char*);
 /** Define a function pointer for Transform */
 transform_type transform_ptr = sha256::Transform;
 transform_d64_type transfrom_ptr_d64 = sha256::TransformD64;
+transform_d64_type transfrom_ptr_d64_4way = nullptr;
 
 template<transform_type tr>
 void TransformD64Wrapper(unsigned char* out, const unsigned char* in)
@@ -701,6 +707,9 @@ void inline Initialize_transform_ptr(void)
     if (__get_cpuid(1, &eax, &ebx, &ecx, &edx) && (ecx >> 19) & 1)
         sha256::transform_ptr = sha256_sse4::Transform;
         sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256_sse4::Transform>;
+#if defined(ENABLE_SSE41)
+        sha256::transfrom_ptr_d64_4way = sha256d64_sse41::Transform_4way;
+#endif
 #endif
 }
 
@@ -765,6 +774,14 @@ CSHA256& CSHA256::Reset()
 
 void SHA256D64(unsigned char* out, const unsigned char* in, size_t blocks)
 {
+    if (sha256::transfrom_ptr_d64_4way) {
+        while (blocks >= 4) {
+            sha256::transfrom_ptr_d64_4way(out, in);
+            out += 128;
+            in += 256;
+            blocks -= 4;
+        }
+    }
     while (blocks) {
         sha256::transfrom_ptr_d64(out, in);
         out += 32;
