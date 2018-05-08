@@ -30,16 +30,15 @@ bench_bench_dogecoin_SOURCES = \
 #   bench/checkblock.cpp \        # disabled because this checks a specific bitcoin block
 #   bench/verify_script.cpp \     # disabled because this checks a segwit transaction
 
-nodist_bench_bench_dogecoin_SOURCES = $(GENERATED_TEST_FILES)
-
-bench_bench_dogecoin_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(EVENT_CLFAGS) $(EVENT_PTHREADS_CFLAGS) -I$(builddir)/bench/
-bench_bench_dogecoin_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-bench_bench_dogecoin_LDADD = \
+bench_bench_bitcoin_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(EVENT_CLFAGS) $(EVENT_PTHREADS_CFLAGS) -I$(builddir)/bench/
+bench_bench_bitcoin_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+bench_bench_bitcoin_LDADD = \
   $(LIBDOGECOIN_SERVER) \
   $(LIBDOGECOIN_COMMON) \
   $(LIBDOGECOIN_UTIL) \
   $(LIBDOGECOIN_CONSENSUS) \
   $(LIBDOGECOIN_CRYPTO) \
+  $(LIBDOGECOIN_CRYPTO_SSE41) \
   $(LIBLEVELDB) \
   $(LIBMEMENV) \
   $(LIBSECP256K1) \
