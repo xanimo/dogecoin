@@ -75,7 +75,9 @@ namespace benchmark {
 }
 
 // BENCHMARK(foo) expands to:  benchmark::BenchRunner bench_11foo("foo", foo);
-#define BENCHMARK(n) \
-    benchmark::BenchRunner BOOST_PP_CAT(bench_, BOOST_PP_CAT(__LINE__, n))(BOOST_PP_STRINGIZE(n), n);
+// Choose a num_iters_for_one_second that takes roughly 1 second. The goal is that all benchmarks should take approximately
+// the same time, and scaling factor can be used that the total time is appropriate for your system.
+#define BENCHMARK(n, num_iters_for_one_second) \
+    benchmark::BenchRunner BOOST_PP_CAT(bench_, BOOST_PP_CAT(__LINE__, n))(BOOST_PP_STRINGIZE(n), n, (num_iters_for_one_second));
 
 #endif // BITCOIN_BENCH_BENCH_H
