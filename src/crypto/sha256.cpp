@@ -78,7 +78,6 @@ namespace
 /// Internal SHA-256 implementation.
 namespace sha256
 {
-#ifndef USE_AVX2
 uint32_t inline Ch(uint32_t x, uint32_t y, uint32_t z) { return z ^ (x & (y ^ z)); }
 uint32_t inline Maj(uint32_t x, uint32_t y, uint32_t z) { return (x & y) | (z & (x | y)); }
 uint32_t inline Sigma0(uint32_t x) { return (x >> 2 | x << 30) ^ (x >> 13 | x << 19) ^ (x >> 22 | x << 10); }
@@ -94,7 +93,6 @@ void inline Round(uint32_t a, uint32_t b, uint32_t c, uint32_t& d, uint32_t e, u
     d += t1;
     h = t1 + t2;
 }
-#endif
 
 /** Initialize SHA-256 state. */
 void inline Initialize(uint32_t* s)
@@ -687,7 +685,7 @@ TransformD64Type TransformD64 = sha256::TransformD64;
 TransformD64Type TransformD64_4way = nullptr;
 TransformD64Type TransformD64_8way = nullptr;
 
-#if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__))
+#if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
 // We can't use cpuid.h's __get_cpuid as it does not support subleafs.
 void inline cpuid(uint32_t leaf, uint32_t subleaf, uint32_t& a, uint32_t& b, uint32_t& c, uint32_t& d)
 {
@@ -700,12 +698,14 @@ void inline cpuid(uint32_t leaf, uint32_t subleaf, uint32_t& a, uint32_t& b, uin
 std::string SHA256AutoDetect()
 {
     std::string ret = "standard";
-#if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__))
+#if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
     uint32_t eax, ebx, ecx, edx;
     cpuid(1, 0, eax, ebx, ecx, edx);
     if ((ecx >> 19) & 1) {
+#if defined(__x86_64__) || defined(__amd64__)
         Transform = sha256_sse4::Transform;
         TransformD64 = TransformD64Wrapper<sha256_sse4::Transform>;
+#endif
 #if defined(ENABLE_SSE41) && !defined(BUILD_BITCOIN_INTERNAL)
         TransformD64_4way = sha256d64_sse41::Transform_4way;
         ret = "sse4(1way+4way)";
