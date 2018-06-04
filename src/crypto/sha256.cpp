@@ -691,7 +691,7 @@ void TransformD64Wrapper(unsigned char* out, const unsigned char* in)
 
 } // namespace sha256
 
-#if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__))
+#if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
 // We can't use cpuid.h's __get_cpuid as it does not support subleafs.
 void inline cpuid(uint32_t leaf, uint32_t subleaf, uint32_t& a, uint32_t& b, uint32_t& c, uint32_t& d)
 {
@@ -716,20 +716,22 @@ void inline Initialize_transform_ptr(void)
     if (AVXEnabled)
        sha256::transform_ptr = &sha256::Transform_AVX2;
 #endif
-#if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__))
+#if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
     uint32_t eax, ebx, ecx, edx;
     cpuid(1, 0, eax, ebx, ecx, edx);
     if ((ecx >> 19) & 1) {
+#if defined(__x86_64__) || defined(__amd64__)
         sha256::transform_ptr = sha256_sse4::Transform;
         sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256_sse4::Transform>;
-#if defined(ENABLE_SSE41)
-        sha256::transfrom_ptr_d64_4way = sha256d64_sse41::Transform_4way;
 #endif
-#if defined(ENABLE_AVX2)
+#if defined(ENABLE_SSE41) && !defined(BUILD_BITCOIN_INTERNAL)
+        sha256::transfrom_ptr_d64_4way = sha256d64_sse41::Transform_4way;
+#if defined(ENABLE_AVX2) && !defined(BUILD_BITCOIN_INTERNAL)
         cpuid(7, 0, eax, ebx, ecx, edx);
         if ((ebx >> 5) & 1) {
             sha256::transfrom_ptr_d64_8way = sha256d64_avx2::Transform_8way;
         }
+#endif
 #endif
     }
 #endif
