@@ -29,9 +29,7 @@ LIBDOGECOIN_COMMON=libdogecoin_common.a
 LIBDOGECOIN_CONSENSUS=libdogecoin_consensus.a
 LIBDOGECOIN_CLI=libdogecoin_cli.a
 LIBDOGECOIN_UTIL=libdogecoin_util.a
-LIBDOGECOIN_CRYPTO=crypto/libdogecoin_crypto.la
-LIBDOGECOIN_CRYPTO_SSE41=crypto/libdogecoin_crypto_sse41.a
-LIBDOGECOIN_CRYPTO_AVX2=crypto/libdogecoin_crypto_avx2.a
+LIBDOGECOIN_CRYPTO_BASE=crypto/libdogecoin_crypto_base.a
 LIBDOGECOINQT=qt/libdogecoinqt.a
 LIBSECP256K1=secp256k1/libsecp256k1.la
 
@@ -45,14 +43,23 @@ if ENABLE_WALLET
 LIBDOGECOIN_WALLET=libdogecoin_wallet.a
 endif
 
+LIBDOGECOIN_CRYPTO= $(LIBDOGECOIN_CRYPTO_BASE)
+if ENABLE_SSE41
+LIBDOGECOIN_CRYPTO_SSE41 = crypto/libdogecoin_crypto_sse41.a
+LIBDOGECOIN_CRYPTO += $(LIBDOGECOIN_CRYPTO_SSE41)
+endif
+if ENABLE_AVX2
+LIBDOGECOIN_CRYPTO_AVX2 = crypto/libdogecoin_crypto_avx2.a
+LIBDOGECOIN_CRYPTO += $(LIBDOGECOIN_CRYPTO_AVX2)
+endif
+
 $(LIBSECP256K1): $(wildcard secp256k1/src/*) $(wildcard secp256k1/include/*)
 	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C $(@D) $(@F)
 
 # Make is not made aware of per-object dependencies to avoid limiting building parallelization
 # But to build the less dependent modules first, we manually select their order here:
 EXTRA_LIBRARIES += \
-  $(LIBDOGECOIN_CRYPTO_SSE41) \
-  $(LIBDOGECOIN_CRYPTO_AVX2) \
+  $(LIBDOGECOIN_CRYPTO) \
   $(LIBDOGECOIN_UTIL) \
   $(LIBDOGECOIN_COMMON) \
   $(LIBDOGECOIN_CONSENSUS) \
@@ -61,7 +68,7 @@ EXTRA_LIBRARIES += \
   $(LIBDOGECOIN_WALLET) \
   $(LIBDOGECOIN_ZMQ)
 
-lib_LTLIBRARIES = $(LIBDOGECOINCONSENSUS) $(LIBDOGECOIN_CRYPTO)
+lib_LTLIBRARIES = $(LIBDOGECOINCONSENSUS)
 
 bin_PROGRAMS =
 noinst_PROGRAMS =
@@ -254,9 +261,9 @@ libdogecoin_wallet_a_SOURCES = \
   $(BITCOIN_CORE_H)
 
 # crypto primitives library
-crypto_libdogecoin_crypto_la_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_CONFIG_INCLUDES) -static
-crypto_libdogecoin_crypto_la_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS) -static
-crypto_libdogecoin_crypto_la_SOURCES = \
+crypto_libdogecoin_crypto_base_a_CPPFLAGS = $(AM_CPPFLAGS)
+crypto_libdogecoin_crypto_base_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+crypto_libdogecoin_crypto_base_a_SOURCES = \
   crypto/aes.cpp \
   crypto/aes.h \
   crypto/chacha20.h \
@@ -279,17 +286,17 @@ crypto_libdogecoin_crypto_la_SOURCES = \
 
 # only include SSE2 scrypt sources if USE_SCRYPT_SSE2 is defined
 if USE_SCRYPT_SSE2
-  crypto_libdogecoin_crypto_la_SOURCES += crypto/scrypt-sse2.cpp
+  crypto_libdogecoin_crypto_base_a_SOURCES += crypto/scrypt-sse2.cpp
 endif
 
 # only include ARMv8.2 sha512 sources if USE_ARMV82 is defined
 if USE_ARMV82
-  crypto_libdogecoin_crypto_la_CXXFLAGS += $(ARMV82_CXXFLAGS)
-  crypto_libdogecoin_crypto_la_SOURCES += crypto/sha512-armv82.cpp
+  crypto_libdogecoin_crypto_base_a_CXXFLAGS += $(ARMV82_CXXFLAGS)
+  crypto_libdogecoin_crypto_base_a_SOURCES += crypto/sha512-armv82.cpp
 endif
 
 if USE_ASM
-  crypto_libdogecoin_crypto_la_SOURCES += crypto/sha256_sse4.cpp
+crypto_libdogecoin_crypto_base_a_SOURCES += crypto/sha256_sse4.cpp
 endif
 
 crypto_libdogecoin_crypto_sse41_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
@@ -428,8 +435,6 @@ dogecoind_LDADD = \
   $(LIBDOGECOIN_ZMQ) \
   $(LIBDOGECOIN_CONSENSUS) \
   $(LIBDOGECOIN_CRYPTO) \
-  $(LIBDOGECOIN_CRYPTO_SSE41) \
-  $(LIBDOGECOIN_CRYPTO_AVX2) \
   $(LIBLEVELDB) \
   $(LIBMEMENV) \
   $(LIBSECP256K1)
@@ -450,9 +455,7 @@ dogecoin_cli_LDADD = \
   $(LIBDOGECOIN_CLI) \
   $(LIBUNIVALUE) \
   $(LIBDOGECOIN_UTIL) \
-  $(LIBDOGECOIN_CRYPTO) \
-  $(LIBDOGECOIN_CRYPTO_SSE41) \
-  $(LIBDOGECOIN_CRYPTO_AVX2)
+  $(LIBDOGECOIN_CRYPTO)
 
 dogecoin_cli_LDADD += $(BOOST_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS)
 #
@@ -473,8 +476,6 @@ dogecoin_tx_LDADD = \
   $(LIBDOGECOIN_UTIL) \
   $(LIBDOGECOIN_CONSENSUS) \
   $(LIBDOGECOIN_CRYPTO) \
-  $(LIBDOGECOIN_CRYPTO_SSE41) \
-  $(LIBDOGECOIN_CRYPTO_AVX2) \
   $(LIBSECP256K1)
 
 dogecoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
@@ -483,7 +484,7 @@ dogecoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
 # bitcoinconsensus library #
 if BUILD_BITCOIN_LIBS
 include_HEADERS = script/bitcoinconsensus.h
-libdogecoinconsensus_la_SOURCES = $(libdogecoin_consensus_a_SOURCES)
+libdogecoinconsensus_la_SOURCES = $(crypto_libdogecoin_crypto_base_a_SOURCES) $(libdogecoin_consensus_a_SOURCES)
 
 if GLIBC_BACK_COMPAT
   libdogecoinconsensus_la_SOURCES += compat/glibc_compat.cpp
