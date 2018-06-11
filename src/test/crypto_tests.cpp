@@ -551,7 +551,6 @@ BOOST_AUTO_TEST_CASE(sha256d64)
         SHA256D64(out2, in, i);
         printf("%02X\n", out1);
         printf("%02X\n", out2);
-        printf("%d\n", 32 * i);
         printf("%d\n", memcmp(out1, out2, 32 * i));
         BOOST_CHECK(memcmp(out1, out2, 32 * i) == 0);
     }
