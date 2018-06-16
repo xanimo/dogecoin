@@ -85,7 +85,11 @@ sudo apt-get install libminiupnpc-dev
 
 ## Build steps
 
+<<<<<<< HEAD
 According to installed dependencies, the following steps will compile `dogecoind`, `dogecoin-cli` and `dogecoin-qt`.
+=======
+    sudo apt-get install build-essential libtool autotools-dev automake pkg-config libssl-dev libevent-dev bsdmainutils python3 libboost-system-dev libboost-filesystem-dev libboost-chrono-dev libboost-test-dev libboost-thread-dev
+>>>>>>> f447a0a707 (Remove program options from build system)
 
 ```bash
 ./autogen.sh
