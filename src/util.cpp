@@ -78,11 +78,7 @@
 #include <malloc.h>
 #endif
 
-#include <boost/algorithm/string/case_conv.hpp> // for to_lower()
-#include <boost/algorithm/string/join.hpp>
-#include <boost/algorithm/string/predicate.hpp> // for startswith() and endswith()
-#include <boost/program_options/detail/config_file.hpp>
-#include <boost/program_options/parsers.hpp>
+#include <boost/interprocess/sync/file_lock.hpp>
 #include <boost/thread.hpp>
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
@@ -570,6 +566,40 @@ const fs::path &GetBackupDir()
     return path;
 }
 
+static std::string TrimString(const std::string& str, const std::string& pattern)
+{
+    std::string::size_type front = str.find_first_not_of(pattern);
+    if (front == std::string::npos) {
+        return std::string();
+    }
+    std::string::size_type end = str.find_last_not_of(pattern);
+    return str.substr(front, end - front + 1);
+}
+
+static std::vector<std::pair<std::string, std::string>> GetConfigOptions(std::istream& stream)
+{
+    std::vector<std::pair<std::string, std::string>> options;
+    std::string str, prefix;
+    std::string::size_type pos;
+    while (std::getline(stream, str)) {
+        if ((pos = str.find('#')) != std::string::npos) {
+            str = str.substr(0, pos);
+        }
+        const static std::string pattern = " \t\r\n";
+        str = TrimString(str, pattern);
+        if (!str.empty()) {
+            if (*str.begin() == '[' && *str.rbegin() == ']') {
+                prefix = str.substr(1, str.size() - 2) + '.';
+            } else if ((pos = str.find('=')) != std::string::npos) {
+                std::string name = prefix + TrimString(str.substr(0, pos), pattern);
+                std::string value = TrimString(str.substr(pos + 1), pattern);
+                options.emplace_back(name, value);
+            }
+        }
+    }
+    return options;
+}
+
 fs::path GetConfigFile(const std::string& confPath)
 {
     fs::path pathConfigFile(confPath);
@@ -590,11 +620,10 @@ void ReadConfigFile(const std::string& confPath)
         set<string> setOptions;
         setOptions.insert("*");
 
-        for (boost::program_options::detail::config_file_iterator it(streamConfig, setOptions), end; it != end; ++it)
-        {
-            // Don't overwrite existing settings so command line settings override bitcoin.conf
-            string strKey = string("-") + it->string_key;
-            string strValue = it->value[0];
+
+        for (const std::pair<std::string, std::string>& option : GetConfigOptions(streamConfig)) {
+            std::string strKey = std::string("-") + option.first;
+            std::string strValue = option.second;
             InterpretNegativeSetting(strKey, strValue);
             if (mapArgs.count(strKey) == 0)
                 mapArgs[strKey] = strValue;
