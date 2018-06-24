@@ -76,6 +76,16 @@ namespace sha256d64_avx2
 void Transform_8way(unsigned char* out, const unsigned char* in);
 }
 
+namespace sha256d64_shani
+{
+void Transform_2way(unsigned char* out, const unsigned char* in);
+}
+
+namespace sha256_shani
+{
+void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks);
+}
+
 // Internal implementation code.
 namespace
 {
@@ -647,6 +657,7 @@ typedef void (*transform_d64_type)(unsigned char*, const unsigned char*);
 /** Define a function pointer for Transform */
 transform_type transform_ptr = sha256::Transform;
 transform_d64_type transfrom_ptr_d64 = sha256::TransformD64;
+transform_d64_type transfrom_ptr_d64_2way = nullptr;
 transform_d64_type transfrom_ptr_d64_4way = nullptr;
 transform_d64_type transfrom_ptr_d64_8way = nullptr;
 
@@ -729,6 +740,7 @@ void inline Initialize_transform_ptr(void)
     bool have_xsave = false;
     bool have_avx = false;
     bool have_avx2 = false;
+    bool have_shani = false;
     bool enabled_avx = false;
 
     (void)AVXEnabled;
@@ -736,6 +748,7 @@ void inline Initialize_transform_ptr(void)
     (void)have_avx;
     (void)have_xsave;
     (void)have_avx2;
+    (void)have_shani;
     (void)enabled_avx;
 
     uint32_t eax, ebx, ecx, edx;
@@ -749,7 +762,18 @@ void inline Initialize_transform_ptr(void)
     if (have_sse4) {
         cpuid(7, 0, eax, ebx, ecx, edx);
         have_avx2 = (ebx >> 5) & 1;
+        have_shani = (ebx >> 29) & 1;
     }
+
+#if defined(ENABLE_SHANI) && !defined(BUILD_BITCOIN_INTERNAL)
+    if (have_shani) {
+        sha256::transform_ptr = sha256_shani::Transform;
+        sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256_shani::Transform>;
+        sha256::transfrom_ptr_d64_2way = sha256d64_shani::Transform_2way;
+        have_sse4 = false; // Disable SSE4/AVX2;
+        have_avx2 = false;
+    }
+#endif
 
     if (have_sse4) {
 #if defined(__x86_64__) || defined(__amd64__)
@@ -843,6 +867,14 @@ void SHA256D64(unsigned char* out, const unsigned char* in, size_t blocks)
             out += 128;
             in += 256;
             blocks -= 4;
+        }
+    }
+    if (sha256::transfrom_ptr_d64_2way) {
+        while (blocks >= 2) {
+            sha256::transfrom_ptr_d64_2way(out, in);
+            out += 64;
+            in += 128;
+            blocks -= 2;
         }
     }
     while (blocks) {
