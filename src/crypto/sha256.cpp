@@ -725,28 +725,46 @@ void inline Initialize_transform_ptr(void)
        sha256::transform_ptr = &sha256::Transform_AVX2;
 #endif
 #if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
-    (void)AVXEnabled; // Silence unused warning (in case ENABLE_AVX2 is not defined)
+    bool have_sse4 = false;
+    bool have_xsave = false;
+    bool have_avx = false;
+    bool have_avx2 = false;
+    bool enabled_avx = false;
+
+    (void)AVXEnabled;
+    (void)have_sse4;
+    (void)have_avx;
+    (void)have_xsave;
+    (void)have_avx2;
+    (void)enabled_avx;
+
     uint32_t eax, ebx, ecx, edx;
     cpuid(1, 0, eax, ebx, ecx, edx);
-    if ((ecx >> 19) & 1) {
+    have_sse4 = (ecx >> 19) & 1;
+    have_xsave = (ecx >> 27) & 1;
+    have_avx = (ecx >> 28) & 1;
+    if (have_xsave && have_avx) {
+        enabled_avx = AVXEnabled();
+    }
+    if (have_sse4) {
+        cpuid(7, 0, eax, ebx, ecx, edx);
+        have_avx2 = (ebx >> 5) & 1;
+    }
+
+    if (have_sse4) {
 #if defined(__x86_64__) || defined(__amd64__)
         sha256::transform_ptr = sha256_sse4::Transform;
         sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256_sse4::Transform>;
 #endif
 #if defined(ENABLE_SSE41) && !defined(BUILD_BITCOIN_INTERNAL)
         sha256::transfrom_ptr_d64_4way = sha256d64_sse41::Transform_4way;
-#if defined(ENABLE_AVX2) && !defined(BUILD_BITCOIN_INTERNAL)
-        if (((ecx >> 27) & 1) && ((ecx >> 28) & 1)) { // XSAVE and AVX
-            cpuid(7, 0, eax, ebx, ecx, edx);
-            if ((ebx >> 5) & 1) { // AVX2 flag
-                if (AVXEnabled()) { // OS has enabled AVX registers
-                    sha256::transfrom_ptr_d64_8way = sha256d64_avx2::Transform_8way;
-                }
-            }
-        }
-#endif
 #endif
     }
+#if defined(ENABLE_AVX2) && !defined(BUILD_BITCOIN_INTERNAL)
+        if (have_avx2 && have_avx && enabled_avx) {
+            sha256::transfrom_ptr_d64_8way = sha256d64_avx2::Transform_8way;
+        }
+#endif
 #endif
 }
 
