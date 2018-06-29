@@ -448,8 +448,8 @@ dogecoin_tx_SOURCES += bitcoin-tx-res.rc
 endif
 
 dogecoin_tx_LDADD = \
-  $(LIBUNIVALUE) \
   $(LIBDOGECOIN_COMMON) \
+  $(LIBUNIVALUE) \
   $(LIBDOGECOIN_UTIL) \
   $(LIBDOGECOIN_CONSENSUS) \
   $(LIBDOGECOIN_CRYPTO) \
