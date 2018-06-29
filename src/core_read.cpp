@@ -7,6 +7,7 @@
 #include "primitives/block.h"
 #include "primitives/transaction.h"
 #include "script/script.h"
+#include "script/sign.h"
 #include "serialize.h"
 #include "streams.h"
 #include <univalue.h>
@@ -162,6 +163,23 @@ uint256 ParseHashUV(const UniValue& v, const std::string& strName)
     if (v.isStr())
         strHex = v.getValStr();
     return ParseHashStr(strHex, strName);  // Note: ParseHashStr("") throws a runtime_error
+}
+
+bool DecodePSBT(PartiallySignedTransaction& psbt, const std::string& base64_tx, std::string& error)
+{
+    std::vector<unsigned char> tx_data = DecodeBase64(base64_tx.c_str());
+    CDataStream ss_data(tx_data, SER_NETWORK, PROTOCOL_VERSION);
+    try {
+        ss_data >> psbt;
+        if (!ss_data.empty()) {
+            error = "extra data after PSBT";
+            return false;
+        }
+    } catch (const std::exception& e) {
+        error = e.what();
+        return false;
+    }
+    return true;
 }
 
 uint256 ParseHashStr(const std::string& strHex, const std::string& strName)

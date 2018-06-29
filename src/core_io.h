@@ -13,6 +13,7 @@ class CBlock;
 class CScript;
 class CTransaction;
 struct CMutableTransaction;
+struct PartiallySignedTransaction;
 class uint256;
 class UniValue;
 
@@ -25,11 +26,14 @@ bool DecodeAuxPow(CAuxPow& auxpow, const std::string& strHexAuxPow);
 uint256 ParseHashUV(const UniValue& v, const std::string& strName);
 uint256 ParseHashStr(const std::string&, const std::string& strName);
 std::vector<unsigned char> ParseHexUV(const UniValue& v, const std::string& strName);
+bool DecodePSBT(PartiallySignedTransaction& psbt, const std::string& base64_tx, std::string& error);
 
 // core_write.cpp
 std::string FormatScript(const CScript& script);
 std::string EncodeHexTx(const CTransaction& tx, const int serializeFlags = 0);
+std::string SighashToStr(unsigned char sighash_type);
 void ScriptPubKeyToUniv(const CScript& scriptPubKey, UniValue& out, bool fIncludeHex);
+void ScriptToUniv(const CScript& script, UniValue& out, bool include_address);
 void TxToUniv(const CTransaction& tx, const uint256& hashBlock, UniValue& entry);
 
 #endif // BITCOIN_CORE_IO_H
