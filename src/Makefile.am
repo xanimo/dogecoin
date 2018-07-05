@@ -137,6 +137,8 @@ BITCOIN_CORE_H = \
   rpc/server.h \
   rpc/register.h \
   scheduler.h \
+  script/descriptor.h \
+  script/ismine.h \
   script/sigcache.h \
   script/sign.h \
   script/standard.h \
@@ -340,6 +342,8 @@ libdogecoin_common_a_SOURCES = \
   primitives/transaction.cpp \
   protocol.cpp \
   scheduler.cpp \
+  script/descriptor.cpp \
+  script/ismine.cpp \
   script/sign.cpp \
   script/standard.cpp \
   warnings.cpp \
