@@ -655,21 +655,6 @@ void TransformD64(unsigned char* out, const unsigned char* in)
     WriteBE32(out + 28, h + 0x5be0cd19ul);
 }
 
-/** Define SHA256 hardware */
-#if defined(__linux__)
-#define HWCAP_SHA2  (1<<6)
-#endif
-
-#if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
-/** Check whether the OS has enabled AVX registers. */
-bool AVXEnabled()
-{
-    uint32_t a, d;
-    __asm__("xgetbv" : "=a"(a), "=d"(d) : "c"(0));
-    return (a & 6) == 6;
-}
-#endif
-
 typedef void (*transform_type) (uint32_t*, const unsigned char*, size_t);
 typedef void (*transform_d64_type)(unsigned char*, const unsigned char*);
 
@@ -725,7 +710,11 @@ void TransformD64Wrapper(unsigned char* out, const unsigned char* in)
 // We can't use cpuid.h's __get_cpuid as it does not support subleafs.
 void inline cpuid(uint32_t leaf, uint32_t subleaf, uint32_t& a, uint32_t& b, uint32_t& c, uint32_t& d)
 {
+#ifdef __GNUC__
+    __cpuid_count(leaf, subleaf, a, b, c, d);
+#else
   __asm__ ("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "0"(leaf), "2"(subleaf));
+#endif
 }
 
 /** Check whether the OS has enabled AVX registers. */
