@@ -65,7 +65,30 @@ struct SignatureData {
 
     SignatureData() {}
     explicit SignatureData(const CScript& script) : scriptSig(script) {}
+    void MergeSignatureData(SignatureData sigdata);
 };
+
+// Takes a stream and multiple arguments and serializes them as if first serialized into a vector and then into the stream
+// The resulting output into the stream has the total serialized length of all of the objects followed by all objects concatenated with each other.
+template<typename Stream, typename... X>
+void SerializeToVector(Stream& s, const X&... args)
+{
+    WriteCompactSize(s, GetSerializeSizeMany(s, args...));
+    SerializeMany(s, args...);
+}
+
+// Takes a stream and multiple arguments and unserializes them first as a vector then each object individually in the order provided in the arguments
+template<typename Stream, typename... X>
+void UnserializeFromVector(Stream& s, X&... args)
+{
+    size_t expected_size = ReadCompactSize(s);
+    size_t remaining_before = s.size();
+    UnserializeMany(s, args...);
+    size_t remaining_after = s.size();
+    if (remaining_after + expected_size != remaining_before) {
+        throw std::ios_base::failure("Size of value was not the stated size");
+    }
+}
 
 /** Produce a script signature using a generic signature creator. */
 bool ProduceSignature(const BaseSignatureCreator& creator, const CScript& scriptPubKey, SignatureData& sigdata);
