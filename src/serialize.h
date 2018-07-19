@@ -975,4 +975,34 @@ size_t GetSerializeSize(const S& s, const T& t)
     return (CSizeComputer(s.GetType(), s.GetVersion()) << t).size();
 }
 
+template <typename S, typename... T>
+size_t GetSerializeSizeMany(const S& s, const T&... t)
+{
+    CSizeComputer sc(s.GetType(), s.GetVersion());
+    SerializeMany(sc, t...);
+    return sc.size();
+}
+
+// Takes a stream and multiple arguments and serializes them as if first serialized into a vector and then into the stream
+// The resulting output into the stream has the total serialized length of all of the objects followed by all objects concatenated with each other.
+template<typename Stream, typename... X>
+void SerializeToVector(Stream& s, const X&... args)
+{
+    WriteCompactSize(s, GetSerializeSizeMany(s, args...));
+    SerializeMany(s, args...);
+}
+
+// Takes a stream and multiple arguments and unserializes them first as a vector then each object individually in the order provided in the arguments
+template<typename Stream, typename... X>
+void UnserializeFromVector(Stream& s, X&... args)
+{
+    size_t expected_size = ReadCompactSize(s);
+    size_t remaining_before = s.size();
+    UnserializeMany(s, args...);
+    size_t remaining_after = s.size();
+    if (remaining_after + expected_size != remaining_before) {
+        throw std::ios_base::failure("Size of value was not the stated size");
+    }
+}
+
 #endif // BITCOIN_SERIALIZE_H
