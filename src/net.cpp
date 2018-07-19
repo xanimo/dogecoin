@@ -2176,7 +2176,7 @@ void Discover(boost::thread_group& threadGroup)
             }
         }
     }
-#else
+#elif (HAVE_DECL_GETIFADDRS && HAVE_DECL_FREEIFADDRS)
     // Get local host ip
     struct ifaddrs* myaddrs;
     if (getifaddrs(&myaddrs) == 0)
