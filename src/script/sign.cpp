@@ -527,32 +527,6 @@ bool IsSolvable(const SigningProvider& provider, const CScript& script)
     return false;
 }
 
-bool PublicOnlySigningProvider::GetCScript(const CScriptID &scriptid, CScript& script) const
-{
-    return m_provider->GetCScript(scriptid, script);
-}
-
-bool PublicOnlySigningProvider::GetPubKey(const CKeyID &address, CPubKey& pubkey) const
-{
-    return m_provider->GetPubKey(address, pubkey);
-}
-
-bool FlatSigningProvider::GetCScript(const CScriptID& scriptid, CScript& script) const { return LookupHelper(scripts, scriptid, script); }
-bool FlatSigningProvider::GetPubKey(const CKeyID& keyid, CPubKey& pubkey) const { return LookupHelper(pubkeys, keyid, pubkey); }
-bool FlatSigningProvider::GetKey(const CKeyID& keyid, CKey& key) const { return LookupHelper(keys, keyid, key); }
-
-FlatSigningProvider Merge(const FlatSigningProvider& a, const FlatSigningProvider& b)
-{
-    FlatSigningProvider ret;
-    ret.scripts = a.scripts;
-    ret.scripts.insert(b.scripts.begin(), b.scripts.end());
-    ret.pubkeys = a.pubkeys;
-    ret.pubkeys.insert(b.pubkeys.begin(), b.pubkeys.end());
-    ret.keys = a.keys;
-    ret.keys.insert(b.keys.begin(), b.keys.end());
-    return ret;
-}
-
 bool PartiallySignedTransaction::IsNull() const
 {
     return !tx && inputs.empty() && outputs.empty() && unknown.empty();
@@ -692,4 +666,35 @@ void PSBTOutput::Merge(const PSBTOutput& output)
 
     if (redeem_script.empty() && !output.redeem_script.empty()) redeem_script = output.redeem_script;
     if (witness_script.empty() && !output.witness_script.empty()) witness_script = output.witness_script;
+}
+
+bool PublicOnlySigningProvider::GetCScript(const CScriptID &scriptid, CScript& script) const
+{
+    return m_provider->GetCScript(scriptid, script);
+}
+
+bool PublicOnlySigningProvider::GetPubKey(const CKeyID &address, CPubKey& pubkey) const
+{
+    return m_provider->GetPubKey(address, pubkey);
+}
+
+bool PublicOnlySigningProvider::GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& info) const
+{
+    return m_provider->GetKeyOrigin(keyid, info);
+}
+
+bool FlatSigningProvider::GetCScript(const CScriptID& scriptid, CScript& script) const { return LookupHelper(scripts, scriptid, script); }
+bool FlatSigningProvider::GetPubKey(const CKeyID& keyid, CPubKey& pubkey) const { return LookupHelper(pubkeys, keyid, pubkey); }
+bool FlatSigningProvider::GetKey(const CKeyID& keyid, CKey& key) const { return LookupHelper(keys, keyid, key); }
+
+FlatSigningProvider Merge(const FlatSigningProvider& a, const FlatSigningProvider& b)
+{
+    FlatSigningProvider ret;
+    ret.scripts = a.scripts;
+    ret.scripts.insert(b.scripts.begin(), b.scripts.end());
+    ret.pubkeys = a.pubkeys;
+    ret.pubkeys.insert(b.pubkeys.begin(), b.pubkeys.end());
+    ret.keys = a.keys;
+    ret.keys.insert(b.keys.begin(), b.keys.end());
+    return ret;
 }

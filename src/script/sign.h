@@ -31,9 +31,10 @@ class SigningProvider
 {
 public:
     virtual ~SigningProvider() {}
-    virtual bool GetCScript(const CScriptID &scriptid, CScript& script) const =0;
-    virtual bool GetPubKey(const CKeyID &address, CPubKey& pubkey) const =0;
-    virtual bool GetKey(const CKeyID &address, CKey& key) const =0;
+    virtual bool GetCScript(const CScriptID &scriptid, CScript& script) const { return false; }
+    virtual bool GetPubKey(const CKeyID &address, CPubKey& pubkey) const { return false; }
+    virtual bool GetKey(const CKeyID &address, CKey& key) const { return false; }
+    virtual bool GetKeyOrigin(const CKeyID& id, KeyOriginInfo& info) const { return false; }
 };
 
 class PublicOnlySigningProvider : public SigningProvider
@@ -45,6 +46,7 @@ public:
     PublicOnlySigningProvider(const SigningProvider* provider) : m_provider(provider) {}
     bool GetCScript(const CScriptID &scriptid, CScript& script) const;
     bool GetPubKey(const CKeyID &address, CPubKey& pubkey) const;
+    bool GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& info) const;
 };
 
 struct FlatSigningProvider final : public SigningProvider
