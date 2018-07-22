@@ -21,7 +21,6 @@
 #include "httprpc.h"
 #include "utilstrencodings.h"
 
-#include <boost/algorithm/string/predicate.hpp>
 #include <boost/thread.hpp>
 
 #include <stdio.h>
@@ -121,7 +120,7 @@ bool AppInit(int argc, char* argv[])
         // Command-line RPC
         bool fCommandLine = false;
         for (int i = 1; i < argc; i++)
-            if (!IsSwitchChar(argv[i][0]) && !boost::algorithm::istarts_with(argv[i], "dogecoin:"))
+            if (!IsSwitchChar(argv[i][0]) && strncmp(argv[i], "dogecoin:", strlen("dogecoin:")) != 0)
                 fCommandLine = true;
 
         if (fCommandLine)

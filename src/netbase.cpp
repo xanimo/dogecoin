@@ -24,8 +24,6 @@
 #include <fcntl.h>
 #endif
 
-#include <boost/algorithm/string/predicate.hpp> // for startswith() and endswith()
-
 #if !defined(HAVE_MSG_NOSIGNAL) && !defined(MSG_NOSIGNAL)
 #define MSG_NOSIGNAL 0
 #endif
@@ -142,8 +140,7 @@ bool LookupHost(const std::string& name, std::vector<CNetAddr>& vIP, unsigned in
     std::string strHost = name;
     if (strHost.empty())
         return false;
-    if (boost::algorithm::starts_with(strHost, "[") && boost::algorithm::ends_with(strHost, "]"))
-    {
+    if (strHost.front() == '[' && strHost.back() == ']') {
         strHost = strHost.substr(1, strHost.size() - 2);
     }
 

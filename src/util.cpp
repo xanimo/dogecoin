@@ -78,8 +78,6 @@
 #include <malloc.h>
 #endif
 
-#include <boost/algorithm/string/case_conv.hpp> // for to_lower()
-#include <boost/algorithm/string/predicate.hpp> // for startswith() and endswith()
 #include <boost/interprocess/sync/file_lock.hpp>
 #include <boost/thread.hpp>
 #include <openssl/crypto.h>
@@ -354,7 +352,7 @@ void ParseParameters(int argc, const char* const argv[])
         }
 #ifdef WIN32
         Downcase(str);
-        if (boost::algorithm::starts_with(str, "/"))
+        if (str.front() == '/')
             str = "-" + str.substr(1);
 #endif
 
