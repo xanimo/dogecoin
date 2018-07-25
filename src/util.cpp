@@ -353,7 +353,7 @@ void ParseParameters(int argc, const char* const argv[])
             str = str.substr(0, is_index);
         }
 #ifdef WIN32
-        boost::to_lower(str);
+        Downcase(str);
         if (boost::algorithm::starts_with(str, "/"))
             str = "-" + str.substr(1);
 #endif

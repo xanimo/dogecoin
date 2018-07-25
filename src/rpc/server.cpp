@@ -20,7 +20,6 @@
 #include <boost/bind/bind.hpp>
 #include <boost/signals2/signal.hpp>
 #include <boost/thread.hpp>
-#include <boost/algorithm/string/case_conv.hpp> // for to_upper()
 
 #include <memory> // for unique_ptr
 #include <unordered_map>
@@ -230,7 +229,7 @@ std::string CRPCTable::help(const std::string& strCommand) const
                         strRet += "\n";
                     category = pcmd->category;
                     string firstLetter = category.substr(0,1);
-                    boost::to_upper(firstLetter);
+                    Capitalize(firstLetter);
                     strRet += "== " + firstLetter + category.substr(1) + " ==\n";
                 }
             }
