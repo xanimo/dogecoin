@@ -9,7 +9,6 @@
 #include "uint256.h"
 #include "util.h"
 #include "utilstrencodings.h"
-#include "utilstring.h"
 #include "test/test_bitcoin.h"
 
 #include <string>
@@ -179,117 +178,6 @@ BOOST_AUTO_TEST_CASE(key_test1)
     BOOST_CHECK(key2C.SignCompact(hashMsg, detsigc));
     BOOST_CHECK(detsig == ParseHex("1caf874275fc12e344969ed4ec89cd1f4974ec816d63391f0e002d3fb81a22c25e00edcf093fdf460f45d9a3ca918d321a21539dac276f8d81a64818c62e8e9517"));
     BOOST_CHECK(detsigc == ParseHex("20af874275fc12e344969ed4ec89cd1f4974ec816d63391f0e002d3fb81a22c25e00edcf093fdf460f45d9a3ca918d321a21539dac276f8d81a64818c62e8e9517"));
-}
-
-BOOST_AUTO_TEST_CASE(key_signature_tests)
-{
-    // When entropy is specified, we should see at least one high R signature within 20 signatures
-    CKey key = DecodeSecret(strSecret1);
-    std::string msg = "A message to be signed";
-    uint256 msg_hash = Hash(msg.begin(), msg.end());
-    std::vector<unsigned char> sig;
-    bool found = false;
-
-    for (int i = 1; i <=20; ++i) {
-        sig.clear();
-        BOOST_CHECK(key.Sign(msg_hash, sig, i));
-        found = sig[3] == 0x21 && sig[4] == 0x00;
-        if (found) {
-            break;
-        }
-    }
-    BOOST_CHECK(found);
-
-    // When entropy is not specified, we should always see low R signatures that are less than 70 bytes in 256 tries
-    // We should see at least one signature that is less than 70 bytes.
-    found = true;
-    bool found_small = false;
-    for (int i = 0; i < 256; ++i) {
-        sig.clear();
-        std::string msg = "A message to be signed" + i;
-        msg_hash = Hash(msg.begin(), msg.end());
-        BOOST_CHECK(key.Sign(msg_hash, sig));
-        found = sig[3] == 0x20;
-        BOOST_CHECK(sig.size() <= 70);
-        found_small |= sig.size() < 70;
-    }
-    BOOST_CHECK(found);
-    BOOST_CHECK(found_small);
-}
-
-BOOST_AUTO_TEST_CASE(key_key_negation)
-{
-    // create a dummy hash for signature comparison
-    unsigned char rnd[8];
-    std::string str = "Dogecoin key verification\n";
-    GetRandBytes(rnd, sizeof(rnd));
-    uint256 hash;
-    CHash256().Write(MakeUCharSpan(str)).Write(rnd).Finalize(hash);
-
-    // import the static test key
-    CKey key = DecodeSecret(strSecret1C);
-
-    // create a signature
-    std::vector<unsigned char> vch_sig;
-    std::vector<unsigned char> vch_sig_cmp;
-    key.Sign(hash, vch_sig);
-
-    // negate the key twice
-    BOOST_CHECK(key.GetPubKey().data()[0] == 0x03);
-    key.Negate();
-    // after the first negation, the signature must be different
-    key.Sign(hash, vch_sig_cmp);
-    BOOST_CHECK(vch_sig_cmp != vch_sig);
-    BOOST_CHECK(key.GetPubKey().data()[0] == 0x02);
-    key.Negate();
-    // after the second negation, we should have the original key and thus the
-    // same signature
-    key.Sign(hash, vch_sig_cmp);
-    BOOST_CHECK(vch_sig_cmp == vch_sig);
-    BOOST_CHECK(key.GetPubKey().data()[0] == 0x03);
-}
-
-static CPubKey UnserializePubkey(const std::vector<uint8_t>& data)
-{
-    CDataStream stream{SER_NETWORK, INIT_PROTO_VERSION};
-    stream << data;
-    CPubKey pubkey;
-    stream >> pubkey;
-    return pubkey;
-}
-
-static unsigned int GetLen(unsigned char chHeader)
-{
-    if (chHeader == 2 || chHeader == 3)
-        return CPubKey::COMPRESSED_SIZE;
-    if (chHeader == 4 || chHeader == 6 || chHeader == 7)
-        return CPubKey::SIZE;
-    return 0;
-}
-
-static void CmpSerializationPubkey(const CPubKey& pubkey)
-{
-    CDataStream stream{SER_NETWORK, INIT_PROTO_VERSION};
-    stream << pubkey;
-    CPubKey pubkey2;
-    stream >> pubkey2;
-    BOOST_CHECK(pubkey == pubkey2);
-}
-
-BOOST_AUTO_TEST_CASE(pubkey_unserialize)
-{
-    for (uint8_t i = 2; i <= 7; ++i) {
-        CPubKey key = UnserializePubkey({0x02});
-        BOOST_CHECK(!key.IsValid());
-        CmpSerializationPubkey(key);
-        key = UnserializePubkey(std::vector<uint8_t>(GetLen(i), i));
-        CmpSerializationPubkey(key);
-        if (i == 5) {
-            BOOST_CHECK(!key.IsValid());
-        } else {
-            BOOST_CHECK(key.IsValid());
-        }
-    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()
