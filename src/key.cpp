@@ -140,6 +140,12 @@ bool CKey::SetPrivKey(const CPrivKey &privkey, bool fCompressedIn) {
     return true;
 }
 
+bool CKey::Negate()
+{
+    assert(fValid);
+    return secp256k1_ec_seckey_negate(secp256k1_context_sign, keydata.data());
+}
+
 CPrivKey CKey::GetPrivKey() const {
     assert(fValid);
     CPrivKey privkey;
@@ -236,7 +242,7 @@ bool CKey::Derive(CKey& keyChild, ChainCode &ccChild, unsigned int nChild, const
     }
     memcpy(ccChild.begin(), vout.data()+32, 32);
     memcpy((unsigned char*)keyChild.begin(), begin(), 32);
-    bool ret = secp256k1_ec_privkey_tweak_add(secp256k1_context_sign, (unsigned char*)keyChild.begin(), vout.data());
+    bool ret = secp256k1_ec_seckey_tweak_add(secp256k1_context_sign, (unsigned char*)keyChild.begin(), vout.data());
     keyChild.fCompressed = true;
     keyChild.fValid = ret;
     return ret;
