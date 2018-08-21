@@ -84,6 +84,7 @@ BITCOIN_CORE_H = \
   bloom.h \
   blockencodings.h \
   blockfilter.h \
+  bytevectorhash.h \
   chain.h \
   chainparams.h \
   chainparamsbase.h \
@@ -361,6 +362,7 @@ libdogecoin_util_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 libdogecoin_util_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libdogecoin_util_a_SOURCES = \
   support/lockedpool.cpp \
+  bytevectorhash.cpp \
   chainparamsbase.cpp \
   clientversion.cpp \
   compat/glibc_sanity.cpp \
