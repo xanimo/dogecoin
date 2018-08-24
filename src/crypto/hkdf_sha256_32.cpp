@@ -5,14 +5,14 @@
 #include <crypto/hkdf_sha256_32.h>
 
 #include <assert.h>
-#include <string.h>
+#include <string>
 
 CHKDF_HMAC_SHA256_L32::CHKDF_HMAC_SHA256_L32(const unsigned char* ikm, size_t ikmlen, const std::string& salt)
 {
     CHMAC_SHA256((const unsigned char*)salt.c_str(), salt.size()).Write(ikm, ikmlen).Finalize(m_prk);
 }
 
-void CHKDF_HMAC_SHA256_L32::Expand32(const std::string& info, unsigned char hash[OUTPUT_SIZE])
+void CHKDF_HMAC_SHA256_L32::Expand32(const std::string& info, unsigned char hash[32])
 {
     // expand a 32byte key (single round)
     assert(info.size() <= 128);
