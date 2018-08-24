@@ -17,11 +17,10 @@
 #include <attributes.h>
 #include <compat.h>
 #include <fs.h>
-#include <logging.h>
 #include <sync.h>
 #include <tinyformat.h>
 #include <util/memory.h>
-#include <util/time.h>
+#include <utiltime.h>
 
 #include <atomic>
 #include <exception>

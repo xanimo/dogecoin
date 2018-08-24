@@ -279,7 +279,9 @@ crypto_libdogecoin_crypto_a_SOURCES = \
   crypto/sha3.cpp \
   crypto/sha3.h \
   crypto/sha512.cpp \
-  crypto/sha512.h
+  crypto/sha512.h \
+  crypto/siphash.cpp \
+  crypto/siphash.h
 
 # only include SSE2 scrypt sources if USE_SCRYPT_SSE2 is defined
 if USE_SCRYPT_SSE2

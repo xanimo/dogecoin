@@ -14,18 +14,18 @@
 #include <utility>
 #include <string>
 
-#include "amount.h"
-#include "coins.h"
-#include "indirectmap.h"
-#include "primitives/transaction.h"
-#include "sync.h"
-#include "random.h"
+#include <amount.h>
+#include <coins.h>
+#include <crypto/siphash.h>
+#include <indirectmap.h>
+#include <policy/policy.h>
+#include <primitives/transaction.h>
+#include <sync.h>
+#include <random.h>
 
-#undef foreach
 #include "boost/multi_index_container.hpp"
 #include "boost/multi_index/ordered_index.hpp"
 #include "boost/multi_index/hashed_index.hpp"
-
 #include <boost/signals2/signal.hpp>
 
 class CAutoFile;

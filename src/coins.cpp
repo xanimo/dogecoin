@@ -4,10 +4,9 @@
 
 #include "coins.h"
 
-#include "consensus/consensus.h"
-#include "memusage.h"
-#include "random.h"
-
+#include <consensus/consensus.h>
+#include <random.h>
+#include <version.h>
 #include <assert.h>
 
 bool CCoinsView::GetCoin(const COutPoint &outpoint, Coin &coin) const { return false; }
