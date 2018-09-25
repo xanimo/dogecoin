@@ -440,7 +440,7 @@ std::string DecodeBase32(const std::string& str)
     return (vchRet.size() == 0) ? std::string() : std::string((const char*)&vchRet[0], vchRet.size());
 }
 
-static bool ParsePrechecks(const std::string& str)
+NODISCARD static bool ParsePrechecks(const std::string& str)
 {
     if (str.empty()) // No empty string allowed
         return false;
