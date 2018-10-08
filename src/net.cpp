@@ -662,7 +662,10 @@ void CNode::copyStats(CNodeStats &stats)
         X(nRecvBytes);
     }
     X(fWhitelisted);
-    X(minFeeFilter);
+    {
+        LOCK(cs_feeFilter);
+        X(minFeeFilter);
+    }
     X(nProcessedAddrs);
     X(nRatelimitedAddrs);
 
