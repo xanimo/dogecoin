@@ -3658,8 +3658,6 @@ bool static LoadBlockIndexDB(const CChainParams& chainparams)
     if (!pblocktree->LoadBlockIndexGuts(InsertBlockIndex))
         return false;
 
-    boost::this_thread::interruption_point();
-
     // Calculate nChainWork
     std::vector<std::pair<int, CBlockIndex*> > vSortedByHeight;
     vSortedByHeight.reserve(mapBlockIndex.size());
