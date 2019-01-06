@@ -1,4 +1,5 @@
-// Copyright (c) 2019 The Bitcoin Core developers
+// Copyright (c) 2009-2010 Satoshi Nakamoto
+// Copyright (c) 2009-2019 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -16,6 +17,11 @@ FlatFileSeq::FlatFileSeq(fs::path dir, const char* prefix, size_t chunk_size) :
     if (chunk_size == 0) {
         throw std::invalid_argument("chunk_size must be positive");
     }
+}
+
+std::string CDiskBlockPos::ToString() const
+{
+    return strprintf("CDiskBlockPos(nFile=%i, nPos=%i)", nFile, nPos);
 }
 
 fs::path FlatFileSeq::FileName(const CDiskBlockPos& pos) const
@@ -74,7 +80,7 @@ size_t FlatFileSeq::Allocate(const CDiskBlockPos& pos, size_t add_size, bool& ou
 
 bool FlatFileSeq::Flush(const CDiskBlockPos& pos, bool finalize)
 {
-    FILE* file = Open(FlatFilePos(pos.nFile, 0)); // Avoid fseek to nPos
+    FILE* file = Open(CDiskBlockPos(pos.nFile, 0)); // Avoid fseek to nPos
     if (!file) {
         return error("%s: failed to open file %d", __func__, pos.nFile);
     }
@@ -82,10 +88,7 @@ bool FlatFileSeq::Flush(const CDiskBlockPos& pos, bool finalize)
         fclose(file);
         return error("%s: failed to truncate file %d", __func__, pos.nFile);
     }
-    if (!FileCommit(file)) {
-        fclose(file);
-        return error("%s: failed to commit file %d", __func__, pos.nFile);
-    }
+    FileCommit(file);
 
     fclose(file);
     return true;
