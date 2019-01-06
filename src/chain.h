@@ -7,12 +7,21 @@
 #ifndef BITCOIN_CHAIN_H
 #define BITCOIN_CHAIN_H
 
-#include "arith_uint256.h"
-#include "primitives/block.h"
-#include "primitives/pureheader.h"
-#include "pow.h"
-#include "tinyformat.h"
-#include "uint256.h"
+<<<<<<< HEAD
+#include <arith_uint256.h>
+#include <consensus/params.h>
+#include <flatfile.h>
+#include <primitives/block.h>
+#include <tinyformat.h>
+#include <uint256.h>
+=======
+#include <arith_uint256.h>
+#include <consensus/params.h>
+#include <flatfile.h>
+#include <primitives/block.h>
+#include <tinyformat.h>
+#include <uint256.h>
+>>>>>>> d6d8a78f26 (Move CDiskBlockPos from chain to flatfile.)
 
 #include <vector>
 
@@ -70,6 +79,7 @@ public:
      }
 };
 
+<<<<<<< HEAD
 struct CDiskBlockPos
 {
     int nFile;
@@ -110,6 +120,8 @@ struct CDiskBlockPos
 
 };
 
+=======
+>>>>>>> d6d8a78f26 (Move CDiskBlockPos from chain to flatfile.)
 enum BlockStatus: uint32_t {
     //! Unused.
     BLOCK_VALID_UNKNOWN      =    0,
