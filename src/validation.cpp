@@ -177,22 +177,15 @@ namespace {
       * Because we already walk mapBlockIndex in height-order at startup, we go
       * ahead and mark descendants of invalid blocks as FAILED_CHILD at that time,
       * instead of putting things in this set.
-      */
-    std::set<CBlockIndex*> gFailedBlocks;
+        CDiskBlockPos block_pos_old(nLastBlockFile, vinfoBlockFile[nLastBlockFile].nSize);
+        CDiskBlockPos undo_pos_old(nLastBlockFile, vinfoBlockFile[nLastBlockFile].nUndoSize);
 
-    /** Dirty block index entries. */
-    std::set<CBlockIndex*> setDirtyBlockIndex;
-
-    /** Dirty block file entries. */
-    std::set<int> setDirtyFileInfo;
-} // anon namespace
-
-CBlockIndex* FindForkInGlobalIndex(const CChain& chain, const CBlockLocator& locator)
-{
-    // Find the first block the caller has in the main chain
-    BOOST_FOREACH(const uint256& hash, locator.vHave) {
-        CBlockIndex* pindex = LookupBlockIndex(hash);
-        if (pindex)
+        bool status = true;
+        status &= BlockFileSeq().Flush(block_pos_old, fFinalize);
+        status &= UndoFileSeq().Flush(undo_pos_old, fFinalize);
+        if (!status) {
+            AbortNode("Flushing block file to disk failed. This is likely the result of an I/O error.");
+        }
         {
             if (chain.Contains(pindex))
                 return pindex;
@@ -1636,6 +1629,7 @@ void static FlushBlockFile(bool fFinalize = false)
 {
     LOCK(cs_LastBlockFile);
 
+<<<<<<< HEAD
     CDiskBlockPos posOld(nLastBlockFile, 0);
 
     FILE *fileOld = OpenBlockFile(posOld);
@@ -1652,6 +1646,16 @@ void static FlushBlockFile(bool fFinalize = false)
             TruncateFile(fileOld, vinfoBlockFile[nLastBlockFile].nUndoSize);
         FileCommit(fileOld);
         fclose(fileOld);
+=======
+    CDiskBlockPos block_pos_old(nLastBlockFile, vinfoBlockFile[nLastBlockFile].nSize);
+    CDiskBlockPos undo_pos_old(nLastBlockFile, vinfoBlockFile[nLastBlockFile].nUndoSize);
+
+    bool status = true;
+    status &= BlockFileSeq().Flush(block_pos_old, fFinalize);
+    status &= UndoFileSeq().Flush(undo_pos_old, fFinalize);
+    if (!status) {
+        AbortNode("Flushing block file to disk failed. This is likely the result of an I/O error.");
+>>>>>>> e0380933e3 (validation: Refactor file flush logic into FlatFileSeq.)
     }
 }
 
