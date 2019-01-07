@@ -99,8 +99,17 @@ BITCOIN_TESTS =\
   test/compress_tests.cpp \
   test/crypto_tests.cpp \
   test/cuckoocache_tests.cpp \
-  test/DoS_tests.cpp \
-  test/dogecoin_tests.cpp \
+<<<<<<< HEAD
+  test/denialofservice_tests.cpp \
+  test/descriptor_tests.cpp \
+  test/flatfile_tests.cpp \
+  test/fs_tests.cpp \
+=======
+  test/denialofservice_tests.cpp \
+  test/descriptor_tests.cpp \
+  test/flatfile_tests.cpp \
+  test/fs_tests.cpp \
+>>>>>>> 4c01e4e159 (flatfile: Unit tests for FlatFileSeq methods.)
   test/getarg_tests.cpp \
   test/hash_tests.cpp \
   test/key_tests.cpp \
