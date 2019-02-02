@@ -263,19 +263,19 @@ if __name__ == '__main__':
 		print("Usage: linearize-data.py CONFIG-FILE")
 		sys.exit(1)
 
-	f = open(sys.argv[1])
-	for line in f:
-		# skip comment lines
-		m = re.search('^\s*#', line)
-		if m:
-			continue
+    f = open(sys.argv[1], encoding="utf8")
+    for line in f:
+        # skip comment lines
+        m = re.search(r'^\s*#', line)
+        if m:
+            continue
 
-		# parse key=value lines
-		m = re.search('^(\w+)\s*=\s*(\S.*)$', line)
-		if m is None:
-			continue
-		settings[m.group(1)] = m.group(2)
-	f.close()
+        # parse key=value lines
+        m = re.search(r'^(\w+)\s*=\s*(\S.*)$', line)
+        if m is None:
+            continue
+        settings[m.group(1)] = m.group(2)
+    f.close()
 
 	# Force hash byte format setting to be lowercase to make comparisons easier.
 	# Also place upfront in case any settings need to know about it.

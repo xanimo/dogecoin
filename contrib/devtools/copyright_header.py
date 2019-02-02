@@ -65,7 +65,7 @@ def get_filenames_to_examine():
 ################################################################################
 
 
-COPYRIGHT_WITH_C = 'Copyright \(c\)'
+COPYRIGHT_WITH_C = r'Copyright \(c\)'
 COPYRIGHT_WITHOUT_C = 'Copyright'
 ANY_COPYRIGHT_STYLE = '(%s|%s)' % (COPYRIGHT_WITH_C, COPYRIGHT_WITHOUT_C)
 
@@ -79,32 +79,32 @@ ANY_COPYRIGHT_STYLE_OR_YEAR_STYLE = ("%s %s" % (ANY_COPYRIGHT_STYLE,
 ANY_COPYRIGHT_COMPILED = re.compile(ANY_COPYRIGHT_STYLE_OR_YEAR_STYLE)
 
 def compile_copyright_regex(copyright_style, year_style, name):
-    return re.compile('%s %s %s' % (copyright_style, year_style, name))
+    return re.compile('%s %s,? %s\n' % (copyright_style, year_style, name))
 
 EXPECTED_HOLDER_NAMES = [
-    "Satoshi Nakamoto\n",
-    "The Bitcoin Core developers\n",
-    "The Bitcoin Core developers \n",
-    "Bitcoin Core Developers\n",
-    "the Bitcoin Core developers\n",
-    "The Bitcoin developers\n",
-    "The LevelDB Authors\. All rights reserved\.\n",
-    "BitPay Inc\.\n",
-    "BitPay, Inc\.\n",
-    "University of Illinois at Urbana-Champaign\.\n",
-    "MarcoFalke\n",
-    "Pieter Wuille\n",
-    "Pieter Wuille +\*\n",
-    "Pieter Wuille, Gregory Maxwell +\*\n",
-    "Pieter Wuille, Andrew Poelstra +\*\n",
-    "Andrew Poelstra +\*\n",
-    "Wladimir J. van der Laan\n",
-    "Jeff Garzik\n",
-    "Diederik Huys, Pieter Wuille +\*\n",
-    "Thomas Daede, Cory Fields +\*\n",
-    "Jan-Klaas Kollhof\n",
-    "Sam Rushing\n",
-    "ArtForz -- public domain half-a-node\n",
+    r"Satoshi Nakamoto\n",
+    r"The Bitcoin Core developers\n",
+    r"The Bitcoin Core developers \n",
+    r"Bitcoin Core Developers\n",
+    r"the Bitcoin Core developers\n",
+    r"The Bitcoin developers\n",
+    r"The LevelDB Authors\. All rights reserved\.\n",
+    r"BitPay Inc\.\n",
+    r"BitPay, Inc\.\n",
+    r"University of Illinois at Urbana-Champaign\.\n",
+    r"MarcoFalke\n",
+    r"Pieter Wuille\n",
+    r"Pieter Wuille +\*\n",
+    r"Pieter Wuille, Gregory Maxwell +\*\n",
+    r"Pieter Wuille, Andrew Poelstra +\*\n",
+    r"Andrew Poelstra +\*\n",
+    r"Wladimir J. van der Laan\n",
+    r"Jeff Garzik\n",
+    r"Diederik Huys, Pieter Wuille +\*\n",
+    r"Thomas Daede, Cory Fields +\*\n",
+    r"Jan-Klaas Kollhof\n",
+    r"Sam Rushing\n",
+    r"ArtForz -- public domain half-a-node\n",
 ]
 
 DOMINANT_STYLE_COMPILED = {}
@@ -337,7 +337,7 @@ def write_file_lines(filename, file_lines):
 # update header years execution
 ################################################################################
 
-COPYRIGHT = 'Copyright \(c\)'
+COPYRIGHT = r'Copyright \(c\)'
 YEAR = "20[0-9][0-9]"
 YEAR_RANGE = '(%s)(-%s)?' % (YEAR, YEAR)
 HOLDER = 'The Bitcoin Core developers'
