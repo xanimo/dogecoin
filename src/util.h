@@ -16,6 +16,7 @@
 #endif
 
 #include "compat.h"
+#include "compat/assumptions.h"
 #include "fs.h"
 #include "tinyformat.h"
 #include "utiltime.h"
