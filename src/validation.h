@@ -734,6 +734,12 @@ bool ResetBlockFailureFlags(CBlockIndex *pindex);
 /** The global chain state. */
 extern CChainState g_chainstate;
 
+/** @returns the most-work valid chainstate. */
+CChainState& ChainstateActive();
+
+/** @returns the most-work chain. */
+CChain& ChainActive();
+
 /** The currently-connected chain of blocks (protected by cs_main). */
 extern CChain& chainActive;
 
