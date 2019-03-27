@@ -144,31 +144,6 @@ bool ShutdownRequested()
     return fRequestShutdown;
 }
 
-/**
- * This is a minimally invasive approach to shutdown on LevelDB read errors from the
- * chainstate, while keeping user interface out of the common library, which is shared
- * between bitcoind, and bitcoin-qt and non-server tools.
-*/
-class CCoinsViewErrorCatcher : public CCoinsViewBacked
-{
-public:
-    CCoinsViewErrorCatcher(CCoinsView* view) : CCoinsViewBacked(view) {}
-    bool GetCoin(const COutPoint &outpoint, Coin &coin) const override {
-        try {
-            return CCoinsViewBacked::GetCoin(outpoint, coin);
-        } catch(const std::runtime_error& e) {
-            uiInterface.ThreadSafeMessageBox(_("Error reading from database, shutting down."), "", CClientUIInterface::MSG_ERROR);
-            LogPrintf("Error reading from database: %s\n", e.what());
-            // Starting the shutdown sequence and returning false to the caller would be
-            // interpreted as 'entry not found' (as opposed to unable to read data), and
-            // could lead to invalid interpretation. Just exit immediately, as we can't
-            // continue anyway, and all writes should be atomic.
-            abort();
-        }
-    }
-    // Writes do not need similar protection, as failure to write is handled by the caller.
-};
-
 static CCoinsViewDB *pcoinsdbview = NULL;
 static CCoinsViewErrorCatcher *pcoinscatcher = NULL;
 static std::unique_ptr<ECCVerifyHandle> globalVerifyHandle;
@@ -1522,6 +1497,11 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                 pblocktree = new CBlockTreeDB(nBlockTreeDBCache, false, fReindex);
                 pcoinsdbview = new CCoinsViewDB(nCoinDBCache, false, fReindex || fReindexChainState);
                 pcoinscatcher = new CCoinsViewErrorCatcher(pcoinsdbview);
+                pcoinscatcher->AddReadErrCallback([]() {
+                    uiInterface.ThreadSafeMessageBox(
+                        _("Error reading from database, shutting down."),
+                        "", CClientUIInterface::MSG_ERROR);
+                });
                 pcoinsTip = new CCoinsViewCache(pcoinscatcher);
 
                 if (fReindex) {
@@ -1574,8 +1554,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                 if (!fReindex && chainActive.Tip() != NULL) {
                     uiInterface.InitMessage(_("Rewinding blocks..."));
                     if (!RewindBlockIndex(chainparams)) {
-                        strLoadError = _("Unable to rewind the database to a pre-fork state. You will need to redownload the blockchain");
-                        break;
+                        strLoadError = _("Unable to rewind the database to a pre-fork state. You will need to redownload the blockchain");                        break;
                     }
                 }
 
