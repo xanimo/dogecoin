@@ -190,15 +190,7 @@ CBlockIndex* FindForkInGlobalIndex(const CChain& chain, const CBlockLocator& loc
 CCoinsViewCache *pcoinsTip = NULL;
 CBlockTreeDB *pblocktree = NULL;
 
-enum FlushStateMode {
-    FLUSH_STATE_NONE,
-    FLUSH_STATE_IF_NEEDED,
-    FLUSH_STATE_PERIODIC,
-    FLUSH_STATE_ALWAYS
-};
-
 // See definition for documentation
-static bool FlushStateToDisk(const CChainParams& chainParams, CValidationState &state, FlushStateMode mode, int nManualPruneHeight=0);
 static void FindFilesToPruneManual(std::set<int>& setFilesToPrune, int nManualPruneHeight);
 static void FindFilesToPrune(std::set<int>& setFilesToPrune, uint64_t nPruneAfterHeight);
 static bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsViewCache &inputs, bool fScriptChecks, unsigned int flags, bool cacheStore, PrecomputedTransactionData& txdata, std::vector<CScriptCheck> *pvChecks = NULL);
@@ -1060,7 +1052,7 @@ static bool AcceptToMemoryPoolWithTime(const CChainParams& chainparams, CTxMemPo
     }
     // After we've (potentially) uncached entries, ensure our coins cache is still within its size limits
     CValidationState stateDummy;
-    FlushStateToDisk(chainparams, stateDummy, FLUSH_STATE_PERIODIC);
+    g_chainstate.FlushStateToDisk(chainparams, stateDummy, FlushStateMode::PERIODIC);
     return res;
 }
 
@@ -2042,13 +2034,12 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
     return true;
 }
 
-/**
- * Update the on-disk chain state.
- * The caches and indexes are flushed depending on the mode we're called with
- * if they're too large, if it's been a while since the last write,
- * or always and in all cases if we're in prune mode and are deleting files.
- */
-bool static FlushStateToDisk(const CChainParams& chainparams, CValidationState &state, FlushStateMode mode, int nManualPruneHeight) {
+bool CChainState::FlushStateToDisk(
+    const CChainParams& chainparams,
+    CValidationState &state,
+    FlushStateMode mode,
+    int nManualPruneHeight)
+{
     int64_t nMempoolUsage = mempool.DynamicMemoryUsage();
     LOCK2(cs_main, cs_LastBlockFile);
     static int64_t nLastWrite = 0;
@@ -2087,15 +2078,15 @@ bool static FlushStateToDisk(const CChainParams& chainparams, CValidationState &
     int64_t cacheSize = pcoinsTip->DynamicMemoryUsage() * DB_PEAK_USAGE_FACTOR;
     int64_t nTotalSpace = nCoinCacheUsage + std::max<int64_t>(nMempoolSizeMax - nMempoolUsage, 0);
     // The cache is large and we're within 10% and 10 MiB of the limit, but we have time now (not in the middle of a block processing).
-    bool fCacheLarge = mode == FLUSH_STATE_PERIODIC && cacheSize > std::max((9 * nTotalSpace) / 10, nTotalSpace - MAX_BLOCK_COINSDB_USAGE * 1024 * 1024);
+    bool fCacheLarge = mode == FlushStateMode::PERIODIC && cacheSize > std::max((9 * nTotalSpace) / 10, nTotalSpace - MAX_BLOCK_COINSDB_USAGE * 1024 * 1024);
     // The cache is over the limit, we have to write now.
-    bool fCacheCritical = mode == FLUSH_STATE_IF_NEEDED && cacheSize > nTotalSpace;
+    bool fCacheCritical = mode == FlushStateMode::IF_NEEDED && cacheSize > nTotalSpace;
     // It's been a while since we wrote the block index to disk. Do this frequently, so we don't need to redownload after a crash.
-    bool fPeriodicWrite = mode == FLUSH_STATE_PERIODIC && nNow > nLastWrite + (int64_t)DATABASE_WRITE_INTERVAL * 1000000;
+    bool fPeriodicWrite = mode == FlushStateMode::PERIODIC && nNow > nLastWrite + (int64_t)DATABASE_WRITE_INTERVAL * 1000000;
     // It's been very long since we flushed the cache. Do this infrequently, to optimize cache usage.
-    bool fPeriodicFlush = mode == FLUSH_STATE_PERIODIC && nNow > nLastFlush + (int64_t)DATABASE_FLUSH_INTERVAL * 1000000;
+    bool fPeriodicFlush = mode == FlushStateMode::PERIODIC && nNow > nLastFlush + (int64_t)DATABASE_FLUSH_INTERVAL * 1000000;
     // Combine all conditions that result in a full cache flush.
-    bool fDoFullFlush = (mode == FLUSH_STATE_ALWAYS) || fCacheLarge || fCacheCritical || fPeriodicFlush || fFlushForPrune;
+    bool fDoFullFlush = (mode == FlushStateMode::ALWAYS) || fCacheLarge || fCacheCritical || fPeriodicFlush || fFlushForPrune;
     // Write blocks and block index to disk.
     if (fDoFullFlush || fPeriodicWrite) {
         // Depend on nMinDiskSpace to ensure we can write block index
@@ -2140,7 +2131,7 @@ bool static FlushStateToDisk(const CChainParams& chainparams, CValidationState &
             return AbortNode(state, "Failed to write to coin database");
         nLastFlush = nNow;
     }
-    if (fDoFullFlush || ((mode == FLUSH_STATE_ALWAYS || mode == FLUSH_STATE_PERIODIC) && nNow > nLastSetChain + (int64_t)DATABASE_WRITE_INTERVAL * 1000000)) {
+    if (fDoFullFlush || ((mode == FlushStateMode::ALWAYS || mode == FlushStateMode::PERIODIC) && nNow > nLastSetChain + (int64_t)DATABASE_WRITE_INTERVAL * 1000000)) {
         // Update best block in wallet (so we can detect restored wallets).
         GetMainSignals().SetBestChain(chainActive.GetLocator());
         nLastSetChain = nNow;
@@ -2151,17 +2142,22 @@ bool static FlushStateToDisk(const CChainParams& chainparams, CValidationState &
     return true;
 }
 
-void FlushStateToDisk() {
+void CChainState::ForceFlushStateToDisk() {
     CValidationState state;
     const CChainParams& chainparams = Params();
-    FlushStateToDisk(chainparams, state, FLUSH_STATE_ALWAYS);
+    if (!this->FlushStateToDisk(chainparams, state, FlushStateMode::ALWAYS)) {
+        LogPrintf("%s: failed to flush state (%s)\n", __func__, FormatStateMessage(state));
+    }
 }
 
-void PruneAndFlush() {
+void CChainState::PruneAndFlush() {
     CValidationState state;
     fCheckForPruning = true;
     const CChainParams& chainparams = Params();
-    FlushStateToDisk(chainparams, state, FLUSH_STATE_NONE);
+
+    if (!this->FlushStateToDisk(chainparams, state, FlushStateMode::NONE)) {
+        LogPrintf("%s: failed to flush state (%s)\n", __func__, FormatStateMessage(state));
+    }
 }
 
 /** Update chainActive and related internal data structures. */
@@ -2257,7 +2253,7 @@ bool CChainState::DisconnectTip(CValidationState& state, const CChainParams& cha
     }
     LogPrint("bench", "- Disconnect block: %.2fms\n", (GetTimeMicros() - nStart) * 0.001);
     // Write the chain state to disk, if necessary.
-    if (!FlushStateToDisk(chainparams, state, FLUSH_STATE_IF_NEEDED))
+    if (!FlushStateToDisk(chainparams, state, FlushStateMode::IF_NEEDED))
         return false;
 
     if (disconnectpool) {
@@ -2332,7 +2328,7 @@ bool CChainState::ConnectTip(CValidationState& state, const CChainParams& chainp
     int64_t nTime4 = GetTimeMicros(); nTimeFlush += nTime4 - nTime3;
     LogPrint("bench", "  - Flush: %.2fms [%.2fs]\n", (nTime4 - nTime3) * 0.001, nTimeFlush * 0.000001);
     // Write the chain state to disk, if necessary.
-    if (!FlushStateToDisk(chainparams, state, FLUSH_STATE_IF_NEEDED))
+    if (!FlushStateToDisk(chainparams, state, FlushStateMode::IF_NEEDED))
         return false;
     int64_t nTime5 = GetTimeMicros(); nTimeChainState += nTime5 - nTime4;
     LogPrint("bench", "  - Writing chainstate: %.2fms [%.2fs]\n", (nTime5 - nTime4) * 0.001, nTimeChainState * 0.000001);
@@ -2605,7 +2601,7 @@ bool CChainState::ActivateBestChain(CValidationState &state, const CChainParams&
     }
 
     // Write changes periodically to disk, after relay.
-    if (!FlushStateToDisk(chainparams, state, FLUSH_STATE_PERIODIC)) {
+    if (!FlushStateToDisk(chainparams, state, FlushStateMode::PERIODIC)) {
         return false;
     }
 
@@ -3362,7 +3358,7 @@ bool CChainState::AcceptBlock(const std::shared_ptr<const CBlock>& pblock, CVali
     }
 
     if (fCheckForPruning)
-        FlushStateToDisk(chainparams, state, FLUSH_STATE_NONE); // we just allocated more disk space for block files
+        FlushStateToDisk(chainparams, state, FlushStateMode::NONE); // we just allocated more disk space for block files
 
     CheckBlockIndex(chainparams.GetConsensus(chainActive.Height()));
 
@@ -3523,7 +3519,10 @@ void PruneBlockFilesManual(int nManualPruneHeight)
 {
     CValidationState state;
     const CChainParams& chainparams = Params();
-    FlushStateToDisk(chainparams, state, FLUSH_STATE_NONE, nManualPruneHeight);
+    if (!g_chainstate.FlushStateToDisk(
+            chainparams, state, FlushStateMode::NONE, nManualPruneHeight)) {
+        LogPrintf("%s: failed to flush state (%s)\n", __func__, FormatStateMessage(state));
+    }
 }
 
 /**
@@ -4028,7 +4027,7 @@ bool CChainState::RewindBlockIndex(const CChainParams& params)
             return error("RewindBlockIndex: unable to disconnect block at height %i", pindex->nHeight);
         }
         // Occasionally flush state to disk.
-        if (!FlushStateToDisk(params, state, FLUSH_STATE_PERIODIC))
+        if (!FlushStateToDisk(params, state, FlushStateMode::PERIODIC))
             return false;
     }
 
@@ -4089,7 +4088,8 @@ bool RewindBlockIndex(const CChainParams& params) {
         // and skip it here, we're about to -reindex-chainstate anyway, so
         // it'll get called a bunch real soon.
         CValidationState state;
-        if (!FlushStateToDisk(params, state, FLUSH_STATE_ALWAYS)) {
+        if (!g_chainstate.FlushStateToDisk(params, state, FlushStateMode::ALWAYS)) {
+            LogPrintf("RewindBlockIndex: unable to flush state to disk (%s)\n", FormatStateMessage(state));
             return false;
         }
     }
@@ -4169,7 +4169,7 @@ bool CChainState::LoadGenesisBlock(const CChainParams& chainparams)
             if (!ReceivedBlockTransactions(block, state, pindex, blockPos, chainparams.GetConsensus(0)))
                 return error("LoadBlockIndex(): genesis block not accepted");
             // Force a chainstate write so that when we VerifyDB in a moment, it doesn't check stale data
-            return FlushStateToDisk(chainparams, state, FLUSH_STATE_ALWAYS);
+            return FlushStateToDisk(chainparams, state, FlushStateMode::ALWAYS);
         } catch (const std::runtime_error& e) {
             return error("LoadBlockIndex(): failed to initialize block database: %s", e.what());
         }

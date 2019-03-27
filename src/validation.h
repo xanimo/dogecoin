@@ -308,10 +308,6 @@ void PruneOneBlockFile(const int fileNumber);
  */
 void UnlinkPrunedFiles(const std::set<int>& setFilesToPrune);
 
-/** Flush all state, indexes and buffers to disk. */
-void FlushStateToDisk();
-/** Prune block files and flush state to disk. */
-void PruneAndFlush();
 /** Prune block files up to a given height */
 void PruneBlockFilesManual(int nPruneUpToHeight);
 
@@ -516,6 +512,14 @@ enum DisconnectResult
 
 class ConnectTrace;
 
+/** @see CChainState::FlushStateToDisk */
+enum class FlushStateMode {
+    NONE,
+    IF_NEEDED,
+    PERIODIC,
+    ALWAYS
+};
+
 struct CBlockIndexWorkComparator
 {
     bool operator()(const CBlockIndex *pa, const CBlockIndex *pb) const;
@@ -584,6 +588,28 @@ public:
 
     bool LoadBlockIndex(const Consensus::Params& consensus_params, CBlockTreeDB& blocktree);
 
+    /**
+     * Update the on-disk chain state.
+     * The caches and indexes are flushed depending on the mode we're called with
+     * if they're too large, if it's been a while since the last write,
+     * or always and in all cases if we're in prune mode and are deleting files.
+     *
+     * If FlushStateMode::NONE is used, then FlushStateToDisk(...) won't do anything
+     * besides checking if we need to prune.
+     */
+    bool FlushStateToDisk(
+        const CChainParams& chainparams,
+        CValidationState &state,
+        FlushStateMode mode,
+        int nManualPruneHeight = 0);
+
+    //! Unconditionally flush all changes to disk.
+    void ForceFlushStateToDisk();
+
+    //! Prune blockfiles from the disk if necessary and then flush chainstate changes
+    //! if we pruned.
+    void PruneAndFlush();
+
     bool ActivateBestChain(CValidationState &state, const CChainParams& chainparams, std::shared_ptr<const CBlock> pblock);
 
     bool AcceptBlockHeader(const CBlockHeader& block, CValidationState& state, const CChainParams& chainparams, CBlockIndex** ppindex);
@@ -633,6 +659,9 @@ bool InvalidateBlock(CValidationState& state, const CChainParams& chainparams, C
 
 /** Remove invalidity status from a block and its descendants. */
 bool ResetBlockFailureFlags(CBlockIndex *pindex);
+
+/** The global chain state. */
+extern CChainState g_chainstate;
 
 /** The currently-connected chain of blocks (protected by cs_main). */
 extern CChain& chainActive;
