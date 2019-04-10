@@ -502,7 +502,6 @@ BOOST_AUTO_TEST_CASE(GetMinimumFee_test)
     CTxMemPool pool(payTxFee);
     CTxOut txout1(value, (CScript)vector<unsigned char>(24, 0));
     tx.vout.push_back(txout1);
-
     int64_t nMinTxFee = COIN / 100;
 
     BOOST_CHECK_EQUAL(CWallet::GetMinimumFee(tx, 250, 0, pool), nMinTxFee * 0.25);
