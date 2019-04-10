@@ -500,6 +500,8 @@ public:
 /** Replay blocks that aren't fully applied to the database. */
 bool ReplayBlocks(const CChainParams& params, CCoinsView* view);
 
+CBlockIndex* LookupBlockIndex(const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
 /** Find the last common block between the parameter chain and a locator. */
 CBlockIndex* FindForkInGlobalIndex(const CChain& chain, const CBlockLocator& locator);
 
@@ -585,7 +587,7 @@ public:
 
     /**
      * If a block header hasn't already been seen, call CheckBlockHeader on it, ensure
-     * that it doesn't descend from an invalid block, and then add it to mapBlockIndex.
+     * that it doesn't descend from an invalid block, and then add it to m_block_index.
      */
     bool AcceptBlockHeader(
         const CBlockHeader& block,
@@ -734,6 +736,9 @@ extern CChainState g_chainstate;
 
 /** The currently-connected chain of blocks (protected by cs_main). */
 extern CChain& chainActive;
+
+/** @returns the global block index map. */
+BlockMap& BlockIndex();
 
 /** Global variable that points to the active CCoinsView (protected by cs_main) */
 extern CCoinsViewCache *pcoinsTip;
