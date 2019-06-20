@@ -15,6 +15,7 @@
 #include "fs.h"
 #include "hash.h"
 #include "limitedmap.h"
+#include "net_permissions.h"
 #include "netaddress.h"
 #include "protocol.h"
 #include "random.h"
@@ -147,8 +148,9 @@ public:
         uint64_t nMaxOutboundTimeframe = 0;
         uint64_t nMaxOutboundLimit = 0;
         std::vector<std::string> vSeedNodes;
-        std::vector<CSubNet> vWhitelistedRange;
-        std::vector<CService> vBinds, vWhiteBinds;
+        std::vector<NetWhitelistPermissions> vWhitelistedRange;
+        std::vector<NetWhitebindPermissions> vWhiteBinds;
+        std::vector<CService> vBinds;
         bool m_use_addrman_outgoing = true;
         std::vector<std::string> m_specified_outgoing;
         std::vector<bool> m_asmap;
@@ -321,15 +323,17 @@ public:
 
 private:
     struct ListenSocket {
+    public:
         SOCKET socket;
-        bool whitelisted;
-
-        ListenSocket(SOCKET socket_, bool whitelisted_) : socket(socket_), whitelisted(whitelisted_) {}
+        inline void AddSocketPermissionFlags(NetPermissionFlags& flags) const { NetPermissions::AddFlag(flags, m_permissions); }
+        ListenSocket(SOCKET socket_, NetPermissionFlags permissions_) : socket(socket_), m_permissions(permissions_) {}
+    private:
+        NetPermissionFlags m_permissions;
     };
 
-    bool BindListenPort(const CService &bindAddr, std::string& strError, bool fWhitelisted = false);
-    bool Bind(const CService &addr, unsigned int flags);
-    bool InitBinds(const std::vector<CService>& binds, const std::vector<CService>& whiteBinds);
+    bool BindListenPort(const CService& bindAddr, std::string& strError, NetPermissionFlags permissions);
+    bool Bind(const CService& addr, unsigned int flags, NetPermissionFlags permissions);
+    bool InitBinds(const std::vector<CService>& binds, const std::vector<NetWhitebindPermissions>& whiteBinds);
     void ThreadOpenAddedConnections();
     void AddOneShot(const std::string& strDest);
     void ProcessOneShot();
@@ -348,7 +352,7 @@ private:
 
     bool AttemptToEvictConnection();
     CNode* ConnectNode(CAddress addrConnect, const char *pszDest, bool fCountFailure);
-    bool IsWhitelistedRange(const CNetAddr &addr);
+    void AddWhitelistPermissionFlags(NetPermissionFlags& flags, const CNetAddr &addr) const;
 
     void DeleteNode(CNode* pnode);
     void DisconnectUnusedNodes();
@@ -388,7 +392,7 @@ private:
 
     // Whitelisted ranges. Any node connecting from these is automatically
     // whitelisted (as well as those connecting to whitelisted binds).
-    std::vector<CSubNet> vWhitelistedRange;
+    std::vector<NetWhitelistPermissions> vWhitelistedRange;
 
     unsigned int nSendBufferMaxSize;
     unsigned int nReceiveFloodSize;
@@ -448,7 +452,6 @@ extern std::unique_ptr<CConnman> g_connman;
 void Discover(boost::thread_group& threadGroup);
 void MapPort(bool fUseUPnP);
 unsigned short GetListenPort();
-bool BindListenPort(const CService &bindAddr, std::string& strError, bool fWhitelisted = false);
 
 struct CombinerAll
 {
@@ -540,6 +543,7 @@ public:
     mapMsgCmdSize mapSendBytesPerMsgCmd;
     uint64_t nRecvBytes;
     mapMsgCmdSize mapRecvBytesPerMsgCmd;
+    NetPermissionFlags m_permissionFlags;
     bool fWhitelisted;
     double dPingTime;
     double dPingWait;
@@ -638,18 +642,23 @@ public:
     const CAddress addr;
     // Bind address of our side of the connection
     const CAddress addrBind;
-    std::atomic<int> nVersion;
-    // strSubVer is whatever byte array we read from the wire. However, this field is intended
-    // to be printed out, displayed to humans in various forms and so on. So we sanitize it and
-    // store the sanitized version in cleanSubVer. The original should be used when dealing with
-    // the network or wire types and the cleaned string used when displayed or logged.
-    std::string strSubVer, cleanSubVer;
-    CCriticalSection cs_SubVer; // used for both cleanSubVer and strSubVer
-    bool fWhitelisted; // This peer can bypass DoS banning.
-    bool fFeeler; // If true this node is being used as a short lived feeler.
-    bool fOneShot;
-    bool fAddnode;
-    bool fClient;
+    std::atomic<int> nVersion{0};
+    CCriticalSection cs_SubVer;
+    /**
+     * cleanSubVer is a sanitized string of the user agent byte array we read
+     * from the wire. This cleaned string can safely be logged or displayed.
+     */
+    std::string cleanSubVer, strSubVer GUARDED_BY(cs_SubVer){};
+    bool HasPermission(NetPermissionFlags permission) const {
+        return NetPermissions::HasFlag(m_permissionFlags, permission);
+    }
+    bool fWhitelisted{false}; // This peer can bypass DoS banning.
+    bool fFeeler{false}; // If true this node is being used as a short lived feeler.
+    bool fOneShot{false};
+    bool fAddnode{false};
+    bool m_manual_connection{false};
+    bool fClient{false}; // set by version message
+    bool m_limited_node{false}; //after BIP159, set by version message
     const bool fInbound;
     std::atomic_bool fSuccessfullyConnected;
     std::atomic_bool fDisconnect;
@@ -749,7 +758,8 @@ private:
     // Services offered to this peer
     const ServiceFlags nLocalServices;
     const int nMyStartingHeight;
-    int nSendVersion;
+    int nSendVersion{0};
+    NetPermissionFlags m_permissionFlags{ PF_NONE };
     std::list<CNetMessage> vRecvMsg;  // Used only by SocketHandler thread
 
     mutable CCriticalSection cs_addrName;

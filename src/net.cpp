@@ -10,18 +10,18 @@
 
 #include "net.h"
 
-#include "addrman.h"
-#include "chainparams.h"
-#include "clientversion.h"
-#include "consensus/consensus.h"
-#include "crypto/common.h"
-#include "crypto/sha256.h"
-#include "hash.h"
-#include "primitives/transaction.h"
-#include "netbase.h"
-#include "scheduler.h"
-#include "ui_interface.h"
-#include "utilstrencodings.h"
+#include <addrman.h>
+#include <chainparams.h>
+#include <clientversion.h>
+#include <consensus/consensus.h>
+#include <crypto/common.h>
+#include <crypto/sha256.h>
+#include <netbase.h>
+#include <net_permissions.h>
+#include <primitives/transaction.h>
+#include <scheduler.h>
+#include <ui_interface.h>
+#include <utilstrencodings.h>
 
 #ifdef WIN32
 #include <string.h>
@@ -65,7 +65,6 @@ enum BindFlags {
     BF_NONE         = 0,
     BF_EXPLICIT     = (1U << 0),
     BF_REPORT_ERROR = (1U << 1),
-    BF_WHITELIST    = (1U << 2),
 };
 
 const static std::string NET_MESSAGE_COMMAND_OTHER = "*other*";
@@ -597,12 +596,10 @@ void CConnman::SetBannedSetDirty(bool dirty)
 }
 
 
-bool CConnman::IsWhitelistedRange(const CNetAddr &addr) {
-    for (const CSubNet& subnet : vWhitelistedRange) {
-        if (subnet.Match(addr))
-            return true;
+void CConnman::AddWhitelistPermissionFlags(NetPermissionFlags& flags, const CNetAddr &addr) const {
+    for (const auto& subnet : vWhitelistedRange) {
+        if (subnet.m_subnet.Match(addr)) NetPermissions::AddFlag(flags, subnet.m_flags);
     }
-    return false;
 }
 
 std::string CNode::GetAddrName() const {
@@ -670,9 +667,11 @@ void CNode::copyStats(CNodeStats &stats, std::vector<bool> &m_asmap)
         X(nRecvBytes);
     }
     X(fWhitelisted);
-    X(minFeeFilter);
-    X(nProcessedAddrs);
-    X(nRatelimitedAddrs);
+    X(m_permissionFlags);
+    {
+        LOCK(cs_feeFilter);
+        X(minFeeFilter);
+    }
 
     // It is common for nodes with good ping times to suddenly become lagged,
     // due to a new block arriving or other large transfer.
@@ -1052,7 +1051,19 @@ void CConnman::AcceptConnection(const ListenSocket& hListenSocket) {
         }
     }
 
-    bool whitelisted = hListenSocket.whitelisted || IsWhitelistedRange(addr);
+    NetPermissionFlags permissionFlags = NetPermissionFlags::PF_NONE;
+    hListenSocket.AddSocketPermissionFlags(permissionFlags);
+    AddWhitelistPermissionFlags(permissionFlags, addr);
+    bool legacyWhitelisted = false;
+    if (NetPermissions::HasFlag(permissionFlags, NetPermissionFlags::PF_ISIMPLICIT)) {
+        NetPermissions::ClearFlag(permissionFlags, PF_ISIMPLICIT);
+        if (GetBoolArg("-whitelistforcerelay", false)) NetPermissions::AddFlag(permissionFlags, PF_FORCERELAY);
+        if (GetBoolArg("-whitelistrelay", false)) NetPermissions::AddFlag(permissionFlags, PF_RELAY);
+        NetPermissions::AddFlag(permissionFlags, PF_MEMPOOL);
+        NetPermissions::AddFlag(permissionFlags, PF_NOBAN);
+        legacyWhitelisted = true;
+    }
+
     {
         LOCK(cs_vNodes);
         for (CNode* pnode : vNodes)
@@ -1085,7 +1096,9 @@ void CConnman::AcceptConnection(const ListenSocket& hListenSocket) {
     // on all platforms.  Set it again here just to be sure.
     SetSocketNoDelay(hSocket);
 
-    if (IsBanned(addr) && !whitelisted)
+    // Don't accept connections from banned peers, but if our inbound slots aren't almost full, accept
+    // if the only banning reason was an automatic misbehavior ban.
+    if (IsBanned(addr) && !legacyWhitelisted)
     {
         LogPrintf("connection from %s dropped (banned)\n", addr.ToString());
         CloseSocket(hSocket);
@@ -1106,9 +1119,15 @@ void CConnman::AcceptConnection(const ListenSocket& hListenSocket) {
     uint64_t nonce = GetDeterministicRandomizer(RANDOMIZER_ID_LOCALHOSTNONCE).Write(id).Finalize();
     CAddress addr_bind = GetBindAddress(hSocket);
 
-    CNode* pnode = new CNode(id, nLocalServices, GetBestHeight(), hSocket, addr, CalculateKeyedNetGroup(addr), nonce, addr_bind, "", true);
+    ServiceFlags nodeServices = nLocalServices;
+    if (NetPermissions::HasFlag(permissionFlags, PF_BLOOMFILTER)) {
+        nodeServices = static_cast<ServiceFlags>(nodeServices | NODE_BLOOM);
+    }
+    CNode* pnode = new CNode(id, nodeServices, GetBestHeight(), hSocket, addr, CalculateKeyedNetGroup(addr), nonce, addr_bind, "", true);
     pnode->AddRef();
-    pnode->fWhitelisted = whitelisted;
+    pnode->m_permissionFlags = permissionFlags;
+    // If this flag is present, the user probably expect that RPC and QT report it as whitelisted (backward compatibility)
+    pnode->fWhitelisted = legacyWhitelisted;
     m_msgproc->InitializeNode(pnode);
 
     LogPrint("net", "connection from %s accepted\n", addr.ToString());
@@ -2082,7 +2101,7 @@ void CConnman::ThreadMessageHandler()
 
 
 
-bool CConnman::BindListenPort(const CService &addrBind, std::string& strError, bool fWhitelisted)
+bool CConnman::BindListenPort(const CService& addrBind, std::string& strError, NetPermissionFlags permissions)
 {
     strError = "";
     int nOne = 1;
@@ -2172,9 +2191,9 @@ bool CConnman::BindListenPort(const CService &addrBind, std::string& strError, b
         return false;
     }
 
-    vhListenSocket.push_back(ListenSocket(hListenSocket, fWhitelisted));
+    vhListenSocket.push_back(ListenSocket(hListenSocket, permissions));
 
-    if (addrBind.IsRoutable() && fDiscover && !fWhitelisted)
+    if (addrBind.IsRoutable() && fDiscover && (permissions & PF_NOBAN) == 0)
         AddLocal(addrBind, LOCAL_BIND);
 
     return true;
@@ -2274,11 +2293,11 @@ NodeId CConnman::GetNewNodeId()
 }
 
 
-bool CConnman::Bind(const CService &addr, unsigned int flags) {
-    if (!(flags & BF_EXPLICIT) && IsLimited(addr))
+bool CConnman::Bind(const CService &addr, unsigned int flags, NetPermissionFlags permissions) {
+    if (!(flags & BF_EXPLICIT) && !IsReachable(addr))
         return false;
     std::string strError;
-    if (!BindListenPort(addr, strError, (flags & BF_WHITELIST) != 0)) {
+    if (!BindListenPort(addr, strError, permissions)) {
         if ((flags & BF_REPORT_ERROR) && clientInterface) {
             clientInterface->ThreadSafeMessageBox(strError, "", CClientUIInterface::MSG_ERROR);
         }
@@ -2287,19 +2306,21 @@ bool CConnman::Bind(const CService &addr, unsigned int flags) {
     return true;
 }
 
-bool CConnman::InitBinds(const std::vector<CService>& binds, const std::vector<CService>& whiteBinds) {
+bool CConnman::InitBinds(const std::vector<CService>& binds, const std::vector<NetWhitebindPermissions>& whiteBinds)
+{
     bool fBound = false;
     for (const auto& addrBind : binds) {
-        fBound |= Bind(addrBind, (BF_EXPLICIT | BF_REPORT_ERROR));
+        fBound |= Bind(addrBind, (BF_EXPLICIT | BF_REPORT_ERROR), NetPermissionFlags::PF_NONE);
     }
     for (const auto& addrBind : whiteBinds) {
-        fBound |= Bind(addrBind, (BF_EXPLICIT | BF_REPORT_ERROR | BF_WHITELIST));
+        fBound |= Bind(addrBind.m_service, (BF_EXPLICIT | BF_REPORT_ERROR), addrBind.m_flags);
     }
     if (binds.empty() && whiteBinds.empty()) {
         struct in_addr inaddr_any;
         inaddr_any.s_addr = INADDR_ANY;
-        fBound |= Bind(CService(in6addr_any, GetListenPort()), BF_NONE);
-        fBound |= Bind(CService(inaddr_any, GetListenPort()), !fBound ? BF_REPORT_ERROR : BF_NONE);
+        struct in6_addr inaddr6_any = IN6ADDR_ANY_INIT;
+        fBound |= Bind(CService(inaddr6_any, GetListenPort()), BF_NONE, NetPermissionFlags::PF_NONE);
+        fBound |= Bind(CService(inaddr_any, GetListenPort()), !fBound ? BF_REPORT_ERROR : BF_NONE, NetPermissionFlags::PF_NONE);
     }
     return fBound;
 }

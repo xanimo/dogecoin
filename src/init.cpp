@@ -27,6 +27,7 @@
 #include "miner.h"
 #include "netbase.h"
 #include "net.h"
+#include "net_permissions.h"
 #include "net_processing.h"
 #include "policy/policy.h"
 #include "rpc/server.h"
@@ -48,7 +49,6 @@
 #include "wallet/wallet.h"
 #endif
 #include "warnings.h"
-
 
 #include <stdint.h>
 #include <stdio.h>
@@ -1666,27 +1666,18 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
             connOptions.vBinds.push_back(addrBind);
         }
     }
-    if (IsArgSet("-whitebind")) {
-        for (const std::string& strBind : mapMultiArgs.at("-whitebind")) {
-            CService addrBind;
-            if (!Lookup(strBind.c_str(), addrBind, 0, false)) {
-                return InitError(ResolveErrMsg("whitebind", strBind));
-            }
-            if (addrBind.GetPort() == 0) {
-                return InitError(strprintf(_("Need to specify a port with -whitebind: '%s'"), strBind));
-            }
-            connOptions.vWhiteBinds.push_back(addrBind);
-        }
+    for (const std::string& strBind : mapMultiArgs.at("-whitebind")) {
+        NetWhitebindPermissions whitebind;
+        std::string error;
+        if (!NetWhitebindPermissions::TryParse(strBind, whitebind, error)) return InitError(error);
+        connOptions.vWhiteBinds.push_back(whitebind);
     }
 
-    if (IsArgSet("-whitelist")) {
-        for (const auto& net : mapMultiArgs.at("-whitelist")) {
-            CSubNet subnet;
-            LookupSubNet(net.c_str(), subnet);
-            if (!subnet.IsValid())
-                return InitError(strprintf(_("Invalid netmask specified in -whitelist: '%s'"), net));
-            connOptions.vWhitelistedRange.push_back(subnet);
-        }
+    for (const auto& net : mapMultiArgs.at("-whitelist")) {
+        NetWhitelistPermissions subnet;
+        std::string error;
+        if (!NetWhitelistPermissions::TryParse(net, subnet, error)) return InitError(error);
+        connOptions.vWhitelistedRange.push_back(subnet);
     }
 
     if (IsArgSet("-seednode")) {

@@ -7,11 +7,12 @@
 
 #include "chainparams.h"
 #include "clientversion.h"
-#include "validation.h"
+#include "core_io.h"
 #include "net.h"
 #include "net_processing.h"
 #include "netbase.h"
 #include "policy/policy.h"
+#include "rpc/protocol.h"
 #include "protocol.h"
 #include "sync.h"
 #include "timedata.h"
@@ -20,7 +21,8 @@
 #include "utilmoneystr.h"
 #include "utilstrencodings.h"
 #include "version.h"
-
+#include "validation.h"
+#include "warnings.h"
 
 #include <univalue.h>
 
@@ -212,6 +214,12 @@ UniValue getpeerinfo(const JSONRPCRequest& request)
         obj.pushKV("addr_processed", stats.nProcessedAddrs);
         obj.pushKV("addr_rate_limited", stats.nRatelimitedAddrs);
         obj.pushKV("whitelisted", stats.fWhitelisted);
+        UniValue permissions(UniValue::VARR);
+        for (const auto& permission : NetPermissions::ToStrings(stats.m_permissionFlags)) {
+            permissions.push_back(permission);
+        }
+        obj.pushKV("permissions", permissions);
+        obj.pushKV("minfeefilter", ValueFromAmount(stats.minFeeFilter));
 
         UniValue sendPerMsgCmd(UniValue::VOBJ);
         for (const mapMsgCmdSize::value_type &i : stats.mapSendBytesPerMsgCmd) {
