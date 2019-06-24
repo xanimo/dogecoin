@@ -3659,7 +3659,10 @@ CBlockIndex * BlockManager::InsertBlockIndex(const uint256& hash)
     return pindexNew;
 }
 
-bool BlockManager::LoadBlockIndex(const Consensus::Params& consensus_params, CBlockTreeDB& blocktree)
+bool BlockManager::LoadBlockIndex(
+    const Consensus::Params& consensus_params,
+    CBlockTreeDB& blocktree,
+    std::set<CBlockIndex*, CBlockIndexWorkComparator>& block_index_candidates)
 {
     if (!blocktree.LoadBlockIndexGuts([this](const uint256& hash){ return this->InsertBlockIndex(hash); }))
         return false;
@@ -3703,8 +3706,9 @@ bool BlockManager::LoadBlockIndex(const Consensus::Params& consensus_params, CBl
             pindex->nStatus |= BLOCK_FAILED_CHILD;
             setDirtyBlockIndex.insert(pindex);
         }
-        if (pindex->IsValid(BLOCK_VALID_TRANSACTIONS) && (pindex->nChainTx || pindex->pprev == nullptr))
-            g_chainstate.setBlockIndexCandidates.insert(pindex);
+        if (pindex->IsValid(BLOCK_VALID_TRANSACTIONS) && (pindex->nChainTx || pindex->pprev == nullptr)) {
+            block_index_candidates.insert(pindex);
+        }
         if (pindex->nStatus & BLOCK_FAILED_MASK && (!pindexBestInvalid || pindex->nChainWork > pindexBestInvalid->nChainWork))
             pindexBestInvalid = pindex;
         if (pindex->pprev)
@@ -3729,7 +3733,7 @@ void BlockManager::Unload() {
 
 bool static LoadBlockIndexDB(const CChainParams& chainparams)
 {
-    if (!g_blockman.LoadBlockIndex(chainparams.GetConsensus(0), *pblocktree))
+    if (!g_blockman.LoadBlockIndex(chainparams.GetConsensus(0), *pblocktree, g_chainstate.setBlockIndexCandidates))
         return false;
 
     // Load block file info
