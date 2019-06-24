@@ -115,12 +115,13 @@ CScript COINBASE_FLAGS;
 
 const std::string strMessageMagic = "Dogecoin Signed Message:\n";
 
-// File-scope aliases for g_chainstate members used by free functions.
-static CBlockIndex*& pindexBestInvalid = g_chainstate.pindexBestInvalid;
+// File-scope aliases for g_blockman members used by free functions.
 static std::multimap<CBlockIndex*, CBlockIndex*>& mapBlocksUnlinked = g_blockman.m_blocks_unlinked;
 
 // Internal stuff
 namespace {
+    CBlockIndex* pindexBestInvalid = nullptr;
+
     CCriticalSection cs_LastBlockFile;
     std::vector<CBlockFileInfo> vinfoBlockFile;
     int nLastBlockFile = 0;
