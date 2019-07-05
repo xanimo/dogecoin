@@ -318,7 +318,7 @@ std::string HelpMessage(HelpMessageMode mode)
     std::string strUsage = HelpMessageGroup(_("Options:"));
     strUsage += HelpMessageOpt("-?", _("Print this help message and exit"));
     strUsage += HelpMessageOpt("-version", _("Print version and exit"));
-#if defined(HAVE_SYSTEM)
+#if HAVE_SYSTEM
     strUsage += HelpMessageOpt("-alertnotify=<cmd>", _("Execute command when we see a really long fork (%s in cmd is replaced by message)"));
     strUsage += HelpMessageOpt("-blocknotify=<cmd>", _("Execute command when the best block changes (%s in cmd is replaced by block hash, %i is replaced by block number)"));
 #endif
@@ -526,7 +526,7 @@ std::string LicenseInfo()
            "\n";
 }
 
-#if defined(HAVE_SYSTEM)
+#if HAVE_SYSTEM
 static void BlockNotifyCallback(bool initialSync, const CBlockIndex *pBlockIndex)
 {
     if (initialSync || !pBlockIndex)
@@ -1599,11 +1599,10 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
         fHaveGenesis = true;
     }
 
-#if defined(HAVE_SYSTEM)
+#if HAVE_SYSTEM
     if (gArgs.IsArgSet("-blocknotify"))
         uiInterface.NotifyBlockTip.connect(BlockNotifyCallback);
 #endif
-
     std::vector<fs::path> vImportFiles;
     if (gArgs.IsArgSet("-loadblock"))
     {
