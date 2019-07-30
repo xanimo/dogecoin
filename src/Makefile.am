@@ -161,6 +161,7 @@ BITCOIN_CORE_H = \
   undo.h \
   util.h \
   util/asmap.h \
+  util/spanparsing.h \
   util/memory.h \
   utilmoneystr.h \
   utiltime.h \
@@ -373,6 +374,7 @@ libdogecoin_util_a_SOURCES = \
   utilstrencodings.cpp \
   utiltime.cpp \
   util/asmap.cpp \
+  util/spanparsing.cpp \
   $(BITCOIN_CORE_H)
 
 if GLIBC_BACK_COMPAT
