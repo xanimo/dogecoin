@@ -387,7 +387,7 @@ void BitcoinGUI::createActions()
     usedReceivingAddressesAction->setStatusTip(tr("Show the list of used receiving addresses and labels"));
 
     openAction = new QAction(platformStyle->TextColorIcon(":/icons/open"), tr("Open &URI..."), this);
-    openAction->setStatusTip(tr("Open a dogecoin: URI or payment request"));
+    openAction->setStatusTip(tr("Open a dogecoin: URI"));
 
     importPrivateKeyAction = new QAction(platformStyle->TextColorIcon(":/icons/address-book"), tr("&Import Private Key..."), this);
     importPrivateKeyAction->setStatusTip(tr("Import a Dogecoin private key"));
