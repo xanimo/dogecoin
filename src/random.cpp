@@ -615,7 +615,7 @@ bool Random_SanityCheck()
     uint64_t start = GetPerformanceCounter();
 
     /* This does not measure the quality of randomness, but it does test that
-     * OSRandom() overwrites all 32 bytes of the output given a maximum
+     * GetOSRand() overwrites all 32 bytes of the output given a maximum
      * number of tries.
      */
     static const ssize_t MAX_TRIES = 1024;
