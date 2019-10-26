@@ -147,6 +147,7 @@ BITCOIN_CORE_H = \
   primitives/pureheader.h \
   protocol.h \
   random.h \
+  randomenv.h \
   reverselock.h \
   rpc/blockchain.h \
   rpc/client.h \
@@ -412,6 +413,7 @@ libdogecoin_util_a_SOURCES = \
   fs.cpp \
   random.cpp \
   rpc/protocol.cpp \
+  randomenv.cpp \
   support/cleanse.cpp \
   sync.cpp \
   threadinterrupt.cpp \
