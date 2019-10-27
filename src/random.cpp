@@ -5,6 +5,7 @@
 
 #include "random.h"
 
+#include "compat/cpuid.h"
 #include "crypto/sha512.h"
 #include "support/cleanse.h"
 #ifdef WIN32
@@ -40,14 +41,6 @@
 #include <sys/sysctl.h>
 #endif
 
-#include <mutex>
-
-#if defined(__x86_64__) || defined(__amd64__) || defined(__i386__)
-#include <cpuid.h>
-#endif
-
-#include <boost/thread/mutex.hpp>
-
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/conf.h>
@@ -78,20 +71,29 @@ static inline int64_t GetPerformanceCounter() noexcept
 #endif
 }
 
-#if defined(__x86_64__) || defined(__amd64__) || defined(__i386__)
-static bool rdrand_supported = false;
+#ifdef HAVE_GETCPUID
+static bool g_rdrand_supported = false;
+static bool g_rdseed_supported = false;
 static constexpr uint32_t CPUID_F1_ECX_RDRAND = 0x40000000;
+static constexpr uint32_t CPUID_F7_EBX_RDSEED = 0x00040000;
+#ifdef bit_RDRND
+static_assert(CPUID_F1_ECX_RDRAND == bit_RDRND, "Unexpected value for bit_RDRND");
+#endif
+#ifdef bit_RDSEED
+static_assert(CPUID_F7_EBX_RDSEED == bit_RDSEED, "Unexpected value for bit_RDSEED");
+#endif
+
 static void InitHardwareRand()
 {
     uint32_t eax, ebx, ecx, edx;
     if (__get_cpuid(1, &eax, &ebx, &ecx, &edx) && (ecx & CPUID_F1_ECX_RDRAND)) {
-        rdrand_supported = true;
+        g_rdrand_supported = true;
     }
 }
 
 static void ReportHardwareRand()
 {
-    if (rdrand_supported) {
+    if (g_rdrand_supported) {
         // This must be done in a separate function, as HWRandInit() may be indirectly called
         // from global constructors, before logging is initialized.
         LogPrintf("Using RdRand as an additional entropy source\n");
@@ -110,7 +112,7 @@ static void ReportHardwareRand() {}
 
 static bool GetHardwareRand(unsigned char* ent32) noexcept {
 #if defined(__x86_64__) || defined(__amd64__) || defined(__i386__)
-    if (rdrand_supported) {
+    if (g_rdrand_supported) {
         uint8_t ok;
         // Not all assemblers support the rdrand instruction, write it in hex.
 #ifdef __i386__

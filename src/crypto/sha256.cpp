@@ -67,9 +67,10 @@ static const uint32_t K[] =
 #include <sys/sysctl.h>
 #endif
 
+#include <compat/cpuid.h>
+
 #if defined(__x86_64__) || defined(__amd64__) || defined(__i386__)
 #if defined(USE_ASM)
-#include <cpuid.h>
 namespace sha256_sse4
 {
 void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks);
@@ -787,18 +788,7 @@ bool SelfTest() {
     return true;
 }
 
-
 #if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
-// We can't use cpuid.h's __get_cpuid as it does not support subleafs.
-void inline cpuid(uint32_t leaf, uint32_t subleaf, uint32_t& a, uint32_t& b, uint32_t& c, uint32_t& d)
-{
-#ifdef __GNUC__
-    __cpuid_count(leaf, subleaf, a, b, c, d);
-#else
-  __asm__ ("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "0"(leaf), "2"(subleaf));
-#endif
-}
-
 /** Check whether the OS has enabled AVX registers. */
 bool AVXEnabled()
 {
@@ -811,7 +801,7 @@ bool AVXEnabled()
 /** Initialize the function pointer */
 void inline Initialize_transform_ptr(void)
 {
-#if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
+#if defined(USE_ASM) && defined(HAVE_GETCPUID)
     bool have_sse4 = false;
     bool have_xsave = false;
     bool have_avx = false;
@@ -820,7 +810,7 @@ void inline Initialize_transform_ptr(void)
     [[maybe_unused]] bool enabled_avx = false;
 
     uint32_t eax, ebx, ecx, edx;
-    cpuid(1, 0, eax, ebx, ecx, edx);
+    GetCPUID(1, 0, eax, ebx, ecx, edx);
     have_sse4 = (ecx >> 19) & 1;
     have_xsave = (ecx >> 27) & 1;
     have_avx = (ecx >> 28) & 1;
@@ -828,7 +818,7 @@ void inline Initialize_transform_ptr(void)
         enabled_avx = AVXEnabled();
     }
     if (have_sse4) {
-        cpuid(7, 0, eax, ebx, ecx, edx);
+        GetCPUID(7, 0, eax, ebx, ecx, edx);
         have_avx2 = (ebx >> 5) & 1;
         have_x86_shani = (ebx >> 29) & 1;
     }
