@@ -34,6 +34,7 @@
 #include "util.h"
 #include "net.h"
 #include "utilstrencodings.h"
+#include "random.h"
 
 #include <stdio.h>
 
@@ -215,7 +216,7 @@ void PaperWalletDialog::setClientModel(ClientModel *_clientModel)
 
 void PaperWalletDialog::setModel(WalletModel *model)
 {
-    RandAddSeedSleep();
+    RandAddPeriodic();
     this->model = model;
     this->on_getNewAddress_clicked();
 }
