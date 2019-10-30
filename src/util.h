@@ -17,6 +17,7 @@
 
 #include "compat.h"
 #include "fs.h"
+#include "optional.h"
 #include "tinyformat.h"
 #include "utiltime.h"
 
@@ -62,7 +63,7 @@ extern const char * const BITCOIN_PID_FILENAME;
  */
 inline std::string _(const char* psz)
 {
-    boost::optional<std::string> rv = translationInterface.Translate(psz);
+    Optional<std::string> rv = translationInterface.Translate(psz);
     return rv ? (*rv) : psz;
 }
 

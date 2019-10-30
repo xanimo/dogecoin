@@ -6,6 +6,7 @@
 #ifndef BITCOIN_WALLET_COINCONTROL_H
 #define BITCOIN_WALLET_COINCONTROL_H
 
+#include "optional.h"
 #include "primitives/transaction.h"
 #include "dogecoin-fees.h"
 

@@ -10,6 +10,7 @@
 #include "clientversion.h"
 #include "consensus/consensus.h"
 #include "consensus/validation.h"
+#include "optional.h"
 #include "validation.h"
 #include "policy/policy.h"
 #include "policy/fees.h"
@@ -179,9 +180,9 @@ bool CTxMemPool::CalculateMemPoolAncestors(const CTxMemPoolEntry &entry, setEntr
         // GetMemPoolParents() is only valid for entries in the mempool, so we
         // iterate mapTx to find parents.
         for (unsigned int i = 0; i < tx.vin.size(); i++) {
-            txiter piter = mapTx.find(tx.vin[i].prevout.hash);
+            Optional<txiter> piter = mapTx.find(tx.vin[i].prevout.hash);
             if (piter != mapTx.end()) {
-                parentHashes.insert(piter);
+                parentHashes.insert(*piter);
                 if (parentHashes.size() + 1 > limitAncestorCount) {
                     errString = strprintf("too many unconfirmed parents [limit: %u]", limitAncestorCount);
                     return false;
