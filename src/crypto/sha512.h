@@ -24,6 +24,7 @@ public:
     CSHA512& Write(const unsigned char* data, size_t len);
     void Finalize(unsigned char hash[OUTPUT_SIZE]);
     CSHA512& Reset();
+    uint64_t Size() const { return bytes; }
 };
 
 void detect_sha512_hardware(void);
