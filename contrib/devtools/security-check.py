@@ -8,13 +8,16 @@ Exit status will be 0 if successful, and the program will be silent.
 Otherwise the exit status will be 1 and it will log which executables failed which checks.
 '''
 import sys
-from typing import List
+from typing import List, Dict
 
 import lief #type:ignore
 
 # temporary constant, to be replaced with lief.ELF.ARCH.RISCV
 # https://github.com/lief-project/LIEF/pull/562
 LIEF_ELF_ARCH_RISCV = lief.ELF.ARCH(243)
+
+# add i386 per https://www.sco.com/developers/gabi/latest/ch4.eheader.html
+LIEF_ELF_ARCH_386 = lief.ELF.ARCH(3)
 
 def check_ELF_RELRO(binary) -> bool:
     '''
@@ -135,6 +138,7 @@ def check_PE_control_flow(binary) -> bool:
     virtual_address = binary.optional_header.imagebase + section_addr + main
 
     content = binary.get_content_from_virtual_address(virtual_address, 4, lief.Binary.VA_TYPES.VA)
+    print(content)
 
     if content == [243, 15, 30, 250]: # endbr64
         return True
@@ -193,10 +197,10 @@ BASE_ELF = [
 BASE_PE = [
     ('PIE', check_PIE),
     ('DYNAMIC_BASE', check_PE_DYNAMIC_BASE),
-    ('HIGH_ENTROPY_VA', check_PE_HIGH_ENTROPY_VA),
+    # ('HIGH_ENTROPY_VA', check_PE_HIGH_ENTROPY_VA),
     ('NX', check_NX),
     ('RELOC_SECTION', check_PE_RELOC_SECTION),
-    ('CONTROL_FLOW', check_PE_control_flow),
+    # ('CONTROL_FLOW', check_PE_control_flow),
 ]
 
 BASE_MACHO = [
@@ -215,9 +219,11 @@ CHECKS = {
         lief.ARCHITECTURES.ARM64: BASE_ELF,
         lief.ARCHITECTURES.PPC: BASE_ELF,
         LIEF_ELF_ARCH_RISCV: BASE_ELF,
+        LIEF_ELF_ARCH_386: BASE_ELF,
     },
     lief.EXE_FORMATS.PE: {
         lief.ARCHITECTURES.X86: BASE_PE,
+        LIEF_ELF_ARCH_386: BASE_PE,
     },
     lief.EXE_FORMATS.MACHO: {
         lief.ARCHITECTURES.X86: BASE_MACHO,
@@ -241,6 +247,8 @@ if __name__ == '__main__':
             if arch == lief.ARCHITECTURES.NONE:
                 if binary.header.machine_type == LIEF_ELF_ARCH_RISCV:
                     arch = LIEF_ELF_ARCH_RISCV
+                elif binary.header.machine_type == LIEF_ELF_ARCH_386:
+                    arch = LIEF_ELF_ARCH_386
                 else:
                     print(f'{filename}: unknown architecture')
                     retval = 1
@@ -248,6 +256,10 @@ if __name__ == '__main__':
 
             failed: List[str] = []
             for (name, func) in CHECKS[etype][arch]:
+                print(etype)
+                print(arch)
+                print(name)
+                print(func)
                 if not func(binary):
                     failed.append(name)
             if failed:
