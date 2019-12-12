@@ -15,6 +15,7 @@
 #include "chain.h"
 #include "coins.h"
 #include "fs.h"
+#include "txdb.h"
 #include "policy/policy.h" // For RECOMMENDED_MIN_TX_FEE
 #include "protocol.h" // For CMessageHeader::MessageStartChars
 #include "script/script_error.h"
@@ -32,6 +33,7 @@
 #include <vector>
 
 #include <atomic>
+#include <optional>
 
 #include <boost/unordered_map.hpp>
 
@@ -596,6 +598,53 @@ public:
 };
 
 /**
+ * A convenience class for constructing the CCoinsView* hierarchy used
+ * to facilitate access to the UTXO set.
+ *
+ * This class consists of an arrangement of layered CCoinsView objects,
+ * preferring to store and retrieve coins in memory via `m_cacheview` but
+ * ultimately falling back on cache misses to the canonical store of UTXOs on
+ * disk, `m_dbview`.
+ */
+class CoinsViews {
+
+public:
+    //! The lowest level of the CoinsViews cache hierarchy sits in a leveldb database on disk.
+    //! All unspent coins reside in this store.
+    CCoinsViewDB m_dbview GUARDED_BY(cs_main);
+
+    //! This view wraps access to the leveldb instance and handles read errors gracefully.
+    CCoinsViewErrorCatcher m_catcherview GUARDED_BY(cs_main);
+
+    //! This is the top layer of the cache hierarchy - it keeps as many coins in memory as
+    //! can fit per the dbcache setting.
+    std::unique_ptr<CCoinsViewCache> m_cacheview GUARDED_BY(cs_main);
+
+    //! This constructor initializes CCoinsViewDB and CCoinsViewErrorCatcher instances, but it
+    //! *does not* create a CCoinsViewCache instance by default. This is done separately because the
+    //! presence of the cache has implications on whether or not we're allowed to flush the cache's
+    //! state to disk, which should not be done until the health of the database is verified.
+    //!
+    //! All arguments forwarded onto CCoinsViewDB.
+    CoinsViews(std::string ldb_name, size_t cache_size_bytes, bool in_memory, bool should_wipe);
+
+    //! Initialize the CCoinsViewCache member.
+    void InitCache() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+};
+
+enum class CoinsCacheSizeState
+{
+    //! The coins cache is in immediate need of a flush.
+    CRITICAL = 2,
+    //! The cache is at >= 90% capacity.
+    LARGE = 1,
+    OK = 0
+};
+
+// Defined below, but needed for `friend` usage in CChainState.
+class ChainstateManager;
+
+/**
  * CChainState stores and provides an API to update our local knowledge of the
  * current best chain.
  *
@@ -644,11 +693,14 @@ private:
     BlockManager& m_blockman;
 
 public:
-    CChainState(BlockManager& blockman) : m_blockman(blockman) { }
+    const uint256 m_from_snapshot_blockhash{};
+
+    explicit CChainState(BlockManager& blockman, const uint256& snapshot_blockhash = uint256())
+        : m_blockman(blockman), m_from_snapshot_blockhash(snapshot_blockhash) { }
 
     //! The current chain of blockheaders we consult and build on.
     //! @see CChain, CBlockIndex.
-    CChain chainActive;
+    CChain m_chain;
     /**
      * The set of all CBlockIndex entries with BLOCK_VALID_TRANSACTIONS (for itself and all ancestors) and
      * as good as our current tip or better. Entries may be failed, though, and pruning nodes may be
@@ -713,16 +765,35 @@ public:
      */
     void CheckBlockIndex(const Consensus::Params& consensusParams);
 
+    /** Update the chain tip based on database information, i.e. CoinsTip()'s best block. */
+    bool LoadChainTip(const CChainParams& chainparams) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+    //! Dictates whether we need to flush the cache to disk or not.
+    //!
+    //! @return the state of the size of the coins cache.
+    CoinsCacheSizeState GetCoinsCacheSizeState(const CTxMemPool& tx_pool)
+        EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+
+    CoinsCacheSizeState GetCoinsCacheSizeState(
+        const CTxMemPool& tx_pool,
+        size_t max_coins_cache_size_bytes,
+        size_t max_mempool_size_bytes) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+
+    std::string ToString() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+
 private:
     bool ActivateBestChainStep(BlockValidationState& state, const CChainParams& chainparams, CBlockIndex* pindexMostWork, const std::shared_ptr<const CBlock>& pblock, bool& fInvalidFound, ConnectTrace& connectTrace, DisconnectedBlockTransactions &disconnectpool);
     bool ConnectTip(BlockValidationState& state, const CChainParams& chainparams, CBlockIndex* pindexNew, const std::shared_ptr<const CBlock>& pblock, ConnectTrace& connectTrace, DisconnectedBlockTransactions &disconnectpool);
 
-    void EraseBlockData(CBlockIndex* index);
+    void EraseBlockData(CBlockIndex* index) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     void InvalidBlockFound(CBlockIndex *pindex, const BlockValidationState &state);
     CBlockIndex* FindMostWorkChain();
     bool ReceivedBlockTransactions(const CBlock &block, BlockValidationState& state, CBlockIndex *pindexNew, const CDiskBlockPos& pos, const Consensus::Params& consensusParams);
 
-    bool RollforwardBlock(const CBlockIndex* pindex, CCoinsViewCache& inputs, const CChainParams& params);
+    bool RollforwardBlock(const CBlockIndex* pindex, CCoinsViewCache& inputs, const CChainParams& params) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+
+    friend ChainstateManager;
 };
 
 /** Mark a block as precious and reorganize. */
@@ -735,6 +806,111 @@ bool ResetBlockFailureFlags(CBlockIndex *pindex);
 
 /** The global chain state. */
 extern CChainState g_chainstate;
+
+/**
+ * Provides an interface for creating and interacting with one or two
+ * chainstates: an IBD chainstate generated by downloading blocks, and
+ * an optional snapshot chainstate loaded from a UTXO snapshot. Managed
+ * chainstates can be maintained at different heights simultaneously.
+ *
+ * This class provides abstractions that allow the retrieval of the current
+ * most-work chainstate ("Active") as well as chainstates which may be in
+ * background use to validate UTXO snapshots.
+ *
+ * Definitions:
+ *
+ * *IBD chainstate*: a chainstate whose current state has been "fully"
+ *   validated by the initial block download process.
+ *
+ * *Snapshot chainstate*: a chainstate populated by loading in an
+ *    assumeutxo UTXO snapshot.
+ *
+ * *Active chainstate*: the chainstate containing the current most-work
+ *    chain. Consulted by most parts of the system (net_processing,
+ *    wallet) as a reflection of the current chain and UTXO set.
+ *    This may either be an IBD chainstate or a snapshot chainstate.
+ *
+ * *Background IBD chainstate*: an IBD chainstate for which the
+ *    IBD process is happening in the background while use of the
+ *    active (snapshot) chainstate allows the rest of the system to function.
+ *
+ * *Validated chainstate*: the most-work chainstate which has been validated
+ *   locally via initial block download. This will be the snapshot chainstate
+ *   if a snapshot was loaded and all blocks up to the snapshot starting point
+ *   have been downloaded and validated (via background validation), otherwise
+ *   it will be the IBD chainstate.
+ */
+class ChainstateManager
+{
+private:
+    //! The chainstate used under normal operation (i.e. "regular" IBD) or, if
+    //! a snapshot is in use, for background validation.
+    //!
+    //! Its contents (including on-disk data) will be deleted *upon shutdown*
+    //! after background validation of the snapshot has completed. We do not
+    //! free the chainstate contents immediately after it finishes validation
+    //! to cautiously avoid a case where some other part of the system is still
+    //! using this pointer (e.g. net_processing).
+    std::unique_ptr<CChainState> m_ibd_chainstate;
+
+    //! A chainstate initialized on the basis of a UTXO snapshot. If this is
+    //! non-null, it is always our active chainstate.
+    std::unique_ptr<CChainState> m_snapshot_chainstate;
+
+    //! Points to either the ibd or snapshot chainstate; indicates our
+    //! most-work chain.
+    CChainState* m_active_chainstate{nullptr};
+
+    //! If true, the assumed-valid chainstate has been fully validated
+    //! by the background validation chainstate.
+    bool m_snapshot_validated{false};
+
+    // For access to m_active_chainstate.
+    friend CChain& ChainActive();
+
+public:
+    //! Instantiate a new chainstate and assign it based upon whether it is
+    //! from a snapshot.
+    //!
+    //! @param[in] snapshot_blockhash   If given, signify that this chainstate
+    //!                                 is based on a snapshot.
+    CChainState& InitializeChainstate(const uint256& snapshot_blockhash = uint256())
+        EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+
+    //! Get all chainstates currently being used.
+    std::vector<CChainState*> GetAll();
+
+    //! The most-work chain.
+    CChain& ActiveChain() const;
+    int ActiveHeight() const { return ActiveChain().Height(); }
+    CBlockIndex* ActiveTip() const { return ActiveChain().Tip(); }
+
+    bool IsSnapshotActive() const;
+
+    std::optional<uint256> SnapshotBlockhash() const;
+
+    //! Is there a snapshot in use and has it been fully validated?
+    bool IsSnapshotValidated() const { return m_snapshot_validated; }
+
+    //! @returns true if this chainstate is being used to validate an active
+    //!          snapshot in the background.
+    bool IsBackgroundIBD(CChainState* chainstate) const;
+
+    //! Return the most-work chainstate that has been fully validated.
+    //!
+    //! During background validation of a snapshot, this is the IBD chain. After
+    //! background validation has completed, this is the snapshot chain.
+    CChainState& ValidatedChainstate() const;
+
+    CChain& ValidatedChain() const { return ValidatedChainstate().m_chain; }
+    CBlockIndex* ValidatedTip() const { return ValidatedChain().Tip(); }
+
+    //! Unload block index and chain data before shutdown.
+    void Unload() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+
+    //! Clear (deconstruct) chainstate data.
+    void Reset();
+};
 
 /** @returns the most-work valid chainstate. */
 CChainState& ChainstateActive();
