@@ -8,11 +8,15 @@
 #include "config/bitcoin-config.h"
 #endif
 
+#include <crypto/common.h>
+#include <crypto/sha3.h>
 #include "netaddress.h"
 #include "hash.h"
+#include <prevector.h>
 #include "span.h"
 #include "utilstrencodings.h"
 #include "tinyformat.h"
+#include <util/asmap.h>
 
 #include <algorithm>
 #include <array>
