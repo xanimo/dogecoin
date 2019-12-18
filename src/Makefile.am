@@ -166,6 +166,7 @@ BITCOIN_CORE_H = \
   util/memory.h \
   utilmoneystr.h \
   utiltime.h \
+  util/asmap.h \
   validation.h \
   validationinterface.h \
   versionbits.h \
