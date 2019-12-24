@@ -640,15 +640,18 @@ void CNode::SetAddrLocal(const CService& addrLocalIn) {
 
 #undef X
 #define X(name) stats.name = name
-void CNode::copyStats(CNodeStats &stats)
+void CNode::copyStats(CNodeStats &stats, std::vector<bool> &m_asmap)
 {
     stats.nodeid = this->GetId();
     X(nServices);
     X(addr);
     X(addrBind);
-    {
+    stats.m_mapped_as = addr.GetMappedAS(m_asmap);
+    if (fRelayTxes) {
         LOCK(cs_filter);
-        X(fRelayTxes);
+        stats.fRelayTxes = fRelayTxes;
+    } else {
+        stats.fRelayTxes = false;
     }
     X(nLastSend);
     X(nLastRecv);
@@ -2604,7 +2607,7 @@ void CConnman::GetNodeStats(std::vector<CNodeStats>& vstats)
     for(std::vector<CNode*>::iterator it = vNodes.begin(); it != vNodes.end(); ++it) {
         CNode* pnode = *it;
         vstats.emplace_back();
-        pnode->copyStats(vstats.back());
+        pnode->copyStats(vstats.back(), addrman.m_asmap);
     }
 }
 
