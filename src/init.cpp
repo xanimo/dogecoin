@@ -19,6 +19,7 @@
 #include "consensus/validation.h"
 #include "crypto/scrypt.h" // for scrypt_detect_sse2
 #include "fs.h"
+#include "hash.h"
 #include "httpserver.h"
 #include "httprpc.h"
 #include "key.h"
@@ -40,11 +41,15 @@
 #include "ui_interface.h"
 #include "util.h"
 #include "utilmoneystr.h"
+#include "util/asmap.h"
+#include "validation.h"
 #include "validationinterface.h"
 #ifdef ENABLE_WALLET
 #include "wallet/wallet.h"
 #endif
 #include "warnings.h"
+
+
 #include <stdint.h>
 #include <stdio.h>
 #include <memory>
@@ -91,6 +96,7 @@ static CZMQNotificationInterface* pzmqNotificationInterface = NULL;
 #endif
 
 static const char* FEE_ESTIMATES_FILENAME="fee_estimates.dat";
+static const char* DEFAULT_ASMAP_FILENAME="ip_asn.map";
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -390,6 +396,7 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-timeout=<n>", strprintf(_("Specify connection timeout in milliseconds (minimum: 1, default: %d)"), DEFAULT_CONNECT_TIMEOUT));
     strUsage += HelpMessageOpt("-torcontrol=<ip>:<port>", strprintf(_("Tor control port to use if onion listening enabled (default: %s)"), DEFAULT_TOR_CONTROL));
     strUsage += HelpMessageOpt("-torpassword=<pass>", _("Tor control port password (default: empty)"));
+    strUsage += HelpMessageOpt("-asmap=<file>", strprintf(_("Specify asn mapping used for bucketing of the peers. Path should be relative to the -datadir path.(default: %s)"), DEFAULT_TOR_CONTROL));
 #ifdef USE_UPNP
 #if USE_UPNP
     strUsage += HelpMessageOpt("-upnp", _("Use UPnP to map the listening port (default: 1 when listening and no -proxy)"));
@@ -1354,6 +1361,31 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
             else
                 return InitError(ResolveErrMsg("externalip", strAddr));
         }
+    }
+
+    // Read asmap file if configured
+    if (IsArgSet("-asmap")) {
+        fs::path asmap_file = fs::path(GetArg("-asmap", ""));
+        if (asmap_file.empty()) {
+            asmap_file = DEFAULT_ASMAP_FILENAME;
+        }
+        if (!asmap_file.is_absolute()) {
+            asmap_file = GetDataDir() / asmap_file;
+        }
+        if (!fs::exists(asmap_file)) {
+            InitError(strprintf(_("Could not find asmap file %s"), asmap_file));
+            return false;
+        }
+        std::vector<bool> asmap = CAddrMan::DecodeAsmap(asmap_file);
+        if (asmap.size() == 0) {
+            InitError(strprintf(_("Could not find or parse specified asmap: '%s'"), asmap_file));
+            return false;
+        }
+        const uint256 asmap_version = SerializeHash(asmap);
+        connman.SetAsmap(std::move(asmap));
+        LogPrintf("Using asmap version %s for IP bucketing.\n", asmap_version.ToString());
+    } else {
+        LogPrintf("Using /16 prefix for IP bucketing.\n");
     }
 
 #if ENABLE_ZMQ

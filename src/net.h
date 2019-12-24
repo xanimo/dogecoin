@@ -151,6 +151,7 @@ public:
         std::vector<CService> vBinds, vWhiteBinds;
         bool m_use_addrman_outgoing = true;
         std::vector<std::string> m_specified_outgoing;
+        std::vector<bool> m_asmap;
     };
 
     void Init(const Options& connOptions) {
@@ -307,6 +308,15 @@ public:
     void SetMaxConnections(int newMaxConnections);
 
     void WakeMessageHandler();
+
+    /** Attempts to obfuscate tx time through exponentially distributed emitting.
+        Works assuming that a single interval is used.
+        Variable intervals will result in privacy decrease.
+    */
+    int64_t PoissonNextSendInbound(int64_t now, int average_interval_seconds);
+
+    void SetAsmap(std::vector<bool> asmap) { addrman.m_asmap = asmap; }
+
 private:
     struct ListenSocket {
         SOCKET socket;
