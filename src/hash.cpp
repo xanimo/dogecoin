@@ -249,3 +249,10 @@ uint64_t SipHashUint256Extra(uint64_t k0, uint64_t k1, const uint256& val, uint3
     SIPROUND;
     return v0 ^ v1 ^ v2 ^ v3;
 }
+
+uint256 SHA256Uint256(const uint256& input)
+{
+    uint256 result;
+    CSHA256().Write(input.begin(), 32).Finalize(result.begin());
+    return result;
+}
