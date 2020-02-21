@@ -14,6 +14,34 @@
 void UninterruptibleSleep(const std::chrono::microseconds& n);
 
 /**
+ * Helper to count the seconds of a duration.
+ *
+ * All durations should be using std::chrono and calling this should generally be avoided in code. Though, it is still
+ * preferred to an inline t.count() to protect against a reliance on the exact type of t.
+ */
+inline int64_t count_seconds(std::chrono::seconds t) { return t.count(); }
+
+/**
+ * DEPRECATED
+ * Use either GetSystemTimeInSeconds (not mockable) or GetTime<T> (mockable)
+ */
+int64_t GetTime();
+
+/** Returns the system time (not mockable) */
+int64_t GetTimeMillis();
+/** Returns the system time (not mockable) */
+int64_t GetTimeMicros();
+/** Returns the system time (not mockable) */
+int64_t GetSystemTimeInSeconds(); // Like GetTime(), but not mockable
+
+/** For testing. Set e.g. with the setmocktime rpc, or -mocktime argument */
+void SetMockTime(int64_t nMockTimeIn);
+/** For testing */
+int64_t GetMockTime();
+
+void MilliSleep(int64_t n);
+
+/**
  * GetTimeMicros() and GetTimeMillis() both return the system time, but in
  * different units. GetTime() returns the system time in seconds, but also
  * supports mocktime, where the time can be specified by the user, eg for
@@ -22,16 +50,19 @@ void UninterruptibleSleep(const std::chrono::microseconds& n);
  * TODO: Rework these functions to be type-safe (so that we don't inadvertently
  * compare numbers with different units, or compare a mocktime to system time).
  */
-
-int64_t GetTime();
-int64_t GetTimeMillis();
-int64_t GetTimeMicros();
-int64_t GetSystemTimeInSeconds(); // Like GetTime(), but not mockable
 int64_t GetLogTimeMicros();
 int64_t GetMockableTimeMicros();
-int64_t GetMockTime();
+
+/** For testing. Set e.g. with the setmocktime rpc, or -mocktime argument */
 void SetMockTime(int64_t nMockTimeIn);
+/** For testing */
+int64_t GetMockTime();
+
 void MilliSleep(int64_t n);
+
+/** Return system time (or mocked time, if set) */
+template <typename T>
+T GetTime();
 
 std::string DateTimeStrFormat(const char* pszFormat, int64_t nTime);
 

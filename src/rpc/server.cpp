@@ -272,6 +272,9 @@ UniValue stop(const JSONRPCRequest& jsonRequest)
     // Event loop will exit after current HTTP requests have been handled, so
     // this reply will get back to the client.
     StartShutdown();
+    if (jsonRequest.params[0].isNum()) {
+        UninterruptibleSleep(std::chrono::milliseconds{jsonRequest.params[0].get_int()});
+    }    
     return "Dogecoin server stopping";
 }
 

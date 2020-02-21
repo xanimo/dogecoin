@@ -47,7 +47,7 @@ void WaitForShutdown(boost::thread_group* threadGroup)
     // Tell the main threads to shutdown.
     while (!fShutdown)
     {
-        MilliSleep(200);
+        UninterruptibleSleep(std::chrono::milliseconds{200});
         fShutdown = ShutdownRequested();
     }
     if (threadGroup)
