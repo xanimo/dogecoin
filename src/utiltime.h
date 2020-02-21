@@ -39,8 +39,6 @@ void SetMockTime(int64_t nMockTimeIn);
 /** For testing */
 int64_t GetMockTime();
 
-void MilliSleep(int64_t n);
-
 /**
  * GetTimeMicros() and GetTimeMillis() both return the system time, but in
  * different units. GetTime() returns the system time in seconds, but also
@@ -52,11 +50,6 @@ void MilliSleep(int64_t n);
  */
 int64_t GetLogTimeMicros();
 int64_t GetMockableTimeMicros();
-
-/** For testing. Set e.g. with the setmocktime rpc, or -mocktime argument */
-void SetMockTime(int64_t nMockTimeIn);
-/** For testing */
-int64_t GetMockTime();
 
 /** Return system time (or mocked time, if set) */
 template <typename T>
