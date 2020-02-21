@@ -796,7 +796,7 @@ void ThreadFlushWalletDB()
     int64_t nLastWalletUpdate = GetTime();
     while (true)
     {
-        MilliSleep(500);
+        boost::this_thread::sleep_for(boost::chrono::milliseconds(500));
 
         if (nLastSeen != CWalletDB::GetUpdateCounter())
         {

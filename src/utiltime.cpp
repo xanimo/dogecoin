@@ -12,7 +12,6 @@
 
 #include <atomic>
 #include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/thread.hpp>
 #include <ctime>
 #include <chrono>
 #include <thread>
@@ -47,6 +46,14 @@ template std::chrono::seconds GetTime();
 template std::chrono::milliseconds GetTime();
 template std::chrono::microseconds GetTime();
 
+template <typename T>
+static T GetSystemTime()
+{
+    const auto now = std::chrono::duration_cast<T>(std::chrono::system_clock::now().time_since_epoch());
+    assert(now.count() > 0);
+    return now;
+}
+
 int64_t GetMockableTimeMicros()
 {
     int64_t mocktime = GetMockTime();
@@ -66,23 +73,17 @@ int64_t GetMockTime()
 
 int64_t GetTimeMillis()
 {
-    int64_t now = (boost::posix_time::microsec_clock::universal_time() -
-                   boost::posix_time::ptime(boost::gregorian::date(1970,1,1))).total_milliseconds();
-    assert(now > 0);
-    return now;
+    return int64_t{GetSystemTime<std::chrono::milliseconds>().count()};
 }
 
 int64_t GetTimeMicros()
 {
-    int64_t now = (boost::posix_time::microsec_clock::universal_time() -
-                   boost::posix_time::ptime(boost::gregorian::date(1970,1,1))).total_microseconds();
-    assert(now > 0);
-    return now;
+    return int64_t{GetSystemTime<std::chrono::microseconds>().count()};
 }
 
 int64_t GetSystemTimeInSeconds()
 {
-    return GetTimeMicros()/1000000;
+    return int64_t{GetSystemTime<std::chrono::seconds>().count()};
 }
 
 /** Return a time useful for the debug log */
@@ -91,11 +92,6 @@ int64_t GetLogTimeMicros()
     if (nMockTime) return nMockTime*1000000;
 
     return GetTimeMicros();
-}
-
-void MilliSleep(int64_t n)
-{
-    boost::this_thread::sleep_for(boost::chrono::milliseconds(n));
 }
 
 std::string DateTimeStrFormat(const char* pszFormat, int64_t nTime)

@@ -4032,7 +4032,7 @@ bool CWallet::BackupWallet(const std::string& strDest)
                 }
             }
         }
-        MilliSleep(100);
+        boost::this_thread::sleep_for(boost::chrono::milliseconds(100));
     }
     return false;
 }
