@@ -580,7 +580,7 @@ BOOST_AUTO_TEST_CASE(test_spanparsing)
 
     // Const(...): parse a constant, update span to skip it if successful
     input = "MilkToastHoney";
-    sp = MakeSpan(input);
+    sp = input;
     success = Const("", sp); // empty
     BOOST_CHECK(success);
     BOOST_CHECK_EQUAL(SpanToStr(sp), "MilkToastHoney");
@@ -605,7 +605,7 @@ BOOST_AUTO_TEST_CASE(test_spanparsing)
 
     // Func(...): parse a function call, update span to argument if successful
     input = "Foo(Bar(xy,z()))";
-    sp = MakeSpan(input);
+    sp = input;
 
     success = Func("FooBar", sp);
     BOOST_CHECK(!success);
@@ -628,31 +628,31 @@ BOOST_AUTO_TEST_CASE(test_spanparsing)
     Span<const char> result;
 
     input = "(n*(n-1))/2";
-    sp = MakeSpan(input);
+    sp = input;
     result = Expr(sp);
     BOOST_CHECK_EQUAL(SpanToStr(result), "(n*(n-1))/2");
     BOOST_CHECK_EQUAL(SpanToStr(sp), "");
 
     input = "foo,bar";
-    sp = MakeSpan(input);
+    sp = input;
     result = Expr(sp);
     BOOST_CHECK_EQUAL(SpanToStr(result), "foo");
     BOOST_CHECK_EQUAL(SpanToStr(sp), ",bar");
 
     input = "(aaaaa,bbbbb()),c";
-    sp = MakeSpan(input);
+    sp = input;
     result = Expr(sp);
     BOOST_CHECK_EQUAL(SpanToStr(result), "(aaaaa,bbbbb())");
     BOOST_CHECK_EQUAL(SpanToStr(sp), ",c");
 
     input = "xyz)foo";
-    sp = MakeSpan(input);
+    sp = input;
     result = Expr(sp);
     BOOST_CHECK_EQUAL(SpanToStr(result), "xyz");
     BOOST_CHECK_EQUAL(SpanToStr(sp), ")foo");
 
     input = "((a),(b),(c)),xxx";
-    sp = MakeSpan(input);
+    sp = input;
     result = Expr(sp);
     BOOST_CHECK_EQUAL(SpanToStr(result), "((a),(b),(c))");
     BOOST_CHECK_EQUAL(SpanToStr(sp), ",xxx");
@@ -661,28 +661,28 @@ BOOST_AUTO_TEST_CASE(test_spanparsing)
     std::vector<Span<const char>> results;
 
     input = "xxx";
-    results = Split(MakeSpan(input), 'x');
-    BOOST_CHECK_EQUAL(results.size(), 4);
+    results = Split(input, 'x');
+    BOOST_CHECK_EQUAL(results.size(), 4U);
     BOOST_CHECK_EQUAL(SpanToStr(results[0]), "");
     BOOST_CHECK_EQUAL(SpanToStr(results[1]), "");
     BOOST_CHECK_EQUAL(SpanToStr(results[2]), "");
     BOOST_CHECK_EQUAL(SpanToStr(results[3]), "");
 
     input = "one#two#three";
-    results = Split(MakeSpan(input), '-');
-    BOOST_CHECK_EQUAL(results.size(), 1);
+    results = Split(input, '-');
+    BOOST_CHECK_EQUAL(results.size(), 1U);
     BOOST_CHECK_EQUAL(SpanToStr(results[0]), "one#two#three");
 
     input = "one#two#three";
-    results = Split(MakeSpan(input), '#');
-    BOOST_CHECK_EQUAL(results.size(), 3);
+    results = Split(input, '#');
+    BOOST_CHECK_EQUAL(results.size(), 3U);
     BOOST_CHECK_EQUAL(SpanToStr(results[0]), "one");
     BOOST_CHECK_EQUAL(SpanToStr(results[1]), "two");
     BOOST_CHECK_EQUAL(SpanToStr(results[2]), "three");
 
     input = "*foo*bar*";
-    results = Split(MakeSpan(input), '*');
-    BOOST_CHECK_EQUAL(results.size(), 4);
+    results = Split(input, '*');
+    BOOST_CHECK_EQUAL(results.size(), 4U);
     BOOST_CHECK_EQUAL(SpanToStr(results[0]), "");
     BOOST_CHECK_EQUAL(SpanToStr(results[1]), "foo");
     BOOST_CHECK_EQUAL(SpanToStr(results[2]), "bar");
