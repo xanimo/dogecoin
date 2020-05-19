@@ -15,10 +15,65 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <ios>
 #include <iterator>
 #include <tuple>
 
 constexpr size_t CNetAddr::V1_SERIALIZATION_SIZE;
+constexpr size_t CNetAddr::MAX_ADDRV2_SIZE;
+
+CNetAddr::BIP155Network CNetAddr::GetBIP155Network() const
+{
+    switch (m_net) {
+    case NET_IPV4:
+        return BIP155Network::IPV4;
+    case NET_IPV6:
+        return BIP155Network::IPV6;
+    case NET_ONION:
+        return BIP155Network::TORV2;
+    case NET_INTERNAL:   // should have been handled before calling this function
+    case NET_UNROUTABLE: // m_net is never and should not be set to NET_UNROUTABLE
+    case NET_MAX:        // m_net is never and should not be set to NET_MAX
+        assert(false);
+    } // no default case, so the compiler can warn about missing cases
+
+    assert(false);
+}
+
+bool CNetAddr::SetNetFromBIP155Network(uint8_t possible_bip155_net, size_t address_size)
+{
+    switch (possible_bip155_net) {
+    case BIP155Network::IPV4:
+        if (address_size == ADDR_IPV4_SIZE) {
+            m_net = NET_IPV4;
+            return true;
+        }
+        throw std::ios_base::failure(
+            strprintf("BIP155 IPv4 address with length %u (should be %u)", address_size,
+                      ADDR_IPV4_SIZE));
+    case BIP155Network::IPV6:
+        if (address_size == ADDR_IPV6_SIZE) {
+            m_net = NET_IPV6;
+            return true;
+        }
+        throw std::ios_base::failure(
+            strprintf("BIP155 IPv6 address with length %u (should be %u)", address_size,
+                      ADDR_IPV6_SIZE));
+    case BIP155Network::TORV2:
+        if (address_size == ADDR_TORV2_SIZE) {
+            m_net = NET_ONION;
+            return true;
+        }
+        throw std::ios_base::failure(
+            strprintf("BIP155 TORv2 address with length %u (should be %u)", address_size,
+                      ADDR_TORV2_SIZE));
+    }
+
+    // Don't throw on addresses with unknown network ids (maybe from the future).
+    // Instead silently drop them and have the unserialization code consume
+    // subsequent ones which may be known to us.
+    return false;
+}
 
 /**
  * Construct an unspecified IPv6 network address (::/128).
@@ -37,7 +92,7 @@ void CNetAddr::SetIP(const CNetAddr& ipIn)
     case NET_IPV6:
         assert(ipIn.m_addr.size() == ADDR_IPV6_SIZE);
         break;
-    case NET_TOR:
+    case NET_ONION:
         assert(ipIn.m_addr.size() == ADDR_TORV2_SIZE);
         break;
     case NET_INTERNAL:
@@ -64,7 +119,7 @@ void CNetAddr::SetLegacyIPv6(Span<const uint8_t> ipv6)
         skip = sizeof(IPV4_IN_IPV6_PREFIX);
     } else if (HasPrefix(ipv6, TORV2_IN_IPV6_PREFIX)) {
         // TORv2-in-IPv6
-        m_net = NET_TOR;
+        m_net = NET_ONION;
         skip = sizeof(TORV2_IN_IPV6_PREFIX);
     } else if (HasPrefix(ipv6, INTERNAL_IN_IPV6_PREFIX)) {
         // Internal-in-IPv6
@@ -110,7 +165,7 @@ bool CNetAddr::SetSpecial(const std::string &strName)
         if (vchAddr.size() != ADDR_TORV2_SIZE) {
             return false;
         }
-        m_net = NET_TOR;
+        m_net = NET_ONION;
         m_addr.assign(vchAddr.begin(), vchAddr.end());
         return true;
     }
@@ -235,7 +290,7 @@ bool CNetAddr::IsHeNet() const
  *
  * @see CNetAddr::SetSpecial(const std::string &)
  */
-bool CNetAddr::IsTor() const { return m_net == NET_TOR; }
+bool CNetAddr::IsTor() const { return m_net == NET_ONION; }
 
 bool CNetAddr::IsLocal() const
 {
@@ -413,7 +468,7 @@ uint32_t CNetAddr::GetNetClass() const {
     } else if (IsIPv4() || IsRFC6145() || IsRFC6052() || IsRFC3964() || IsRFC4380()) {
         net_class = NET_IPV4;
     } else if (IsTor()) {
-        net_class = NET_TOR;
+        net_class = NET_ONION;
     }
     return net_class;
 }
@@ -574,11 +629,11 @@ int CNetAddr::GetReachabilityFrom(const CNetAddr *paddrPartner) const
         case NET_IPV4:   return REACH_IPV4;
         case NET_IPV6:   return fTunnel ? REACH_IPV6_WEAK : REACH_IPV6_STRONG; // only prefer giving our IPv6 address if it's not tunnelled
         }
-    case NET_TOR:
+    case NET_ONION:
         switch(ourNet) {
         default:         return REACH_DEFAULT;
         case NET_IPV4:   return REACH_IPV4; // Tor users can connect to IPv4 as well
-        case NET_TOR:    return REACH_PRIVATE;
+        case NET_ONION:    return REACH_PRIVATE;
         }
     case NET_TEREDO:
         switch(ourNet) {
@@ -595,7 +650,7 @@ int CNetAddr::GetReachabilityFrom(const CNetAddr *paddrPartner) const
         case NET_TEREDO:  return REACH_TEREDO;
         case NET_IPV6:    return REACH_IPV6_WEAK;
         case NET_IPV4:    return REACH_IPV4;
-        case NET_TOR:     return REACH_PRIVATE; // either from Tor, or don't care about our address
+        case NET_ONION:     return REACH_PRIVATE; // either from Tor, or don't care about our address
         }
     }
 }
