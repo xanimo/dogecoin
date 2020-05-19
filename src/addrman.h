@@ -6,11 +6,13 @@
 #ifndef BITCOIN_ADDRMAN_H
 #define BITCOIN_ADDRMAN_H
 
+#include "clientversion.h"
 #include "netaddress.h"
 #include "protocol.h"
 #include "random.h"
 #include "sync.h"
 #include "timedata.h"
+#include "tinyformat.h"
 #include "util.h"
 
 #include <map>
@@ -268,9 +270,17 @@ protected:
     void SetServices_(const CService &addr, ServiceFlags nServices);
 
 public:
+    //! Serialization versions.
+    enum class Format : uint8_t {
+        V0_HISTORICAL = 0,    //!< historic format, before commit e6b343d88
+        V1_DETERMINISTIC = 1, //!< for pre-asmap files
+        V2_ASMAP = 2,         //!< for files including asmap version
+        V3_BIP155 = 3,        //!< same as V2_ASMAP plus addresses are in BIP155 format
+    };
+
     /**
-     * serialized format:
-     * * version byte (currently 1)
+     * Serialized format.
+     * * version byte (@see `Format`)
      * * 0x20 + nKey (serialized as if it were a vector, for backward compatibility)
      * * nNew
      * * nTried
@@ -297,13 +307,16 @@ public:
      * We don't use ADD_SERIALIZE_METHODS since the serialization and deserialization code has
      * very little in common.
      */
-    template<typename Stream>
-    void Serialize(Stream &s) const
+    template <typename Stream>
+    void Serialize(Stream& s_) const
     {
         LOCK(cs);
 
-        unsigned char nVersion = 1;
-        s << nVersion;
+        // Always serialize in the latest version (currently Format::V3_BIP155).
+
+        OverrideStream<Stream> s(&s_, s_.GetType(), s_.GetVersion() | ADDRV2_FORMAT);
+
+        s << static_cast<uint8_t>(Format::V3_BIP155);
         s << ((unsigned char)32);
         s << nKey;
         s << nNew;
@@ -347,15 +360,34 @@ public:
         }
     }
 
-    template<typename Stream>
-    void Unserialize(Stream& s)
+    template <typename Stream>
+    void Unserialize(Stream& s_)
     {
         LOCK(cs);
 
         Clear();
 
-        unsigned char nVersion;
-        s >> nVersion;
+        Format format;
+        s_ >> Using<CustomUintFormatter<1>>(format);
+
+        static constexpr Format maximum_supported_format = Format::V3_BIP155;
+        if (format > maximum_supported_format) {
+            throw std::ios_base::failure(strprintf(
+                "Unsupported format of addrman database: %u. Maximum supported is %u. "
+                "Continuing operation without using the saved list of peers.",
+                static_cast<uint8_t>(format),
+                static_cast<uint8_t>(maximum_supported_format)));
+        }
+
+        int stream_version = s_.GetVersion();
+        if (format >= Format::V3_BIP155) {
+            // Add ADDRV2_FORMAT to the version so that the CNetAddr and CAddress
+            // unserialize methods know that an address in addrv2 format is coming.
+            stream_version |= ADDRV2_FORMAT;
+        }
+
+        OverrideStream<Stream> s(&s_, s_.GetType(), stream_version);
+
         unsigned char nKeySize;
         s >> nKeySize;
         if (nKeySize != 32) throw std::ios_base::failure("Incorrect keysize in addrman deserialization");
@@ -364,7 +396,7 @@ public:
         s >> nTried;
         int nUBuckets = 0;
         s >> nUBuckets;
-        if (nVersion != 0) {
+        if (format >= Format::V1_DETERMINISTIC) {
             nUBuckets ^= (1 << 30);
         }
 
@@ -417,7 +449,9 @@ public:
         }
         nTried -= nLost;
 
-        // Deserialize positions in the new table (if possible).
+        // Store positions in the new table buckets to apply later (if possible).
+        std::map<int, int> entryToBucket; // Represents which entry belonged to which bucket when serializing
+
         for (int bucket = 0; bucket < nUBuckets; bucket++) {
             int nSize = 0;
             s >> nSize;
@@ -425,12 +459,29 @@ public:
                 int nIndex = 0;
                 s >> nIndex;
                 if (nIndex >= 0 && nIndex < nNew) {
-                    CAddrInfo &info = mapInfo[nIndex];
-                    int nUBucketPos = info.GetBucketPosition(nKey, true, bucket);
-                    if (nVersion == 1 && nUBuckets == ADDRMAN_NEW_BUCKET_COUNT && vvNew[bucket][nUBucketPos] == -1 && info.nRefCount < ADDRMAN_NEW_BUCKETS_PER_ADDRESS) {
-                        info.nRefCount++;
-                        vvNew[bucket][nUBucketPos] = nIndex;
-                    }
+                    entryToBucket[nIndex] = bucket;
+                }
+            }
+        }
+
+        for (int n = 0; n < nNew; n++) {
+            CAddrInfo &info = mapInfo[n];
+            int bucket = entryToBucket[n];
+            int nUBucketPos = info.GetBucketPosition(nKey, true, bucket);
+            if (format >= Format::V1_DETERMINISTIC && nUBuckets == ADDRMAN_NEW_BUCKET_COUNT && vvNew[bucket][nUBucketPos] == -1 &&
+                info.nRefCount < ADDRMAN_NEW_BUCKETS_PER_ADDRESS) {
+                // Bucketing has not changed, using existing bucket positions for the new table
+                vvNew[bucket][nUBucketPos] = n;
+                info.nRefCount++;
+            } else {
+                // In case the new table data cannot be used (format unknown, bucket count wrong),
+                // try to give them a reference based on their primary source address.
+                LogPrint(BCLog::ADDRMAN, "Bucketing method was updated, re-bucketing addrman entries from disk\n");
+                bucket = info.GetNewBucket(nKey);
+                nUBucketPos = info.GetBucketPosition(nKey, true, bucket);
+                if (vvNew[bucket][nUBucketPos] == -1) {
+                    vvNew[bucket][nUBucketPos] = n;
+                    info.nRefCount++;
                 }
             }
         }
