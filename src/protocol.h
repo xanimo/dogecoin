@@ -264,7 +264,13 @@ enum ServiceFlags : uint64_t {
     // NODE_XTHIN means the node supports Xtreme Thinblocks
     // If this is turned off then the node will not service nor make xthin requests
     NODE_XTHIN = (1 << 4),
-
+    // NODE_NETWORK_LIMITED means the same as NODE_NETWORK with the limitation of only
+    // serving the last 288 (2 day) blocks
+    // See BIP159 for details on how this is implemented.
+    NODE_NETWORK_LIMITED = (1 << 10), // from bitcoin/bitcoin#11740 7caba38
+    // NODE_COMPACT_FILTERS means the node will service basic block filter requests.
+    // See BIP157 and BIP158 for details on how this is implemented.
+    NODE_COMPACT_FILTERS = (1 << 6), // from bitcoin/bitcoin#19070 132b30d
     // Bits 24-31 are reserved for temporary experiments. Just pick a bit that
     // isn't getting used, or one not being used much, and notify the
     // bitcoin-development mailing list. Remember that service bits are just
@@ -274,18 +280,25 @@ enum ServiceFlags : uint64_t {
     // BIP process.
 };
 
+/**
+ * Convert service flags (a bitmask of NODE_*) to human readable strings.
+ * It supports unknown service flags which will be returned as "UNKNOWN[...]".
+ * @param[in] flags multiple NODE_* bitwise-OR-ed together
+ */
+std::vector<std::string> serviceFlagsToStr(uint64_t flags); // bitcoin/bitcoin#19106
+
 /** A CService with information about it as peer */
 class CAddress : public CService
 {
+    static constexpr uint32_t TIME_INIT{100000000}; // from bitcoin/bitcoin#19020
 public:
-    CAddress();
-    explicit CAddress(CService ipIn, ServiceFlags nServicesIn);
-
-    void Init();
+    CAddress() : CService{} {};
+    CAddress(CService ipIn, ServiceFlags nServicesIn) : CService{ipIn}, nServices{nServicesIn} {};
+    CAddress(CService ipIn, ServiceFlags nServicesIn, uint32_t nTimeIn) : CService{ipIn}, nTime{nTimeIn}, nServices{nServicesIn} {};
 
     SERIALIZE_METHODS(CAddress, obj)
     {
-        SER_READ(obj, obj.Init());
+        SER_READ(obj, obj.nTime = TIME_INIT); // #19020
         int nVersion = s.GetVersion();
         if (s.GetType() & SER_DISK) {
             READWRITE(nVersion);
@@ -294,16 +307,20 @@ public:
             (nVersion >= CADDR_TIME_VERSION && !(s.GetType() & SER_GETHASH))) {
             READWRITE(obj.nTime);
         }
-        READWRITE(Using<CustomUintFormatter<8>>(obj.nServices));
+        if (nVersion & ADDRV2_FORMAT) {
+            uint64_t services_tmp;
+            SER_WRITE(obj, services_tmp = obj.nServices);
+            READWRITE(Using<CompactSizeFormatter<false>>(services_tmp));
+            SER_READ(obj, obj.nServices = static_cast<ServiceFlags>(services_tmp));
+        } else {
+            READWRITE(Using<CustomUintFormatter<8>>(obj.nServices));
+        }
         READWRITEAS(CService, obj);
     }
 
-    // TODO: make private (improves encapsulation)
-public:
-    ServiceFlags nServices;
-
     // disk and network only
-    unsigned int nTime;
+    uint32_t nTime{TIME_INIT}; // #19020
+    ServiceFlags nServices{NODE_NONE}; // #19020
 };
 
 /** getdata message type flags */
