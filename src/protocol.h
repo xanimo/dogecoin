@@ -278,10 +278,9 @@ enum ServiceFlags : uint64_t {
 class CAddress : public CService
 {
 public:
-    CAddress();
-    explicit CAddress(CService ipIn, ServiceFlags nServicesIn);
-
-    void Init();
+    CAddress() : CService{} {};
+    CAddress(CService ipIn, ServiceFlags nServicesIn) : CService{ipIn}, nServices{nServicesIn} {};
+    CAddress(CService ipIn, ServiceFlags nServicesIn, uint32_t nTimeIn) : CService{ipIn}, nTime{nTimeIn}, nServices{nServicesIn} {};
 
     SERIALIZE_METHODS(CAddress, obj)
     {
@@ -294,7 +293,14 @@ public:
             (nVersion >= CADDR_TIME_VERSION && !(s.GetType() & SER_GETHASH))) {
             READWRITE(obj.nTime);
         }
-        READWRITE(Using<CustomUintFormatter<8>>(obj.nServices));
+        if (nVersion & ADDRV2_FORMAT) {
+            uint64_t services_tmp;
+            SER_WRITE(obj, services_tmp = obj.nServices);
+            READWRITE(Using<CompactSizeFormatter<false>>(services_tmp));
+            SER_READ(obj, obj.nServices = static_cast<ServiceFlags>(services_tmp));
+        } else {
+            READWRITE(Using<CustomUintFormatter<8>>(obj.nServices));
+        }
         READWRITEAS(CService, obj);
     }
 
