@@ -6,6 +6,7 @@
 
 #include "net_processing.h"
 
+<<<<<<< HEAD
 #include "addrman.h"
 #include "arith_uint256.h"
 #include "blockencodings.h"
@@ -30,6 +31,33 @@
 #include "utilmoneystr.h"
 #include "utilstrencodings.h"
 #include "validationinterface.h"
+=======
+#include <addrman.h>
+#include <banman.h>
+#include <blockencodings.h>
+#include <blockfilter.h>
+#include <chainparams.h>
+#include <consensus/validation.h>
+#include <hash.h>
+#include <index/blockfilterindex.h>
+#include <merkleblock.h>
+#include <netbase.h>
+#include <netmessagemaker.h>
+#include <policy/fees.h>
+#include <policy/policy.h>
+#include <primitives/block.h>
+#include <primitives/transaction.h>
+#include <random.h>
+#include <reverse_iterator.h>
+#include <scheduler.h>
+#include <streams.h>
+#include <tinyformat.h>
+#include <txmempool.h>
+#include <util/check.h> // For NDEBUG compile time check
+#include <util/strencodings.h>
+#include <util/system.h>
+#include <validation.h>
+>>>>>>> 353a3fdaad (net: advertise support for ADDRv2 via new message)
 
 #include <boost/thread.hpp>
 
@@ -1485,8 +1513,44 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         }
 
         // Change version
+<<<<<<< HEAD
         pfrom->SetSendVersion(nSendVersion);
         pfrom->nVersion = nVersion;
+=======
+        const int greatest_common_version = std::min(nVersion, PROTOCOL_VERSION);
+        pfrom.SetCommonVersion(greatest_common_version);
+        pfrom.nVersion = nVersion;
+
+        const CNetMsgMaker msg_maker(greatest_common_version);
+
+        if (greatest_common_version >= WTXID_RELAY_VERSION) {
+            m_connman.PushMessage(&pfrom, msg_maker.Make(NetMsgType::WTXIDRELAY));
+        }
+
+        m_connman.PushMessage(&pfrom, msg_maker.Make(NetMsgType::VERACK));
+
+        // Signal ADDRv2 support (BIP155).
+        m_connman.PushMessage(&pfrom, msg_maker.Make(NetMsgType::SENDADDRV2));
+
+        pfrom.nServices = nServices;
+        pfrom.SetAddrLocal(addrMe);
+        {
+            LOCK(pfrom.cs_SubVer);
+            pfrom.cleanSubVer = cleanSubVer;
+        }
+        pfrom.nStartingHeight = nStartingHeight;
+
+        // set nodes not relaying blocks and tx and not serving (parts) of the historical blockchain as "clients"
+        pfrom.fClient = (!(nServices & NODE_NETWORK) && !(nServices & NODE_NETWORK_LIMITED));
+
+        // set nodes not capable of serving the complete blockchain history as "limited nodes"
+        pfrom.m_limited_node = (!(nServices & NODE_NETWORK) && (nServices & NODE_NETWORK_LIMITED));
+
+        if (pfrom.m_tx_relay != nullptr) {
+            LOCK(pfrom.m_tx_relay->cs_filter);
+            pfrom.m_tx_relay->fRelayTxes = fRelay; // set to true after we get the first filter* message
+        }
+>>>>>>> 353a3fdaad (net: advertise support for ADDRv2 via new message)
 
         if((nServices & NODE_WITNESS))
         {
@@ -1605,19 +1669,37 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         return false;
     }
 
+<<<<<<< HEAD
     else if (strCommand == NetMsgType::ADDR)
     {
+=======
+    if (msg_type == NetMsgType::ADDR || msg_type == NetMsgType::ADDRV2) {
+        int stream_version = vRecv.GetVersion();
+        if (msg_type == NetMsgType::ADDRV2) {
+            // Add ADDRV2_FORMAT to the version so that the CNetAddr and CAddress
+            // unserialize methods know that an address in v2 format is coming.
+            stream_version |= ADDRV2_FORMAT;
+        }
+
+        OverrideStream<CDataStream> s(&vRecv, vRecv.GetType(), stream_version);
+>>>>>>> 353a3fdaad (net: advertise support for ADDRv2 via new message)
         std::vector<CAddress> vAddr;
-        vRecv >> vAddr;
+
+        s >> vAddr;
 
         // Don't want addr from older versions unless seeding
         if (pfrom->nVersion < CADDR_TIME_VERSION && connman.GetAddressCount() > 1000)
             return true;
         if (vAddr.size() > 1000)
         {
+<<<<<<< HEAD
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
             return error("message addr size() = %u", vAddr.size());
+=======
+            Misbehaving(pfrom.GetId(), 20, strprintf("%s message size = %u", msg_type, vAddr.size()));
+            return;
+>>>>>>> 353a3fdaad (net: advertise support for ADDRv2 via new message)
         }
 
         // Store the new addresses
@@ -1688,8 +1770,17 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             pfrom->fDisconnect = true;
     }
 
+<<<<<<< HEAD
     else if (strCommand == NetMsgType::SENDHEADERS)
     {
+=======
+    if (msg_type == NetMsgType::SENDADDRV2) {
+        pfrom.m_wants_addrv2 = true;
+        return;
+    }
+
+    if (msg_type == NetMsgType::SENDHEADERS) {
+>>>>>>> 353a3fdaad (net: advertise support for ADDRv2 via new message)
         LOCK(cs_main);
         State(pfrom->GetId())->fPreferHeaders = true;
     }
@@ -3089,7 +3180,23 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
             pto->nNextAddrSend = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
             std::vector<CAddress> vAddr;
             vAddr.reserve(pto->vAddrToSend.size());
+<<<<<<< HEAD
             BOOST_FOREACH(const CAddress& addr, pto->vAddrToSend)
+=======
+            assert(pto->m_addr_known);
+
+            const char* msg_type;
+            int make_flags;
+            if (pto->m_wants_addrv2) {
+                msg_type = NetMsgType::ADDRV2;
+                make_flags = ADDRV2_FORMAT;
+            } else {
+                msg_type = NetMsgType::ADDR;
+                make_flags = 0;
+            }
+
+            for (const CAddress& addr : pto->vAddrToSend)
+>>>>>>> 353a3fdaad (net: advertise support for ADDRv2 via new message)
             {
                 if (!pto->addrKnown.contains(addr.GetKey()))
                 {
@@ -3098,14 +3205,22 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
                     // receiver rejects addr messages larger than 1000
                     if (vAddr.size() >= 1000)
                     {
+<<<<<<< HEAD
                         connman.PushMessage(pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
+=======
+                        m_connman.PushMessage(pto, msgMaker.Make(make_flags, msg_type, vAddr));
+>>>>>>> 353a3fdaad (net: advertise support for ADDRv2 via new message)
                         vAddr.clear();
                     }
                 }
             }
             pto->vAddrToSend.clear();
             if (!vAddr.empty())
+<<<<<<< HEAD
                 connman.PushMessage(pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
+=======
+                m_connman.PushMessage(pto, msgMaker.Make(make_flags, msg_type, vAddr));
+>>>>>>> 353a3fdaad (net: advertise support for ADDRv2 via new message)
             // we only send the big addr message once
             if (pto->vAddrToSend.capacity() > 40)
                 pto->vAddrToSend.shrink_to_fit();
