@@ -358,15 +358,15 @@ static std::vector<CAddress> MakeFixtureAddresses()
     };
     std::vector<CAddress> v;
     v.push_back(make_addr(
-        CService(CNetAddr(in6addr_loopback), 0 /* port */),
+        CService(CNetAddr((in6_addr)IN6ADDR_LOOPBACK_INIT), 0 /* port */),
         NODE_NONE,
         0x4966bc61U /* Fri Jan  9 02:54:25 UTC 2009 */));
     v.push_back(make_addr(
-        CService(CNetAddr(in6addr_loopback), 0x00f1 /* port */),
+        CService(CNetAddr((in6_addr)IN6ADDR_LOOPBACK_INIT), 0x00f1 /* port */),
         NODE_NETWORK,
         0x83766279U /* Tue Nov 22 11:22:33 UTC 2039 */));
     v.push_back(make_addr(
-        CService(CNetAddr(in6addr_loopback), 0xf1f2 /* port */),
+        CService(CNetAddr((in6_addr)IN6ADDR_LOOPBACK_INIT), 0xf1f2 /* port */),
         // NODE_WITNESS (1<<3) | NODE_COMPACT_FILTERS (1<<6) | NODE_NETWORK_LIMITED (1<<10) = 0x448
         static_cast<ServiceFlags>(0x448),
         0xffffffffU /* Sun Feb  7 06:28:15 UTC 2106 */));

@@ -10,6 +10,7 @@
 #include "netaddress.h"
 #include "protocol.h"
 #include "random.h"
+#include "streams.h"
 #include "sync.h"
 #include "timedata.h"
 #include "tinyformat.h"
@@ -415,16 +416,6 @@ public:
             mapAddr[info] = n;
             info.nRandomPos = vRandom.size();
             vRandom.push_back(n);
-            if (nVersion != 1 || nUBuckets != ADDRMAN_NEW_BUCKET_COUNT) {
-                // In case the new table data cannot be used (nVersion unknown, or bucket count wrong),
-                // immediately try to give them a reference based on their primary source address.
-                int nUBucket = info.GetNewBucket(nKey);
-                int nUBucketPos = info.GetBucketPosition(nKey, true, nUBucket);
-                if (vvNew[nUBucket][nUBucketPos] == -1) {
-                    vvNew[nUBucket][nUBucketPos] = n;
-                    info.nRefCount++;
-                }
-            }
         }
         nIdCount = nNew;
 
@@ -476,7 +467,7 @@ public:
             } else {
                 // In case the new table data cannot be used (format unknown, bucket count wrong),
                 // try to give them a reference based on their primary source address.
-                LogPrint(BCLog::ADDRMAN, "Bucketing method was updated, re-bucketing addrman entries from disk\n");
+                LogPrint("addrman", "Bucketing method was updated, re-bucketing addrman entries from disk\n");
                 bucket = info.GetNewBucket(nKey);
                 nUBucketPos = info.GetBucketPosition(nKey, true, bucket);
                 if (vvNew[bucket][nUBucketPos] == -1) {
