@@ -214,6 +214,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_basic)
     BOOST_REQUIRE(addr.IsIPv4());
 
     BOOST_CHECK(addr.IsBindAny());
+    BOOST_CHECK(addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(), "0.0.0.0");
 
     // IPv4, INADDR_NONE
@@ -222,6 +223,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_basic)
     BOOST_REQUIRE(addr.IsIPv4());
 
     BOOST_CHECK(!addr.IsBindAny());
+    BOOST_CHECK(addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(), "255.255.255.255");
 
     // IPv4, casual
@@ -230,6 +232,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_basic)
     BOOST_REQUIRE(addr.IsIPv4());
 
     BOOST_CHECK(!addr.IsBindAny());
+    BOOST_CHECK(addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(), "12.34.56.78");
 
     // IPv6, in6addr_any
@@ -238,6 +241,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_basic)
     BOOST_REQUIRE(addr.IsIPv6());
 
     BOOST_CHECK(addr.IsBindAny());
+    BOOST_CHECK(addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(), "::");
 
     // IPv6, casual
@@ -246,6 +250,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_basic)
     BOOST_REQUIRE(addr.IsIPv6());
 
     BOOST_CHECK(!addr.IsBindAny());
+    BOOST_CHECK(addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(), "1122:3344:5566:7788:9900:aabb:ccdd:eeff");
 
     // TORv2
@@ -254,6 +259,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_basic)
     BOOST_REQUIRE(addr.IsTor());
 
     BOOST_CHECK(!addr.IsBindAny());
+    BOOST_CHECK(addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(), "6hzph5hv6337r6p2.onion");
 
     // TORv3
@@ -263,6 +269,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_basic)
     BOOST_REQUIRE(addr.IsTor());
 
     BOOST_CHECK(!addr.IsBindAny());
+    BOOST_CHECK(!addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(), torv3_addr);
 
     // TORv3, broken, with wrong checksum
@@ -287,6 +294,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_basic)
     BOOST_REQUIRE(addr.IsInternal());
 
     BOOST_CHECK(!addr.IsBindAny());
+    BOOST_CHECK(addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(), "esffpvrt3wpeaygy.internal");
 
     // Totally bogus
@@ -381,6 +389,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_unserialize_v2)
     s >> addr;
     BOOST_CHECK(addr.IsValid());
     BOOST_CHECK(addr.IsIPv4());
+    BOOST_CHECK(addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(), "1.2.3.4");
     BOOST_REQUIRE(s.empty());
 
@@ -417,6 +426,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_unserialize_v2)
     s >> addr;
     BOOST_CHECK(addr.IsValid());
     BOOST_CHECK(addr.IsIPv6());
+    BOOST_CHECK(addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(), "102:304:506:708:90a:b0c:d0e:f10");
     BOOST_REQUIRE(s.empty());
 
@@ -428,6 +438,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_unserialize_v2)
                                               // sha256(name)[0:10]
     s >> addr;
     BOOST_CHECK(addr.IsInternal());
+    BOOST_CHECK(addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(), "zklycewkdo64v6wc.internal");
     BOOST_REQUIRE(s.empty());
 
@@ -463,6 +474,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_unserialize_v2)
     s >> addr;
     BOOST_CHECK(addr.IsValid());
     BOOST_CHECK(addr.IsTor());
+    BOOST_CHECK(addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(), "6hzph5hv6337r6p2.onion");
     BOOST_REQUIRE(s.empty());
 
@@ -484,6 +496,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_unserialize_v2)
     s >> addr;
     BOOST_CHECK(addr.IsValid());
     BOOST_CHECK(addr.IsTor());
+    BOOST_CHECK(!addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(),
                       "pg6mmjiyjmcrsslvykfwnntlaru7p5svn6y2ymmju6nubxndf4pscryd.onion");
     BOOST_REQUIRE(s.empty());
@@ -505,6 +518,8 @@ BOOST_AUTO_TEST_CASE(cnetaddr_unserialize_v2)
                            "f98232ae42d4b6fd2fa81952dfe36a87"));
     s >> addr;
     BOOST_CHECK(addr.IsValid());
+    BOOST_CHECK(addr.IsI2P());
+    BOOST_CHECK(!addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(),
                       "ukeu3k5oycgaauneqgtnvselmt4yemvoilkln7jpvamvfx7dnkdq.b32.i2p");
     BOOST_REQUIRE(s.empty());
@@ -526,6 +541,8 @@ BOOST_AUTO_TEST_CASE(cnetaddr_unserialize_v2)
                            ));
     s >> addr;
     BOOST_CHECK(addr.IsValid());
+    BOOST_CHECK(addr.IsCJDNS());
+    BOOST_CHECK(!addr.IsAddrV1Compatible());
     BOOST_CHECK_EQUAL(addr.ToString(), "fc00:1:2:3:4:5:6:7");
     BOOST_REQUIRE(s.empty());
 

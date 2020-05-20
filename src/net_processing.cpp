@@ -1484,9 +1484,42 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             pfrom->fRelayTxes = fRelay; // set to true after we get the first filter* message
         }
 
+        const int greatest_common_version = std::min(nVersion, PROTOCOL_VERSION);
+        // pfrom->SetCommonVersion(greatest_common_version); <- we don't hve SetCommonVersion
+
         // Change version
-        pfrom->SetSendVersion(nSendVersion);
+        pfrom->SetSendVersion(greatest_common_version);
         pfrom->nVersion = nVersion;
+
+        const CNetMsgMaker msg_maker(greatest_common_version);
+
+        if (greatest_common_version >= WTXID_RELAY_VERSION) {
+            connman.PushMessage(pfrom, msg_maker.Make(NetMsgType::WTXIDRELAY)); // including but fairly certain we should bypass/omit later
+        }
+
+        connman.PushMessage(pfrom, msg_maker.Make(NetMsgType::VERACK));
+
+        // Signal ADDRv2 support (BIP155).
+        connman.PushMessage(pfrom, msg_maker.Make(NetMsgType::SENDADDRV2));
+
+        pfrom->nServices = nServices;
+        pfrom->SetAddrLocal(addrMe);
+        {
+            LOCK(pfrom->cs_SubVer);
+            pfrom->cleanSubVer = cleanSubVer;
+        }
+        pfrom->nStartingHeight = nStartingHeight;
+
+        // set nodes not relaying blocks and tx and not serving (parts) of the historical blockchain as "clients"
+        pfrom->fClient = (!(nServices & NODE_NETWORK) && !(nServices & NODE_NETWORK_LIMITED));
+
+        // set nodes not capable of serving the complete blockchain history as "limited nodes"
+        // pfrom.m_limited_node = (!(nServices & NODE_NETWORK) && (nServices & NODE_NETWORK_LIMITED)); <- we don't have
+
+        if (pfrom->fRelayTxes) {
+            LOCK(cs_main);
+            pfrom->fRelayTxes = fRelay; // set to true after we get the first filter* message
+        }
 
         if((nServices & NODE_WITNESS))
         {
@@ -1596,7 +1629,6 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         }
         pfrom->fSuccessfullyConnected = true;
     }
-
     else if (!pfrom->fSuccessfullyConnected)
     {
         // Must have a verack message before anything else
@@ -1604,11 +1636,18 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         Misbehaving(pfrom->GetId(), 1);
         return false;
     }
+    else if (strCommand == NetMsgType::ADDR || strCommand == NetMsgType::ADDRV2) {
+        int stream_version = vRecv.GetVersion();
+        if (strCommand == NetMsgType::ADDRV2) {
+            // Add ADDRV2_FORMAT to the version so that the CNetAddr and CAddress
+            // unserialize methods know that an address in v2 format is coming.
+            stream_version |= ADDRV2_FORMAT;
+        }
 
-    else if (strCommand == NetMsgType::ADDR)
-    {
+        OverrideStream<CDataStream> s(&vRecv, vRecv.GetType(), stream_version);
         std::vector<CAddress> vAddr;
-        vRecv >> vAddr;
+
+        s >> vAddr;
 
         // Don't want addr from older versions unless seeding
         if (pfrom->nVersion < CADDR_TIME_VERSION && connman.GetAddressCount() > 1000)
@@ -1617,7 +1656,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         {
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
-            return error("message addr size() = %u", vAddr.size());
+            return error("%s message size = %u", strCommand, vAddr.size());
         }
 
         // Store the new addresses
@@ -1686,16 +1725,12 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             pfrom->fGetAddr = false;
         if (pfrom->fOneShot)
             pfrom->fDisconnect = true;
-    }
-
-    else if (strCommand == NetMsgType::SENDHEADERS)
-    {
+    } else if (strCommand == NetMsgType::SENDADDRV2) {
+        pfrom->m_wants_addrv2 = true;
+    } else if (strCommand == NetMsgType::SENDHEADERS) {
         LOCK(cs_main);
         State(pfrom->GetId())->fPreferHeaders = true;
-    }
-
-    else if (strCommand == NetMsgType::SENDCMPCT)
-    {
+    } else if (strCommand == NetMsgType::SENDCMPCT) {
         bool fAnnounceUsingCMPCTBLOCK = false;
         uint64_t nCMPCTBLOCKVersion = 0;
         vRecv >> fAnnounceUsingCMPCTBLOCK >> nCMPCTBLOCKVersion;
@@ -1715,11 +1750,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                     State(pfrom->GetId())->fSupportsDesiredCmpctVersion = (nCMPCTBLOCKVersion == 1);
             }
         }
-    }
-
-
-    else if (strCommand == NetMsgType::INV)
-    {
+    } else if (strCommand == NetMsgType::INV) {
         std::vector<CInv> vInv;
         vRecv >> vInv;
         if (vInv.size() > MAX_INV_SZ)
@@ -3089,7 +3120,19 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
             pto->nNextAddrSend = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
             std::vector<CAddress> vAddr;
             vAddr.reserve(pto->vAddrToSend.size());
-            BOOST_FOREACH(const CAddress& addr, pto->vAddrToSend)
+            // assert(pto->addrKnown); <- not a bool
+
+            const char* msg_type;
+            int make_flags;
+            if (pto->m_wants_addrv2) {
+                msg_type = NetMsgType::ADDRV2;
+                make_flags = ADDRV2_FORMAT;
+            } else {
+                msg_type = NetMsgType::ADDR;
+                make_flags = 0;
+            }
+
+            for (const CAddress& addr : pto->vAddrToSend)
             {
                 if (!pto->addrKnown.contains(addr.GetKey()))
                 {
@@ -3099,13 +3142,14 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
                     if (vAddr.size() >= 1000)
                     {
                         connman.PushMessage(pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
+                        connman.PushMessage(pto, msgMaker.Make(make_flags, msg_type, vAddr));
                         vAddr.clear();
                     }
                 }
             }
             pto->vAddrToSend.clear();
             if (!vAddr.empty())
-                connman.PushMessage(pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
+                connman.PushMessage(pto, msgMaker.Make(make_flags, msg_type, vAddr));
             // we only send the big addr message once
             if (pto->vAddrToSend.capacity() > 40)
                 pto->vAddrToSend.shrink_to_fit();
