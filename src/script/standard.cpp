@@ -310,7 +310,7 @@ CScript GetScriptForWitness(const CScript& redeemscript)
     if (Solver(redeemscript, typ, vSolutions)) {
         if (typ == TX_PUBKEY) {
             unsigned char h160[20];
-            CHash160().Write(&vSolutions[0][0], vSolutions[0].size()).Finalize(h160);
+            CHash160().Write({&vSolutions[0][0], vSolutions[0].size()}).Finalize(h160);
             ret << OP_0 << std::vector<unsigned char>(&h160[0], &h160[20]);
             return ret;
         } else if (typ == TX_PUBKEYHASH) {
