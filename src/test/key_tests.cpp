@@ -180,4 +180,47 @@ BOOST_AUTO_TEST_CASE(key_test1)
     BOOST_CHECK(detsigc == ParseHex("20af874275fc12e344969ed4ec89cd1f4974ec816d63391f0e002d3fb81a22c25e00edcf093fdf460f45d9a3ca918d321a21539dac276f8d81a64818c62e8e9517"));
 }
 
+static CPubKey UnserializePubkey(const std::vector<uint8_t>& data)
+{
+    CDataStream stream{SER_NETWORK, INIT_PROTO_VERSION};
+    stream << data;
+    CPubKey pubkey;
+    stream >> pubkey;
+    return pubkey;
+}
+
+static unsigned int GetLen(unsigned char chHeader)
+{
+    if (chHeader == 2 || chHeader == 3)
+        return CPubKey::COMPRESSED_SIZE;
+    if (chHeader == 4 || chHeader == 6 || chHeader == 7)
+        return CPubKey::SIZE;
+    return 0;
+}
+
+static void CmpSerializationPubkey(const CPubKey& pubkey)
+{
+    CDataStream stream{SER_NETWORK, INIT_PROTO_VERSION};
+    stream << pubkey;
+    CPubKey pubkey2;
+    stream >> pubkey2;
+    BOOST_CHECK(pubkey == pubkey2);
+}
+
+BOOST_AUTO_TEST_CASE(pubkey_unserialize)
+{
+    for (uint8_t i = 2; i <= 7; ++i) {
+        CPubKey key = UnserializePubkey({0x02});
+        BOOST_CHECK(!key.IsValid());
+        CmpSerializationPubkey(key);
+        key = UnserializePubkey(std::vector<uint8_t>(GetLen(i), i));
+        CmpSerializationPubkey(key);
+        if (i == 5) {
+            BOOST_CHECK(!key.IsValid());
+        } else {
+            BOOST_CHECK(key.IsValid());
+        }
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()

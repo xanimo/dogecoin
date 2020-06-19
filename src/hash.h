@@ -26,10 +26,11 @@ private:
 public:
     static const size_t OUTPUT_SIZE = CSHA256::OUTPUT_SIZE;
 
-    void Finalize(unsigned char hash[OUTPUT_SIZE]) {
+    void Finalize(Span<unsigned char> output) {
+        assert(output.size() == OUTPUT_SIZE);
         unsigned char buf[CSHA256::OUTPUT_SIZE];
         sha.Finalize(buf);
-        sha.Reset().Write(buf, CSHA256::OUTPUT_SIZE).Finalize(hash);
+        sha.Reset().Write(buf, CSHA256::OUTPUT_SIZE).Finalize(output.data());
     }
 
     CHash256& Write(Span<const unsigned char> input) {
@@ -50,10 +51,11 @@ private:
 public:
     static const size_t OUTPUT_SIZE = CRIPEMD160::OUTPUT_SIZE;
 
-    void Finalize(unsigned char hash[OUTPUT_SIZE]) {
+    void Finalize(Span<unsigned char> output) {
+        assert(output.size() == OUTPUT_SIZE);
         unsigned char buf[CSHA256::OUTPUT_SIZE];
         sha.Finalize(buf);
-        CRIPEMD160().Write(buf, CSHA256::OUTPUT_SIZE).Finalize(hash);
+        CRIPEMD160().Write(buf, CSHA256::OUTPUT_SIZE).Finalize(output.data());
     }
 
     CHash160& Write(Span<const unsigned char> input) {
@@ -74,7 +76,7 @@ inline uint256 Hash(const T1 pbegin, const T1 pend)
     static const unsigned char pblank[1] = {};
     uint256 result;
     CHash256().Write({pbegin == pend ? pblank : (const unsigned char*)&pbegin[0], (pend - pbegin) * sizeof(pbegin[0])})
-              .Finalize((unsigned char*)&result);
+              .Finalize(result);
     return result;
 }
 
@@ -86,7 +88,7 @@ inline uint256 Hash(const T1 p1begin, const T1 p1end,
     uint256 result;
     CHash256().Write({p1begin == p1end ? pblank : (const unsigned char*)&p1begin[0], (p1end - p1begin) * sizeof(p1begin[0])})
               .Write({p2begin == p2end ? pblank : (const unsigned char*)&p2begin[0], (p2end - p2begin) * sizeof(p2begin[0])})
-              .Finalize((unsigned char*)&result);
+              .Finalize(result);
     return result;
 }
 
@@ -111,7 +113,7 @@ inline uint160 Hash160(const T1 pbegin, const T1 pend)
     static unsigned char pblank[1] = {};
     uint160 result;
     CHash160().Write({pbegin == pend ? pblank : (const unsigned char*)&pbegin[0], (pend - pbegin) * sizeof(pbegin[0])})
-              .Finalize((unsigned char*)&result);
+              .Finalize(result);
     return result;
 }
 
@@ -153,8 +155,8 @@ public:
      */
     uint256 GetHash() {
         uint256 result;
-        ctx.Finalize(result.begin());
-        ctx.Reset().Write(result).Finalize(result.begin());
+        ctx.Finalize(result);
+        ctx.Reset().Write(result).Finalize(result);
         return result;
     }
 
@@ -164,7 +166,7 @@ public:
      */
     uint256 GetSHA256() {
         uint256 result;
-        ctx.Finalize(result.begin());
+        ctx.Finalize(result);
         return result;
     }
 

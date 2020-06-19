@@ -862,9 +862,9 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     else if (opcode == OP_SHA256)
                         CSHA256().Write(vch.data(), vch.size()).Finalize(vchHash.data());
                     else if (opcode == OP_HASH160)
-                        CHash160().Write(vch).Finalize(vchHash.data());
+                        CHash160().Write(vch).Finalize(vchHash);
                     else if (opcode == OP_HASH256)
-                        CHash256().Write(vch).Finalize(vchHash.data());
+                        CHash256().Write(vch).Finalize(vchHash);
                     popstack(stack);
                     stack.push_back(vchHash);
                 }
@@ -1150,7 +1150,7 @@ uint256 GetPrevoutsSHA256(const T& txTo)
     for (unsigned int n = 0; n < txTo.vin.size(); n++) {
         ss << txTo.vin[n].prevout;
     }
-    return ss.GetSHA256();
+    return ss.GetHash();
 }
 
 /** Compute the (single) SHA256 of the concatenation of all nSequences of a tx. */
