@@ -814,7 +814,7 @@ const uint256& CNetMessage::GetMessageHash() const
 {
     assert(complete());
     if (data_hash.IsNull())
-        hasher.Finalize(data_hash.begin());
+        hasher.Finalize(data_hash);
     return data_hash;
 }
 
