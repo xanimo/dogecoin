@@ -184,7 +184,7 @@ class OriginPubkeyProvider final : public PubkeyProvider
 
     std::string OriginString() const
     {
-        return HexStr(std::begin(m_origin.fingerprint), std::end(m_origin.fingerprint)) + FormatKeyPath(m_origin.path);
+        return HexStr(m_origin.fingerprint) + FormatKeyPath(m_origin.path);
     }
 
 public:
@@ -494,7 +494,7 @@ class RawDescriptor final : public DescriptorImpl
 {
     const CScript m_script;
 protected:
-    std::string ToStringExtra() const override { return HexStr(m_script.begin(), m_script.end()); }
+    std::string ToStringExtra() const override { return HexStr(m_script); }
     std::vector<CScript> MakeScripts(const std::vector<CPubKey>&, const CScript*, FlatSigningProvider&) const override { return Singleton(m_script); }
 public:
     RawDescriptor(CScript script) : DescriptorImpl({}, {}, "raw"), m_script(std::move(script)) {}
