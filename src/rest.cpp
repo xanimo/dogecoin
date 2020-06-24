@@ -175,7 +175,12 @@ static bool rest_headers(HTTPRequest* req,
     }
 
     case RF_HEX: {
-        std::string strHex = HexStr(ssHeader.begin(), ssHeader.end()) + "\n";
+        CDataStream ssHeader(SER_NETWORK, PROTOCOL_VERSION);
+        for (const CBlockIndex *pindex : headers) {
+            ssHeader << pindex->GetBlockHeader(Params().GetConsensus(pindex->nHeight));
+        }
+
+        std::string strHex = HexStr(ssHeader) + "\n";
         req->WriteHeader("Content-Type", "text/plain");
         req->WriteReply(HTTP_OK, strHex);
         return true;
@@ -239,7 +244,9 @@ static bool rest_block(HTTPRequest* req,
     }
 
     case RF_HEX: {
-        std::string strHex = HexStr(ssBlock.begin(), ssBlock.end()) + "\n";
+        CDataStream ssBlock(SER_NETWORK, PROTOCOL_VERSION | RPCSerializationFlags());
+        ssBlock << block;
+        std::string strHex = HexStr(ssBlock) + "\n";
         req->WriteHeader("Content-Type", "text/plain");
         req->WriteReply(HTTP_OK, strHex);
         return true;
@@ -379,7 +386,10 @@ static bool rest_tx(HTTPRequest* req, const std::string& strURIPart)
     }
 
     case RF_HEX: {
-        std::string strHex = HexStr(ssTx.begin(), ssTx.end()) + "\n";
+        CDataStream ssTx(SER_NETWORK, PROTOCOL_VERSION | RPCSerializationFlags());
+        ssTx << tx;
+
+        std::string strHex = HexStr(ssTx) + "\n";
         req->WriteHeader("Content-Type", "text/plain");
         req->WriteReply(HTTP_OK, strHex);
         return true;
@@ -563,7 +573,7 @@ static bool rest_getutxos(HTTPRequest* req, const std::string& strURIPart)
     case RF_HEX: {
         CDataStream ssGetUTXOResponse(SER_NETWORK, PROTOCOL_VERSION);
         ssGetUTXOResponse << chainActive.Height() << chainActive.Tip()->GetBlockHash() << bitmap << outs;
-        std::string strHex = HexStr(ssGetUTXOResponse.begin(), ssGetUTXOResponse.end()) + "\n";
+        std::string strHex = HexStr(ssGetUTXOResponse) + "\n";
 
         req->WriteHeader("Content-Type", "text/plain");
         req->WriteReply(HTTP_OK, strHex);
