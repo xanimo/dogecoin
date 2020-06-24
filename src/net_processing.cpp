@@ -2954,8 +2954,8 @@ bool ProcessMessages(CNode* pfrom, CConnman& connman, const std::atomic<bool>& i
         {
             LogPrintf("%s(%s, %u bytes): CHECKSUM ERROR expected %s was %s\n", __func__,
                SanitizeString(strCommand), nMessageSize,
-               HexStr(hash.begin(), hash.begin()+CMessageHeader::CHECKSUM_SIZE),
-               HexStr(hdr.pchChecksum, hdr.pchChecksum+CMessageHeader::CHECKSUM_SIZE));
+               HexStr({hash.begin(), hash.begin()+CMessageHeader::CHECKSUM_SIZE}),
+               HexStr({hdr.pchChecksum, hdr.pchChecksum+CMessageHeader::CHECKSUM_SIZE}));
             return fMoreWork;
         }
 

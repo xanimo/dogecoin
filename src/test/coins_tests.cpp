@@ -462,7 +462,7 @@ BOOST_AUTO_TEST_CASE(ccoins_serialization)
 
     // Smallest possible example
     CDataStream ssx(SER_DISK, CLIENT_VERSION);
-    BOOST_CHECK_EQUAL(HexStr(ssx.begin(), ssx.end()), "");
+    BOOST_CHECK_EQUAL(HexStr(ssx), "");
 
     CDataStream ss3(ParseHex("0002000600"), SER_DISK, CLIENT_VERSION);
     CCoins cc3;

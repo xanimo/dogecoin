@@ -644,7 +644,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     }
 
     UniValue aux(UniValue::VOBJ);
-    aux.pushKV("flags", HexStr(COINBASE_FLAGS.begin(), COINBASE_FLAGS.end()));
+    aux.pushKV("flags", HexStr(COINBASE_FLAGS));
 
     arith_uint256 hashTarget = arith_uint256().SetCompact(pblock->nBits);
 
@@ -1094,7 +1094,7 @@ static UniValue AuxMiningCreateBlock(const CScript& scriptPubKey)
     result.pushKV("coinbasevalue", (int64_t)pblock->vtx[0]->vout[0].nValue);
     result.pushKV("bits", strprintf("%08x", pblock->nBits));
     result.pushKV("height", static_cast<int64_t> (pindexPrev->nHeight + 1));
-    result.pushKV(fUseNamecoinApi ? "_target" : "target", HexStr(BEGIN(target), END(target)));
+    result.pushKV(fUseNamecoinApi ? "_target" : "target", HexStr({BEGIN(target), END(target)}));
 
     return result;
 }
@@ -1239,7 +1239,7 @@ UniValue getauxblockbip22(const JSONRPCRequest& request)
         result.pushKV("coinbasevalue", (int64_t)pblock->vtx[0]->vout[0].nValue);
         result.pushKV("bits", strprintf("%08x", pblock->nBits));
         result.pushKV("height", static_cast<int64_t> (pindexPrev->nHeight + 1));
-        result.pushKV(fUseNamecoinApi ? "_target" : "target", HexStr(BEGIN(target), END(target)));
+        result.pushKV(fUseNamecoinApi ? "_target" : "target", HexStr({BEGIN(target), END(target)}));
 
         return result;
     }
