@@ -27,8 +27,7 @@ static uint256 BlockBuildMerkleTree(const CBlock& block, bool* fMutated, std::ve
                 // Two identical hashes at the end of the list at a particular level.
                 mutated = true;
             }
-            vMerkleTree.push_back(Hash(vMerkleTree[j+i].begin(), vMerkleTree[j+i].end(),
-                                       vMerkleTree[j+i2].begin(), vMerkleTree[j+i2].end()));
+            vMerkleTree.push_back(Hash(vMerkleTree[j+i], vMerkleTree[j+i2]));
         }
         j += nSize;
     }
