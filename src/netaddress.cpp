@@ -349,7 +349,6 @@ std::string CNetAddr::ToString() const
     return ToStringIP();
 }
 
-
 bool operator==(const CNetAddr& a, const CNetAddr& b)
 {
     return a.m_net == b.m_net && a.m_addr == b.m_addr;
@@ -522,10 +521,10 @@ std::vector<unsigned char> CNetAddr::GetAddrBytes() const
 
 uint64_t CNetAddr::GetHash() const
 {
-    // uint256 hash = Hash(m_addr);
-    // uint64_t nRet;
-    // memcpy(&nRet, &hash, sizeof(nRet));
-    // return nRet;
+    uint256 hash = Hash(m_addr);
+    uint64_t nRet;
+    memcpy(&nRet, &hash, sizeof(nRet));
+    return nRet;
 }
 
 // private extensions to enum Network, only returned by GetExtNetwork,
@@ -600,14 +599,9 @@ int CNetAddr::GetReachabilityFrom(const CNetAddr *paddrPartner) const
     }
 }
 
-void CService::Init()
-{
-    port = 0;
-}
 
-CService::CService()
+CService::CService() : port(0)
 {
-    Init();
 }
 
 CService::CService(const CNetAddr& cip, unsigned short portIn) : CNetAddr(cip), port(portIn)
@@ -864,11 +858,6 @@ bool CSubNet::IsValid() const
 bool operator==(const CSubNet& a, const CSubNet& b)
 {
     return a.valid == b.valid && a.network == b.network && !memcmp(a.netmask, b.netmask, 16);
-}
-
-bool operator!=(const CSubNet& a, const CSubNet& b)
-{
-    return !(a==b);
 }
 
 bool operator<(const CSubNet& a, const CSubNet& b)

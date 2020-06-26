@@ -20,11 +20,12 @@ typedef vector<unsigned char> valtype;
 bool fAcceptDatacarrier = DEFAULT_ACCEPT_DATACARRIER;
 unsigned nMaxDatacarrierBytes = MAX_OP_RETURN_RELAY;
 
-CScriptID::CScriptID(const CScript& in) : uint160(Hash160(in.begin(), in.end())) {}
+CScriptID::CScriptID(const CScript& in) : uint160(Hash160(in)) {}
 
-ScriptHash::ScriptHash(const CScript& in) : uint160(Hash160(in.begin(), in.end())) {}
+ScriptHash::ScriptHash(const CScript& in) : uint160(Hash160(in)) {}
 
 PKHash::PKHash(const CPubKey& pubkey) : uint160(pubkey.GetID()) {}
+
 WitnessV0KeyHash::WitnessV0KeyHash(const CPubKey& pubkey) : uint160(pubkey.GetID()) {}
 
 WitnessV0ScriptHash::WitnessV0ScriptHash(const CScript& in)
@@ -320,13 +321,9 @@ CScript GetScriptForWitness(const CScript& redeemscript)
     std::vector<std::vector<unsigned char> > vSolutions;
     if (Solver(redeemscript, typ, vSolutions)) {
         if (typ == TX_PUBKEY) {
-            unsigned char h160[20];
-            CHash160().Write({&vSolutions[0][0], vSolutions[0].size()}).Finalize(h160);
-            ret << OP_0 << std::vector<unsigned char>(&h160[0], &h160[20]);
-            return ret;
+            return GetScriptForDestination(WitnessV0KeyHash(Hash160(vSolutions[0])));
         } else if (typ == TX_PUBKEYHASH) {
-           ret << OP_0 << vSolutions[0];
-           return ret;
+            return GetScriptForDestination(WitnessV0KeyHash(uint160{vSolutions[0]}));
         }
     }
     uint256 hash;
