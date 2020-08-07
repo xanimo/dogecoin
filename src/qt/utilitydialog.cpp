@@ -245,7 +245,7 @@ void PaperWalletDialog::on_getNewAddress_clicked()
 
     // Create String versions of each
     std::string myPrivKey = EncodeSecret(privKey);
-    std::string myPubKey = HexStr(pubkey.begin(), pubkey.end());
+    std::string myPubKey = HexStr(pubkey);
     std::string myAddress = EncodeDestination(pubkey.GetID());
 
 
