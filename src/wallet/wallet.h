@@ -323,7 +323,7 @@ public:
                 mapValue["timesmart"] = strprintf("%u", nTimeSmart);
         }
 
-        READWRITE(*(CMerkleTx*)this);
+        s << static_cast<const CMerkleTx&>(*this);
         std::vector<CMerkleTx> vUnused; //!< Used to be vtxPrev
         READWRITE(vUnused);
         READWRITE(mapValue);
@@ -337,7 +337,9 @@ public:
         {
             strFromAccount = mapValue["fromaccount"];
 
-            ReadOrderPos(nOrderPos, mapValue);
+            s >> static_cast<CMerkleTx&>(*this);
+            std::vector<CMerkleTx> vUnused; //!< Used to be vtxPrev
+            s >> vUnused >> mapValue >> vOrderForm >> fTimeReceivedIsTxTime >> nTimeReceived >> fFromMe >> fSpent;
 
             nTimeSmart = mapValue.count("timesmart") ? (unsigned int)atoi64(mapValue["timesmart"]) : 0;
         }

@@ -18,6 +18,8 @@
 #include "utilstrencodings.h"
 
 #include <atomic>
+#include <cstdint>
+#include <limits>
 
 #ifndef WIN32
 #include <fcntl.h>
@@ -59,7 +61,7 @@ std::string GetNetworkName(enum Network net) {
     }
 }
 
-bool static LookupIntern(const char *pszName, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions, bool fAllowLookup)
+bool static LookupIntern(const std::string& pszName, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions, bool fAllowLookup)
 {
     vIP.clear();
 
@@ -116,7 +118,7 @@ bool static LookupIntern(const char *pszName, std::vector<CNetAddr>& vIP, unsign
     return (vIP.size() > 0);
 }
 
-bool LookupHost(const char *pszName, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions, bool fAllowLookup)
+bool LookupHost(const std::string& pszName, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions, bool fAllowLookup)
 {
     std::string strHost(pszName);
     if (strHost.empty())
@@ -129,7 +131,7 @@ bool LookupHost(const char *pszName, std::vector<CNetAddr>& vIP, unsigned int nM
     return LookupIntern(strHost.c_str(), vIP, nMaxSolutions, fAllowLookup);
 }
 
-bool LookupHost(const char *pszName, CNetAddr& addr, bool fAllowLookup)
+bool LookupHost(const std::string& pszName, CNetAddr& addr, bool fAllowLookup)
 {
     std::vector<CNetAddr> vIP;
     LookupHost(pszName, vIP, 1, fAllowLookup);
@@ -139,7 +141,7 @@ bool LookupHost(const char *pszName, CNetAddr& addr, bool fAllowLookup)
     return true;
 }
 
-bool Lookup(const char *pszName, std::vector<CService>& vAddr, uint16_t portDefault, bool fAllowLookup, unsigned int nMaxSolutions)
+bool Lookup(const std::string& pszName, std::vector<CService>& vAddr, uint16_t portDefault, bool fAllowLookup, unsigned int nMaxSolutions)
 {
     if (pszName[0] == 0)
         return false;
@@ -157,7 +159,7 @@ bool Lookup(const char *pszName, std::vector<CService>& vAddr, uint16_t portDefa
     return true;
 }
 
-bool Lookup(const char *pszName, CService& addr, uint16_t portDefault, bool fAllowLookup)
+bool Lookup(const std::string& pszName, CService& addr, uint16_t portDefault, bool fAllowLookup)
 {
     std::vector<CService> vService;
     bool fRet = Lookup(pszName, vService, portDefault, fAllowLookup, 1);
@@ -167,7 +169,7 @@ bool Lookup(const char *pszName, CService& addr, uint16_t portDefault, bool fAll
     return true;
 }
 
-CService LookupNumeric(const char *pszName, uint16_t portDefault)
+CService LookupNumeric(const std::string& pszName, uint16_t portDefault)
 {
     CService addr;
     // "1.2:345" will fail to resolve the ip, but will still set the port.
@@ -575,7 +577,7 @@ bool ConnectSocket(const CService &addrDest, SOCKET& hSocketRet, uint64_t nTimeo
         return ConnectSocketDirectly(addrDest, hSocketRet, nTimeout);
 }
 
-bool ConnectSocketByName(CService &addr, SOCKET& hSocketRet, const char *pszDest, uint16_t portDefault, uint64_t nTimeout, bool *outProxyConnectionFailed)
+bool ConnectSocketByName(CService &addr, SOCKET& hSocketRet, const std::string& pszDest, uint16_t portDefault, uint64_t nTimeout, bool *outProxyConnectionFailed)
 {
     std::string strDest;
     uint16_t port = portDefault;
@@ -603,7 +605,7 @@ bool ConnectSocketByName(CService &addr, SOCKET& hSocketRet, const char *pszDest
     return ConnectThroughProxy(proxy, strDest, port, hSocketRet, nTimeout, outProxyConnectionFailed);
 }
 
-bool LookupSubNet(const char* pszName, CSubNet& ret)
+bool LookupSubNet(const std::string& pszName, CSubNet& ret)
 {
     std::string strSubnet(pszName);
     size_t slash = strSubnet.find_last_of('/');
@@ -616,9 +618,9 @@ bool LookupSubNet(const char* pszName, CSubNet& ret)
         if (slash != strSubnet.npos)
         {
             std::string strNetmask = strSubnet.substr(slash + 1);
-            int32_t n;
-            // IPv4 addresses start at offset 12, and first 12 bytes must match, so just offset n
-            if (ParseInt32(strNetmask, &n)) { // If valid number, assume /24 syntax
+            uint8_t n;
+            if (ParseUInt8(strNetmask, &n)) {
+                // If valid number, assume CIDR variable-length subnet masking
                 ret = CSubNet(network, n);
                 return ret.IsValid();
             }
@@ -660,7 +662,7 @@ std::string NetworkErrorString(int err)
 std::string NetworkErrorString(int err)
 {
     char buf[256];
-    const char *s = buf;
+    const std::string& s = buf;
     buf[0] = 0;
     /* Too bad there are two incompatible implementations of the
      * thread-safe strerror. */

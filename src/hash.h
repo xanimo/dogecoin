@@ -67,6 +67,15 @@ public:
 };
 
 /** Compute the 256-bit hash of an object. */
+template<typename T>
+inline uint256 Hash(const T& in1)
+{
+    uint256 result;
+    CHash256().Write(MakeUCharSpan(in1)).Finalize(result);
+    return result;
+}
+
+/** Compute the 256-bit hash of an object. */
 template<typename T1>
 inline uint256 Hash(const T1 pbegin, const T1 pend)
 {
