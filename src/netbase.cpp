@@ -20,6 +20,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <limits>
 
 #ifndef WIN32
 #include <fcntl.h>
@@ -573,7 +574,7 @@ bool HaveNameProxy() {
 bool IsProxy(const CNetAddr &addr) {
     LOCK(cs_proxyInfos);
     for (int i = 0; i < NET_MAX; i++) {
-        if (addr == (CNetAddr)proxyInfo[i].proxy)
+        if (addr == static_cast<CNetAddr>(proxyInfo[i].proxy))
             return true;
     }
     return false;
@@ -593,10 +594,10 @@ static bool ConnectThroughProxy(const proxyType &proxy, const std::string& strDe
         ProxyCredentials random_auth;
         static std::atomic_int counter;
         random_auth.username = random_auth.password = strprintf("%i", counter++);
-        if (!Socks5(strDest, (uint16_t)port, &random_auth, hSocket))
+        if (!Socks5(strDest, (unsigned short)port, &random_auth, hSocket))
             return false;
     } else {
-        if (!Socks5(strDest, (uint16_t)port, 0, hSocket))
+        if (!Socks5(strDest, (unsigned short)port, 0, hSocket))
             return false;
     }
 
@@ -661,9 +662,9 @@ bool LookupSubNet(const std::string& strSubnet, CSubNet& ret)
         if (slash != strSubnet.npos)
         {
             std::string strNetmask = strSubnet.substr(slash + 1);
-            int32_t n;
-            // IPv4 addresses start at offset 12, and first 12 bytes must match, so just offset n
-            if (ParseInt32(strNetmask, &n)) { // If valid number, assume /24 syntax
+            uint8_t n;
+            if (ParseUInt8(strNetmask, &n)) {
+                // If valid number, assume CIDR variable-length subnet masking
                 ret = CSubNet(network, n);
                 return ret.IsValid();
             }
