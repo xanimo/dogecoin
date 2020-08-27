@@ -183,19 +183,23 @@ string DecodeBase64(const string& str)
     return std::string((const char*)vchRet.data(), vchRet.size());
 }
 
-std::string EncodeBase32(Span<const unsigned char> input)
+std::string EncodeBase32(Span<const unsigned char> input, bool pad)
 {
     static const char *pbase32 = "abcdefghijklmnopqrstuvwxyz234567";
     std::string str;
     str.reserve(((input.size() + 4) / 5) * 8);
     ConvertBits<8, 5, true>([&](int v) { str += pbase32[v]; }, input.begin(), input.end());
-    while (str.size() % 8) str += '=';
+    if (pad) {
+        while (str.size() % 8) {
+            str += '=';
+        }
+    }
     return str;
 }
 
-string EncodeBase32(const string& str)
+std::string EncodeBase32(const std::string& str, bool pad)
 {
-    return EncodeBase32(MakeUCharSpan(str));
+    return EncodeBase32(MakeUCharSpan(str), pad);
 }
 
 vector<unsigned char> DecodeBase32(const char* p, bool* pfInvalid)
