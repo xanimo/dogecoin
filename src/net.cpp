@@ -557,8 +557,7 @@ void CConnman::SweepBanned()
     {
         CSubNet subNet = (*it).first;
         CBanEntry banEntry = (*it).second;
-        if(now > banEntry.nBanUntil)
-        {
+        if (!subNet.IsValid() || now > banEntry.nBanUntil) {
             setBanned.erase(it++);
             setBannedIsDirty = true;
             LogPrint("net", "%s: Removed banned node ip/subnet from banlist.dat: %s\n", __func__, subNet.ToString());
