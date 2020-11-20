@@ -45,7 +45,8 @@ DIST_CONTRIB = $(top_srcdir)/contrib/dogecoin-cli.bash-completion \
 	       $(top_srcdir)/contrib/rpm
 
 BIN_CHECKS=$(top_srcdir)/contrib/devtools/symbol-check.py \
-           $(top_srcdir)/contrib/devtools/security-check.py
+           $(top_srcdir)/contrib/devtools/security-check.py \
+           $(top_srcdir)/contrib/devtools/pixie.py
 
 WINDOWS_PACKAGING = $(top_srcdir)/share/pixmaps/dogecoin.ico \
   $(top_srcdir)/share/pixmaps/nsis-header.bmp \
