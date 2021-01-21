@@ -8,6 +8,8 @@ Test script for security-check.py
 import subprocess
 import unittest
 
+from utils import determine_wellknown_cmd
+
 def write_testcode(filename):
     with open(filename, 'w') as f:
         f.write('''
@@ -20,16 +22,15 @@ def write_testcode(filename):
     ''')
 
 def call_security_check(cc, source, executable, options):
-    subprocess.check_call([cc,source,'-o',executable] + options)
-    p = subprocess.Popen(['./security-check.py',executable], stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, universal_newlines=True)
-    (stdout, stderr) = p.communicate()
-    return (p.returncode, stdout.rstrip())
+    subprocess.run([*cc,source,'-o',executable] + options, check=True)
+    p = subprocess.run(['./contrib/devtools/security-check.py',executable], stdout=subprocess.PIPE, universal_newlines=True)
+    return (p.returncode, p.stdout.rstrip())
 
 class TestSecurityChecks(unittest.TestCase):
     def test_ELF(self):
         source = 'test1.c'
         executable = 'test1'
-        cc = 'gcc'
+        cc = determine_wellknown_cmd('CC', 'gcc')
         write_testcode(source)
 
         self.assertEqual(call_security_check(cc, source, executable, ['-Wl,-zexecstack','-fno-stack-protector','-Wl,-znorelro']), 
@@ -46,7 +47,26 @@ class TestSecurityChecks(unittest.TestCase):
     def test_PE(self):
         source = 'test1.c'
         executable = 'test1.exe'
-        cc = 'i686-w64-mingw32-gcc'
+        cc = determine_wellknown_cmd('CC', 'i686-w64-mingw32-gcc')
+        write_testcode(source)
+
+        self.assertEqual(call_security_check(cc, source, executable, ['-Wl,--no-nxcompat','-Wl,--no-dynamicbase','-Wl,--no-high-entropy-va','-no-pie','-fno-PIE']),
+            (1, executable+': failed DYNAMIC_BASE HIGH_ENTROPY_VA NX RELOC_SECTION'))
+        self.assertEqual(call_security_check(cc, source, executable, ['-Wl,--nxcompat','-Wl,--no-dynamicbase','-Wl,--no-high-entropy-va','-no-pie','-fno-PIE']),
+            (1, executable+': failed DYNAMIC_BASE HIGH_ENTROPY_VA RELOC_SECTION'))
+        self.assertEqual(call_security_check(cc, source, executable, ['-Wl,--nxcompat','-Wl,--dynamicbase','-Wl,--no-high-entropy-va','-no-pie','-fno-PIE']),
+            (1, executable+': failed HIGH_ENTROPY_VA RELOC_SECTION'))
+        self.assertEqual(call_security_check(cc, source, executable, ['-Wl,--nxcompat','-Wl,--dynamicbase','-Wl,--high-entropy-va','-no-pie','-fno-PIE']),
+            (1, executable+': failed RELOC_SECTION'))
+        self.assertEqual(call_security_check(cc, source, executable, ['-Wl,--nxcompat','-Wl,--dynamicbase','-Wl,--high-entropy-va','-pie','-fPIE']),
+            (0, ''))
+
+        clean_files(source, executable)
+
+    def test_MACHO(self):
+        source = 'test1.c'
+        executable = 'test1'
+        cc = determine_wellknown_cmd('CC', 'clang')
         write_testcode(source)
 
         self.assertEqual(call_security_check(cc, source, executable, []), 
@@ -58,4 +78,3 @@ class TestSecurityChecks(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
