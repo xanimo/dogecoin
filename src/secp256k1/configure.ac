@@ -18,6 +18,7 @@ AC_PATH_TOOL(AR, ar)
 AC_PATH_TOOL(RANLIB, ranlib)
 AC_PATH_TOOL(STRIP, strip)
 AX_PROG_CC_FOR_BUILD
+AR_FLAGS=cr
 
 if test "x$CFLAGS" = "x"; then
   CFLAGS="-O3 -g"
