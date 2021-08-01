@@ -39,7 +39,7 @@ The test:
    it's missing an intermediate block.
    Node1 should reorg to this longer chain.
 
-4b.Send 1152 more blocks on the longer chain.
+4b.Send 288 more blocks on the longer chain.
    Node0 should process all but the last block (too far ahead in height).
    Send all headers to Node1, and then send the last block in that chain.
    Node1 should accept the block because it's coming from a whitelisted peer.
@@ -199,21 +199,24 @@ class AcceptBlockTest(BitcoinTestFramework):
                 assert_equal(x['status'], "headers-only")
 
         # But this block should be accepted by node0 since it has more work.
-        self.nodes[0].getblock(blocks_h3[0].hash)
-        print("Unrequested more-work block accepted from non-whitelisted peer")
+        try:
+            self.nodes[0].getblock(blocks_h3[0].hash)
+            print("Unrequested more-work block accepted from non-whitelisted peer")
+        except:
+            raise AssertionError("Unrequested more work block was not processed")
 
         # Node1 should have accepted and reorged.
         assert_equal(self.nodes[1].getblockcount(), 3)
         print("Successfully reorged to length 3 chain from whitelisted peer")
 
-        # 4b. Now mine 1152 more blocks and deliver; all should be processed but
+        # 4b. Now mine 288 more blocks and deliver; all should be processed but
         # the last (height-too-high) on node0.  Node1 should process the tip if
         # we give it the headers chain leading to the tip.
         tips = blocks_h3
         headers_message = msg_headers()
         all_blocks = []   # node0's blocks
         for j in range(2):
-            for i in range(1152):
+            for i in range(287):
                 next_block = create_block(tips[j].sha256, create_coinbase(i + 4), tips[j].nTime+1)
                 next_block.solve()
                 if j==0:
@@ -224,17 +227,27 @@ class AcceptBlockTest(BitcoinTestFramework):
                 tips[j] = next_block
 
         time.sleep(2)
-        # Blocks 1-1151 should be accepted, block 1152 should be ignored because it's too far ahead
+        # Blocks 1-287 should be accepted, block 288 should be ignored because it's too far ahead
         for x in all_blocks[:-1]:
-            self.nodes[0].getblock(x.hash)
-        assert_raises_jsonrpc(-1, "Block not found on disk", self.nodes[0].getblock, all_blocks[-1].hash)
+            try:
+                self.nodes[0].getblock(x.hash)
+                if x == all_blocks[286]:
+                    raise AssertionError("Unrequested block too far-ahead should have been ignored")
+            except:
+                if x == all_blocks[286]:
+                    print("Unrequested block too far-ahead not processed")
+                else:
+                    raise AssertionError("Unrequested block with more work should have been accepted")
 
         headers_message.headers.pop() # Ensure the last block is unrequested
         white_node.send_message(headers_message) # Send headers leading to tip
         white_node.send_message(msg_block(tips[1]))  # Now deliver the tip
-        white_node.sync_with_ping()
-        self.nodes[1].getblock(tips[1].hash)
-        print("Unrequested block far ahead of tip accepted from whitelisted peer")
+        try:
+            white_node.sync_with_ping()
+            self.nodes[1].getblock(tips[1].hash)
+            print("Unrequested block far ahead of tip accepted from whitelisted peer")
+        except:
+            raise AssertionError("Unrequested block from whitelisted peer not accepted")
 
         # 5. Test handling of unrequested block on the node that didn't process
         # Should still not be processed (even though it has a child that has more
@@ -270,7 +283,7 @@ class AcceptBlockTest(BitcoinTestFramework):
         test_node.send_message(msg_block(blocks_h2f[0]))
 
         test_node.sync_with_ping()
-        assert_equal(self.nodes[0].getblockcount(), 1154)
+        assert_equal(self.nodes[0].getblockcount(), 290)
         print("Successfully reorged to longer chain from non-whitelisted peer")
 
         [ c.disconnect_node() for c in connections ]
