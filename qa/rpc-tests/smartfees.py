@@ -94,54 +94,6 @@ def split_inputs(from_node, txins, txouts, initial_split = False):
     txouts.append({ "txid" : txid, "vout" : 0 , "amount" : half_change})
     txouts.append({ "txid" : txid, "vout" : 1 , "amount" : rem_change})
 
-def check_estimates(node, fees_seen, max_invalid, print_estimates = True):
-    '''
-    This function calls estimatefee and verifies that the estimates
-    meet certain invariants.
-    '''
-    all_estimates = [ node.estimatefee(i) for i in range(1,26) ]
-    if print_estimates:
-        print([str(all_estimates[e-1]) for e in [1,2,3,6,15,25]])
-    delta = 1.0e-6 # account for rounding error
-    last_e = max(fees_seen)
-    for e in [x for x in all_estimates if x >= 0]:
-        # Estimates should be within the bounds of what transactions fees actually were:
-        if float(e)+delta < min(fees_seen) or float(e)-delta > max(fees_seen):
-            raise AssertionError("Estimated fee (%f) out of range (%f,%f)"
-                                 %(float(e), min(fees_seen), max(fees_seen)))
-        # Estimates should be monotonically decreasing
-        if float(e)-delta > last_e:
-            raise AssertionError("Estimated fee (%f) larger than last fee (%f) for lower number of confirms"
-                                 %(float(e),float(last_e)))
-        last_e = e
-    valid_estimate = False
-    invalid_estimates = 0
-    for i,e in enumerate(all_estimates): # estimate is for i+1
-        if e >= 0:
-            valid_estimate = True
-            # estimatesmartfee should return the same result
-            assert_equal(node.estimatesmartfee(i+1)["feerate"], e)
-
-        else:
-            invalid_estimates += 1
-
-            # estimatesmartfee should still be valid
-            approx_estimate = node.estimatesmartfee(i+1)["feerate"]
-            answer_found = node.estimatesmartfee(i+1)["blocks"]
-            assert(approx_estimate > 0)
-            assert(answer_found > i+1)
-
-            # Once we're at a high enough confirmation count that we can give an estimate
-            # We should have estimates for all higher confirmation counts
-            if valid_estimate:
-                raise AssertionError("Invalid estimate appears at higher confirm count than valid estimate")
-
-    # Check on the expected number of different confirmation counts
-    # that we might not have valid estimates for
-    if invalid_estimates > max_invalid:
-        raise AssertionError("More than (%d) invalid estimates"%(max_invalid))
-    return all_estimates
-
 
 class EstimateFeeTest(BitcoinTestFramework):
 
@@ -211,57 +163,55 @@ class EstimateFeeTest(BitcoinTestFramework):
         self.is_network_split = False
         self.sync_all()
 
-    def transact_and_mine(self, numblocks, mining_node):
-        min_fee = Decimal("0.00001")
-        # We will now mine numblocks blocks generating on average 100 transactions between each block
-        # We shuffle our confirmed txout set before each set of transactions
-        # small_txpuzzle_randfee will use the transactions that have inputs already in the chain when possible
-        # resorting to tx's that depend on the mempool when those run out
-        for i in range(numblocks):
-            random.shuffle(self.confutxo)
-            for j in range(random.randrange(100-50,100+50)):
-                from_index = random.randint(1,2)
-                (txhex, fee) = small_txpuzzle_randfee(self.nodes[from_index], self.confutxo,
-                                                      self.memutxo, Decimal("0.005"), min_fee, min_fee)
-                tx_kbytes = (len(txhex) // 2) / 1000.0
-                self.fees_per_kb.append(float(fee)/tx_kbytes)
-            sync_mempools(self.nodes[0:3], wait=.1)
-            mined = mining_node.getblock(mining_node.generate(1)[0],True)["tx"]
-            sync_blocks(self.nodes[0:3], wait=.1)
-            # update which txouts are confirmed
-            newmem = []
-            for utx in self.memutxo:
-                if utx["txid"] in mined:
-                    self.confutxo.append(utx)
-                else:
-                    newmem.append(utx)
-            self.memutxo = newmem
-
     def run_test(self):
-        self.fees_per_kb = []
-        self.memutxo = []
-        self.confutxo = self.txouts # Start with the set of confirmed txouts after splitting
-        print("Will output estimates for 1/2/3/6/15/25 blocks")
+        # Prime the memory pool with pairs of transactions
+        # (high-priority, random fee and zero-priority, random fee)
+        min_fee = Decimal("1.0000")
+        fees_per_kb = [];
+        for i in range(12):
+            (txid, txhex, fee) = random_zeropri_transaction(self.nodes, Decimal("1.1"),
+                                                            min_fee, min_fee, 20)
+            tx_kbytes = (len(txhex)/2)/5
+            fees_per_kb.append(float(fee)/tx_kbytes)
 
-        for i in range(2):
-            print("Creating transactions and mining them with a block size that can't keep up")
-            # Create transactions and mine 10 small blocks with node 2, but create txs faster than we can mine
-            self.transact_and_mine(10, self.nodes[2])
-            check_estimates(self.nodes[1], self.fees_per_kb, 14)
+        # Mine blocks with node2 until the memory pool clears:
+        count_start = self.nodes[2].getblockcount()
+        while len(self.nodes[2].getrawmempool()) > 0:
+            self.nodes[2].generate(1)
+            self.sync_all()
 
-            print("Creating transactions and mining them at a block size that is just big enough")
-            # Generate transactions while mining 10 more blocks, this time with node1
-            # which mines blocks with capacity just above the rate that transactions are being created
-            self.transact_and_mine(10, self.nodes[1])
-            check_estimates(self.nodes[1], self.fees_per_kb, 2)
+        all_estimates = [ self.nodes[0].estimatefee(i) for i in range(1,20) ]
+        print("Fee estimates, super-stingy miner: "+str([str(e) for e in all_estimates]))
+
+        # Estimates should be within the bounds of what transactions fees actually were:
+        delta = 1.0e-6 # account for rounding error
+        for e in filter(lambda x: x >= 0, all_estimates):
+            if float(e)+delta < min(fees_per_kb) or float(e)-delta > max(fees_per_kb):
+                raise AssertionError("Estimated fee (%f) out of range (%f,%f)"%(float(e), min(fees_per_kb), max(fees_per_kb)))
+
+        # Generate transactions while mining 30 more blocks, this time with node1:
+        for i in range(30):
+            for j in range(random.randrange(6-4,6+4)):
+                (txid, txhex, fee) = random_transaction(self.nodes, Decimal("1.1"),
+                                                        Decimal("1"), min_fee, 20)
+                tx_kbytes = (len(txhex)/2)/200
+                fees_per_kb.append(float(fee)/tx_kbytes)
+            self.nodes[1].generate(1)
+            self.sync_all()
+
+        all_estimates = [ self.nodes[0].estimatefee(i) for i in range(1,20) ]
+        print("Fee estimates, more generous miner: "+str([ str(e) for e in all_estimates]))
+        for e in filter(lambda x: x >= 0, all_estimates):
+            if float(e)+delta < min(fees_per_kb) or float(e)-delta > max(fees_per_kb):
+                raise AssertionError("Estimated fee (%f) out of range (%f,%f)"%(float(e), min(fees_per_kb), max(fees_per_kb)))
 
         # Finish by mining a normal-sized block:
-        while len(self.nodes[1].getrawmempool()) > 0:
-            self.nodes[1].generate(1)
+        while len(self.nodes[0].getrawmempool()) > 0:
+            self.nodes[0].generate(1)
+            self.sync_all()
 
-        sync_blocks(self.nodes[0:3], wait=.1)
-        print("Final estimates after emptying mempools")
-        check_estimates(self.nodes[1], self.fees_per_kb, 2)
+        final_estimates = [ self.nodes[0].estimatefee(i) for i in range(1,20) ]
+        print("Final fee estimates: "+str([ str(e) for e in final_estimates]))
 
 if __name__ == '__main__':
     EstimateFeeTest().main()
