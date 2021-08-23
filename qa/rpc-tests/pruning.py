@@ -14,7 +14,7 @@
 import time
 import os
 from test_framework.blocktools import create_coinbase
-from test_framework.mininode import CBlock
+from test_framework.mininode import CBlock, wait_until
 from test_framework.script import (
     CScript,
     OP_NOP,
@@ -126,13 +126,20 @@ class PruneTest(BitcoinTestFramework):
 
     def create_big_chain(self):
         # Start by creating some coinbases we can spend later
-        self.nodes[1].generate(200)
+        self.nodes[1].generate(1000)
         sync_blocks(self.nodes[0:2])
-        self.nodes[0].generate(150)
+        self.nodes[0].generate(750)
         # Then mine enough full blocks to create more than 2200MiB of data
-        mine_large_blocks(self.nodes[0], 2410)
-
+        mine_large_blocks(self.nodes[0], 2390)
+        print('node0 height', self.nodes[0].getblockcount())
+        print('node1 height', self.nodes[1].getblockcount())
+        print('node2 height', self.nodes[2].getblockcount())
+        print("current usage:", calc_usage(self.prunedir))
         sync_blocks(self.nodes[0:5])
+        print('node0 height', self.nodes[0].getblockcount())
+        print('node1 height', self.nodes[1].getblockcount())
+        print('node2 height', self.nodes[2].getblockcount())
+        print("current usage:", calc_usage(self.prunedir))
 
     def test_height_min(self):
         if not os.path.isfile(self.prunedir+"blk00000.dat"):
@@ -142,7 +149,15 @@ class PruneTest(BitcoinTestFramework):
         print("Mining 125 more blocks should cause the first block file to be pruned")
         # Pruning doesn't run until we're allocating another chunk, 20 full blocks past the height cutoff will ensure this
 
+        print('node0 height', self.nodes[0].getblockcount())
+        print('node1 height', self.nodes[1].getblockcount())
+        print('node2 height', self.nodes[2].getblockcount())
+        print("current usage:", calc_usage(self.prunedir))
         mine_large_blocks(self.nodes[0], 25)
+        print('node0 height', self.nodes[0].getblockcount())
+        print('node1 height', self.nodes[1].getblockcount())
+        print('node2 height', self.nodes[2].getblockcount())
+        print("current usage:", calc_usage(self.prunedir))
 
         waitstart = time.time()
         while os.path.isfile(self.prunedir+"blk00000.dat"):
@@ -170,12 +185,20 @@ class PruneTest(BitcoinTestFramework):
             mine_large_blocks(self.nodes[1], 120)
 
             # Reorg back with 125 block chain from node 0
-            mine_large_blocks(self.nodes[0], 121)
+            mine_large_blocks(self.nodes[0], 125)
 
             # Create connections in the order so both nodes can see the reorg at the same time
             connect_nodes(self.nodes[0], 1)
             connect_nodes(self.nodes[0], 2)
+            print('node0 height', self.nodes[0].getblockcount())
+            print('node1 height', self.nodes[1].getblockcount())
+            print('node2 height', self.nodes[2].getblockcount())
+            print("current usage:", calc_usage(self.prunedir))
             sync_blocks(self.nodes[0:3])
+            print('node0 height', self.nodes[0].getblockcount())
+            print('node1 height', self.nodes[1].getblockcount())
+            print('node2 height', self.nodes[2].getblockcount())
+            print("current usage:", calc_usage(self.prunedir))
 
         print("Usage can be over target because of high stale rate:", calc_usage(self.prunedir))
 
@@ -189,6 +212,10 @@ class PruneTest(BitcoinTestFramework):
 
         height = self.nodes[1].getblockcount()
         print("Current block height:", height)
+        print('node0 height', self.nodes[0].getblockcount())
+        print('node1 height', self.nodes[1].getblockcount())
+        print('node2 height', self.nodes[2].getblockcount())
+        print("current usage:", calc_usage(self.prunedir))
 
         self.forkheight = height-1439
         self.forkhash = self.nodes[1].getblockhash(self.forkheight)
@@ -211,19 +238,39 @@ class PruneTest(BitcoinTestFramework):
         self.nodes[1]=start_node(1, self.options.tmpdir, ["-debug","-maxreceivebuffer=20000","-blockmaxsize=5000", "-checkblocks=5", "-disablesafemode"], timewait=3600)
 
         print("Generating new longer chain of 1452 more blocks")
-        self.nodes[1].generate(1452)
+        self.nodes[1].generate(1441)
 
         print("Reconnect nodes")
         connect_nodes(self.nodes[0], 1)
         connect_nodes(self.nodes[1], 2)
+        print('node0 height', self.nodes[0].getblockcount())
+        print('node1 height', self.nodes[1].getblockcount())
+        print('node2 height', self.nodes[2].getblockcount())
+        print("current usage:", calc_usage(self.prunedir))
+        print('self.forkheight: ', self.forkheight)
         sync_blocks(self.nodes[0:3], timeout=120)
+        print('node0 height', self.nodes[0].getblockcount())
+        print('node1 height', self.nodes[1].getblockcount())
+        print('node2 height', self.nodes[2].getblockcount())
+        print("current usage:", calc_usage(self.prunedir))
+        print('self.forkheight: ', self.forkheight)
 
         print("Verify height on node 2:",self.nodes[2].getblockcount())
         print("Usage possibly still high bc of stale blocks in block files:", calc_usage(self.prunedir))
 
-        print("Mine 1100 more blocks so we have requisite history (some blocks will be big and cause pruning of previous chain)")
-        mine_large_blocks(self.nodes[0], 1372)
-        sync_blocks(self.nodes[0:3], timeout=120)
+        print("Mine 220 more blocks so we have requisite history (some blocks will be big and cause pruning of previous chain)")
+        mine_large_blocks(self.nodes[0], 895)
+        print('node0 height', self.nodes[0].getblockcount())
+        print('node1 height', self.nodes[1].getblockcount())
+        print('node2 height', self.nodes[2].getblockcount())
+        print("current usage:", calc_usage(self.prunedir))
+        print('self.forkheight: ', self.forkheight)
+        sync_blocks(self.nodes[0:3], timeout=600)
+        print('node0 height', self.nodes[0].getblockcount())
+        print('node1 height', self.nodes[1].getblockcount())
+        print('node2 height', self.nodes[2].getblockcount())
+        print("current usage:", calc_usage(self.prunedir))
+        print('self.forkheight: ', self.forkheight)
 
         usage = calc_usage(self.prunedir)
         print("Usage should be below target:", usage)
@@ -262,6 +309,9 @@ class PruneTest(BitcoinTestFramework):
         # At this point node 2 is within 1440 blocks of the fork point so it will preserve its ability to reorg
         if self.nodes[2].getblockcount() < self.mainchainheight:
             blocks_to_mine = first_reorg_height + 1 - self.mainchainheight
+            print('blocks_to_mine: ', blocks_to_mine)
+            print('first_reorg: ', first_reorg_height)
+            print('self.mainchainheight: ', self.mainchainheight)
             print("Rewind node 0 to prev main chain to mine longer chain to trigger redownload. Blocks needed:", blocks_to_mine)
             self.nodes[0].invalidateblock(curchainhash)
             assert(self.nodes[0].getblockcount() == self.mainchainheight)
@@ -271,8 +321,15 @@ class PruneTest(BitcoinTestFramework):
 
         print("Verify node 2 reorged back to the main chain, some blocks of which it had to redownload")
         waitstart = time.time()
+        print(self.nodes[2].getblockcount())
+        print(goalbestheight)
+        print(self.nodes[2].getchaintips())
+        # assert wait_until(lambda: self.nodes[2].getblockcount() >= goalbestheight, timeout=240)
+        waitstart = time.time()
         while self.nodes[2].getblockcount() < goalbestheight:
             time.sleep(0.1)
+            print(self.nodes[2].getblockcount())
+            print(goalbestheight)
             if time.time() - waitstart > 900:
                 raise AssertionError("Node 2 didn't reorg to proper height")
         assert(self.nodes[2].getbestblockhash() == goalbesthash)
@@ -393,7 +450,7 @@ class PruneTest(BitcoinTestFramework):
         # N1  Node 1
         #
         # Start by mining a simple chain that all nodes have
-        # N0=N1=N2 **...*(995)
+        # N0=N1=N2 **...*(995) = (2645)
 
         # stop manual-pruning node with 995 blocks
         self.stop_node(3)
@@ -402,27 +459,27 @@ class PruneTest(BitcoinTestFramework):
         print("Check that we haven't started pruning yet because we're below PruneAfterHeight")
         self.test_height_min()
         # Extend this chain past the PruneAfterHeight
-        # N0=N1=N2 **...*(1020)
+        # N0=N1=N2 **...*(1020) = 2670
 
         print("Check that we'll exceed disk space target if we have a very high stale block rate")
         self.create_chain_with_staleblocks()
         # Disconnect N0
         # And mine a 24 block chain on N1 and a separate 25 block chain on N0
-        # N1=N2 **...*+...+(1044)
-        # N0    **...**...**(1045)
+        # N1=N2 **...*+...+(1044) 2694
+        # N0    **...**...**(1045) 2695
         #
         # reconnect nodes causing reorg on N1 and N2
-        # N1=N2 **...*(1020) *...**(1045)
+        # N1=N2 **...*(1020) 2670 *...**(1045) 2695
         #                   \
-        #                    +...+(1044)
+        #                    +...+(1044) 2694
         #
         # repeat this process until you have 12 stale forks hanging off the
         # main chain on N1 and N2
-        # N0    *************************...***************************(1320)
+        # N0    *************************...***************************(1320) 2970
         #
-        # N1=N2 **...*(1020) *...**(1045) *..         ..**(1295) *...**(1320)
+        # N1=N2 **...*(1020) 2670 *...**(1045) 2695 *..         ..**(1295) 2965 *...**(1320) 2970
         #                   \            \                      \
-        #                    +...+(1044)  &..                    $...$(1319)
+        #                    +...+(1044) 2694 &..                    $...$(1319) 2969
 
         # Save some current chain state for later use
         self.mainchainheight = self.nodes[2].getblockcount()   #1320
