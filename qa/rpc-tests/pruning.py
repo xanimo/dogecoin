@@ -30,14 +30,14 @@ from test_framework.util import (
     assert_raises_jsonrpc,
 )
 
-MIN_BLOCKS_TO_KEEP = 1440
+MIN_BLOCKS_TO_KEEP = 2880
 
 # Rescans start at the earliest block up to 2 hours before a key timestamp, so
 # the manual prune RPC avoids pruning blocks in the same window to be
 # compatible with pruning based on key creation time.
 RESCAN_WINDOW = 2 * 60 * 60
 
-def mine_large_blocks(node, n):
+def mine_large_blocks(node, n, dir=""):
     # Make a large scriptPubKey for the coinbase transaction. This is OP_RETURN
     # followed by 950k of OP_NOP. This would be non-standard in a non-coinbase
     # transaction but is consensus valid.
@@ -71,6 +71,7 @@ def mine_large_blocks(node, n):
         block.nNonce = 0
         block.vtx = [coinbase_tx]
         block.hashMerkleRoot = block.calc_merkle_root()
+        block.calc_sha256()
         block.solve()
 
         # Submit to the node
@@ -79,6 +80,11 @@ def mine_large_blocks(node, n):
         previousblockhash = block.sha256
         height += 1
         mine_large_blocks.nTime += 1
+        if len(dir) > 0:
+            if calc_usage(dir) > 5400 and calc_usage(dir) <= 5600:
+                print("current usage:", calc_usage(dir))
+                print(height)
+
 
 def calc_usage(blockdir):
     return sum(os.path.getsize(blockdir+f) for f in os.listdir(blockdir) if os.path.isfile(blockdir+f)) / (1024. * 1024.)
@@ -100,19 +106,19 @@ class PruneTest(BitcoinTestFramework):
         self.is_network_split = False
 
         # Create nodes 0 and 1 to mine
-        self.nodes.append(start_node(0, self.options.tmpdir, ["-debug=net","-maxreceivebuffer=20000","-blockmaxsize=999000", "-checkblocks=5"], timewait=3600))
-        self.nodes.append(start_node(1, self.options.tmpdir, ["-debug=net","-maxreceivebuffer=20000","-blockmaxsize=999000", "-checkblocks=5"], timewait=3600))
+        self.nodes.append(start_node(0, self.options.tmpdir, ["-debug=net","-maxreceivebuffer=20000","-blockmaxsize=999000", "-checkblocks=5"], timewait=900))
+        self.nodes.append(start_node(1, self.options.tmpdir, ["-debug=net","-maxreceivebuffer=20000","-blockmaxsize=999000", "-checkblocks=5"], timewait=900))
 
         # Create node 2 to test pruning
-        self.nodes.append(start_node(2, self.options.tmpdir, ["-debug=net","-maxreceivebuffer=20000","-prune=2200"], timewait=3600))
+        self.nodes.append(start_node(2, self.options.tmpdir, ["-debug=net","-maxreceivebuffer=20000","-prune=5500"], timewait=900))
         self.prunedir = self.options.tmpdir+"/node2/regtest/blocks/"
 
         # Create nodes 3 and 4 to test manual pruning (they will be re-started with manual pruning later)
-        self.nodes.append(start_node(3, self.options.tmpdir, ["-debug=0","-maxreceivebuffer=20000","-blockmaxsize=999000"], timewait=3600))
-        self.nodes.append(start_node(4, self.options.tmpdir, ["-debug=0","-maxreceivebuffer=20000","-blockmaxsize=999000"], timewait=3600))
+        self.nodes.append(start_node(3, self.options.tmpdir, ["-debug=0","-maxreceivebuffer=20000","-blockmaxsize=999000"], timewait=900))
+        self.nodes.append(start_node(4, self.options.tmpdir, ["-debug=0","-maxreceivebuffer=20000","-blockmaxsize=999000"], timewait=900))
 
         # Create nodes 5 to test wallet in prune mode, but do not connect
-        self.nodes.append(start_node(5, self.options.tmpdir, ["-debug=0", "-prune=2200"]))
+        self.nodes.append(start_node(5, self.options.tmpdir, ["-debug=0", "-prune=5500"]))
 
         # Determine default relay fee
         self.relayfee = self.nodes[0].getnetworkinfo()["relayfee"]
@@ -126,11 +132,11 @@ class PruneTest(BitcoinTestFramework):
 
     def create_big_chain(self):
         # Start by creating some coinbases we can spend later
-        self.nodes[1].generate(1000)
+        self.nodes[1].generate(2000)
         sync_blocks(self.nodes[0:2])
-        self.nodes[0].generate(750)
-        # Then mine enough full blocks to create more than 2200MiB of data
-        mine_large_blocks(self.nodes[0], 2390)
+        self.nodes[0].generate(1500)
+        # Then mine enough full blocks to create more than 5500MiB of data
+        mine_large_blocks(self.nodes[0], 6062, self.prunedir)
         print('node0 height', self.nodes[0].getblockcount())
         print('node1 height', self.nodes[1].getblockcount())
         print('node2 height', self.nodes[2].getblockcount())
@@ -145,7 +151,7 @@ class PruneTest(BitcoinTestFramework):
         if not os.path.isfile(self.prunedir+"blk00000.dat"):
             raise AssertionError("blk00000.dat is missing, pruning too early")
         print("Success")
-        print("Though we're already using more than 2200MiB, current usage:", calc_usage(self.prunedir))
+        print("Though we're already using more than 5500MiB, current usage:", calc_usage(self.prunedir))
         print("Mining 125 more blocks should cause the first block file to be pruned")
         # Pruning doesn't run until we're allocating another chunk, 20 full blocks past the height cutoff will ensure this
 
@@ -153,7 +159,7 @@ class PruneTest(BitcoinTestFramework):
         print('node1 height', self.nodes[1].getblockcount())
         print('node2 height', self.nodes[2].getblockcount())
         print("current usage:", calc_usage(self.prunedir))
-        mine_large_blocks(self.nodes[0], 25)
+        mine_large_blocks(self.nodes[0], 250)
         print('node0 height', self.nodes[0].getblockcount())
         print('node1 height', self.nodes[1].getblockcount())
         print('node2 height', self.nodes[2].getblockcount())
@@ -168,24 +174,24 @@ class PruneTest(BitcoinTestFramework):
         print("Success")
         usage = calc_usage(self.prunedir)
         print("Usage should be below target:", usage)
-        if (usage > 2200):
+        if (usage > 5500):
             raise AssertionError("Pruning target not being met")
 
     def create_chain_with_staleblocks(self):
         # Create stale blocks in manageable sized chunks
-        print("Mine 24 (stale) blocks on Node 1, followed by 25 (main chain) block reorg from Node 0, for 12 rounds")
+        print("Mine 240 (stale) blocks on Node 1, followed by 25 (main chain) block reorg from Node 0, for 120 rounds")
 
         for _ in range(12):
             # Disconnect node 0 so it can mine a longer reorg chain without knowing about node 1's soon-to-be-stale chain
             # Node 2 stays connected, so it hears about the stale blocks and then reorg's when node0 reconnects
             # Stopping node 0 also clears its mempool, so it doesn't have node1's transactions to accidentally mine
             self.stop_node(0)
-            self.nodes[0]=start_node(0, self.options.tmpdir, ["-debug","-maxreceivebuffer=20000","-blockmaxsize=999000", "-checkblocks=5"], timewait=3600)
+            self.nodes[0]=start_node(0, self.options.tmpdir, ["-debug","-maxreceivebuffer=20000","-blockmaxsize=999000", "-checkblocks=5"], timewait=900)
             # Mine 120 blocks in node 1
-            mine_large_blocks(self.nodes[1], 120)
+            mine_large_blocks(self.nodes[1], 240)
 
             # Reorg back with 125 block chain from node 0
-            mine_large_blocks(self.nodes[0], 125)
+            mine_large_blocks(self.nodes[0], 250)
 
             # Create connections in the order so both nodes can see the reorg at the same time
             connect_nodes(self.nodes[0], 1)
@@ -208,7 +214,7 @@ class PruneTest(BitcoinTestFramework):
         # Reboot node 1 to clear its mempool (hopefully make the invalidate faster)
         # Lower the block max size so we don't keep mining all our big mempool transactions (from disconnected blocks)
         self.stop_node(1)
-        self.nodes[1]=start_node(1, self.options.tmpdir, ["-debug","-maxreceivebuffer=20000","-blockmaxsize=5000", "-checkblocks=5", "-disablesafemode"], timewait=3600)
+        self.nodes[1]=start_node(1, self.options.tmpdir, ["-debug=1","-maxreceivebuffer=20000","-blockmaxsize=5000", "-checkblocks=5", "-disablesafemode"], timewait=900)
 
         height = self.nodes[1].getblockcount()
         print("Current block height:", height)
@@ -217,7 +223,7 @@ class PruneTest(BitcoinTestFramework):
         print('node2 height', self.nodes[2].getblockcount())
         print("current usage:", calc_usage(self.prunedir))
 
-        self.forkheight = height-1439
+        self.forkheight = height-2879
         self.forkhash = self.nodes[1].getblockhash(self.forkheight)
         print("Invalidating block at height:", self.forkheight, self.forkhash)
         self.nodes[1].invalidateblock(self.forkhash)
@@ -235,10 +241,12 @@ class PruneTest(BitcoinTestFramework):
 
         # Reboot node1 to clear those giant tx's from mempool
         self.stop_node(1)
-        self.nodes[1]=start_node(1, self.options.tmpdir, ["-debug","-maxreceivebuffer=20000","-blockmaxsize=5000", "-checkblocks=5", "-disablesafemode"], timewait=3600)
+        self.nodes[1]=start_node(1, self.options.tmpdir, ["-debug=1","-maxreceivebuffer=20000","-blockmaxsize=5000", "-checkblocks=5", "-disablesafemode"], timewait=900)
 
-        print("Generating new longer chain of 1452 more blocks")
-        self.nodes[1].generate(1441)
+        print("Generating new longer chain of 1441 more blocks")
+        print("current usage:", calc_usage(self.prunedir))
+        self.nodes[1].generate(2881)
+        print("current usage:", calc_usage(self.prunedir))
 
         print("Reconnect nodes")
         connect_nodes(self.nodes[0], 1)
@@ -259,7 +267,10 @@ class PruneTest(BitcoinTestFramework):
         print("Usage possibly still high bc of stale blocks in block files:", calc_usage(self.prunedir))
 
         print("Mine 220 more blocks so we have requisite history (some blocks will be big and cause pruning of previous chain)")
-        mine_large_blocks(self.nodes[0], 895)
+
+        mine_large_blocks(self.nodes[0], 2201, self.prunedir)
+
+        #968 is lower threshold
         print('node0 height', self.nodes[0].getblockcount())
         print('node1 height', self.nodes[1].getblockcount())
         print('node2 height', self.nodes[2].getblockcount())
@@ -274,7 +285,7 @@ class PruneTest(BitcoinTestFramework):
 
         usage = calc_usage(self.prunedir)
         print("Usage should be below target:", usage)
-        assert_greater_than(2200, usage)
+        assert_greater_than(5500, usage)
 
     def reorg_back(self):
         print('node0 height', self.nodes[0].getblockcount())
@@ -326,10 +337,10 @@ class PruneTest(BitcoinTestFramework):
         print(self.nodes[2].getchaintips())
         # assert wait_until(lambda: self.nodes[2].getblockcount() >= goalbestheight, timeout=240)
         waitstart = time.time()
+        print(self.nodes[2].getblockcount())
+        print(goalbestheight)
         while self.nodes[2].getblockcount() < goalbestheight:
             time.sleep(0.1)
-            print(self.nodes[2].getblockcount())
-            print(goalbestheight)
             if time.time() - waitstart > 900:
                 raise AssertionError("Node 2 didn't reorg to proper height")
         assert(self.nodes[2].getbestblockhash() == goalbesthash)
@@ -338,14 +349,14 @@ class PruneTest(BitcoinTestFramework):
 
     def manual_test(self, node_number, use_timestamp):
         # at this point, node has 995 blocks and has not yet run in prune mode
-        node = self.nodes[node_number] = start_node(node_number, self.options.tmpdir, ["-debug=0"], timewait=3600)
-        assert_equal(node.getblockcount(), 995)
-        assert_raises_jsonrpc(-1, "not in prune mode", node.pruneblockchain, 500)
+        node = self.nodes[node_number] = start_node(node_number, self.options.tmpdir, ["-debug=0"], timewait=900)
+        assert_equal(node.getblockcount(), 9950)
+        assert_raises_jsonrpc(-1, "not in prune mode", node.pruneblockchain, 5000)
         self.stop_node(node_number)
 
         # now re-start in manual pruning mode
-        node = self.nodes[node_number] = start_node(node_number, self.options.tmpdir, ["-debug=0","-prune=1"], timewait=3600)
-        assert_equal(node.getblockcount(), 995)
+        node = self.nodes[node_number] = start_node(node_number, self.options.tmpdir, ["-debug=0","-prune=1"], timewait=900)
+        assert_equal(node.getblockcount(), 9950)
 
         def height(index):
             if use_timestamp:
@@ -372,17 +383,17 @@ class PruneTest(BitcoinTestFramework):
             return os.path.isfile(self.options.tmpdir + "/node{}/regtest/blocks/blk{:05}.dat".format(node_number, index))
 
         # should not prune because chain tip of node 3 (995) < PruneAfterHeight (1000)
-        assert_raises_jsonrpc(-1, "Blockchain is too short for pruning", node.pruneblockchain, height(500))
+        assert_raises_jsonrpc(-1, "Blockchain is too short for pruning", node.pruneblockchain, height(5000))
 
         # mine 6 blocks so we are at height 1001 (i.e., above PruneAfterHeight)
         node.generate(6)
-        assert_equal(node.getblockchaininfo()["blocks"], 1001)
+        assert_equal(node.getblockchaininfo()["blocks"], 10010)
 
         # negative heights should raise an exception
-        assert_raises_jsonrpc(-8, "Negative", node.pruneblockchain, -10)
+        assert_raises_jsonrpc(-8, "Negative", node.pruneblockchain, -100)
 
         # height=100 too low to prune first block file so this is a no-op
-        prune(100)
+        prune(1000)
         if not has_block(0):
             raise AssertionError("blk00000.dat is missing when should still be there")
 
@@ -392,33 +403,33 @@ class PruneTest(BitcoinTestFramework):
             raise AssertionError("blk00000.dat is missing when should still be there")
 
         # height=500 should prune first file
-        prune(500)
+        prune(5000)
         if has_block(0):
             raise AssertionError("blk00000.dat is still there, should be pruned by now")
         if not has_block(1):
             raise AssertionError("blk00001.dat is missing when should still be there")
 
         # height=650 should prune second file
-        prune(650)
+        prune(6500)
         if has_block(1):
             raise AssertionError("blk00001.dat is still there, should be pruned by now")
 
         # height=1000 should not prune anything more, because tip-1440 is in blk00002.dat.
-        prune(1000, 1001 - MIN_BLOCKS_TO_KEEP)
+        prune(10000, 10010 - MIN_BLOCKS_TO_KEEP)
         if not has_block(2):
             raise AssertionError("blk00002.dat is still there, should be pruned by now")
 
         # advance the tip so blk00002.dat and blk00003.dat can be pruned (the last 1440 blocks should now be in blk00004.dat)
-        node.generate(1440)
-        prune(1000)
+        node.generate(2880)
+        prune(10000)
         if has_block(2):
             raise AssertionError("blk00002.dat is still there, should be pruned by now")
         if has_block(3):
             raise AssertionError("blk00003.dat is still there, should be pruned by now")
 
-        # stop node, start back up with auto-prune at 2200MB, make sure still runs
+        # stop node, start back up with auto-prune at 5500MB, make sure still runs
         self.stop_node(node_number)
-        self.nodes[node_number] = start_node(node_number, self.options.tmpdir, ["-debug=0","-prune=2200"], timewait=3600)
+        self.nodes[node_number] = start_node(node_number, self.options.tmpdir, ["-debug=0","-prune=5500"], timewait=900)
 
         print("Success")
 
@@ -426,7 +437,7 @@ class PruneTest(BitcoinTestFramework):
         # check that the pruning node's wallet is still in good shape
         print("Stop and start pruning node to trigger wallet rescan")
         self.stop_node(2)
-        start_node(2, self.options.tmpdir, ["-debug=1","-prune=2200"])
+        start_node(2, self.options.tmpdir, ["-debug=1","-prune=5500"])
         print("Success")
 
         # check that wallet loads loads successfully when restarting a pruned node after IBD.
@@ -436,7 +447,7 @@ class PruneTest(BitcoinTestFramework):
         nds = [self.nodes[0], self.nodes[5]]
         sync_blocks(nds, wait=5, timeout=300)
         self.stop_node(5) #stop and start to trigger rescan
-        start_node(5, self.options.tmpdir, ["-debug=1","-prune=2200"])
+        start_node(5, self.options.tmpdir, ["-debug=1","-prune=5500"])
         print ("Success")
 
     def run_test(self):
