@@ -8,7 +8,7 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import *
 from test_framework.blocktools import create_block, create_coinbase, add_witness_commitment
 from test_framework.siphash import siphash256
-from test_framework.script import CScript, OP_TRUE
+from test_framework.script import CScript, OP_TRUE, OP_DROP
 
 '''
 CompactBlocksTest -- test compact blocks (BIP 152)
@@ -124,7 +124,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         # Start up node0 to be a version 1, pre-segwit node.
         self.nodes = start_nodes(self.num_nodes, self.options.tmpdir, 
                 [["-debug", "-logtimemicros=1", "-bip9params=segwit:0:0"], 
-                 ["-debug", "-logtimemicros", "-txindex"]])
+                 ["-debug", "-logtimemicros", "-txindex", "-prematurewitness", "-walletprematurewitness"]])
         connect_nodes(self.nodes[0], 1)
 
     def build_block_on_tip(self, node, segwit=False):
@@ -132,7 +132,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         tip = node.getbestblockhash()
         mtp = node.getblockheader(tip)['mediantime']
         block = create_block(int(tip, 16), create_coinbase(height + 1), mtp + 1)
-        block.nVersion = 4
+        block.nVersion = 0x00620004
         if segwit:
             add_witness_commitment(block)
         block.solve()
@@ -292,7 +292,7 @@ class CompactBlocksTest(BitcoinTestFramework):
             # a witness address.
             address = node.addwitnessaddress(address)
             value_to_send = node.getbalance()
-            node.sendtoaddress(address, satoshi_round(value_to_send-Decimal(0.1)))
+            node.sendtoaddress(address, satoshi_round(value_to_send-Decimal(2)))
             node.generate(1)
 
         segwit_tx_generated = False
@@ -443,9 +443,9 @@ class CompactBlocksTest(BitcoinTestFramework):
 
             # Send the coinbase, and verify that the tip advances.
             if version == 2:
-                msg = msg_witness_blocktxn()
-            else:
                 msg = msg_blocktxn()
+            else:
+                msg = msg_no_witness_blocktxn()
             msg.block_transactions.blockhash = block.sha256
             msg.block_transactions.transactions = [block.vtx[0]]
             test_node.send_and_ping(msg)
@@ -458,7 +458,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         for i in range(num_transactions):
             tx = CTransaction()
             tx.vin.append(CTxIn(COutPoint(utxo[0], utxo[1]), b''))
-            tx.vout.append(CTxOut(utxo[2] - 1000, CScript([OP_TRUE])))
+            tx.vout.append(CTxOut(utxo[2] - 1000000, CScript([OP_TRUE, OP_DROP] * 15 + [OP_TRUE])))
             tx.rehash()
             utxo = [tx.sha256, 0, tx.vout[0].nValue]
             block.vtx.append(tx)
@@ -716,8 +716,8 @@ class CompactBlocksTest(BitcoinTestFramework):
             assert(test_node.last_blocktxn is None)
 
     def activate_segwit(self, node):
-        node.generate(144*3)
-        assert_equal(get_bip9_status(node, "segwit")["status"], 'active')
+        node.generate(65)
+        assert_equal(get_bip9_status(node, "segwit")["status"], 'defined')
 
     def test_end_to_end_block_relay(self, node, listeners):
         utxo = self.utxos.pop(0)
@@ -931,7 +931,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         # Need to manually sync node0 and node1, because post-segwit activation,
         # node1 will not download blocks from node0.
         print("\tSyncing nodes...")
-        assert(self.nodes[0].getbestblockhash() != self.nodes[1].getbestblockhash())
+        assert(self.nodes[0].getbestblockhash() == self.nodes[1].getbestblockhash())
         while (self.nodes[0].getblockcount() > self.nodes[1].getblockcount()):
             block_hash = self.nodes[0].getblockhash(self.nodes[1].getblockcount()+1)
             self.nodes[1].submitblock(self.nodes[0].getblock(block_hash, False))

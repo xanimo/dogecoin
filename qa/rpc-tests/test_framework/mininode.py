@@ -1471,6 +1471,12 @@ class msg_witness_blocktxn(msg_blocktxn):
         r += self.block_transactions.serialize(with_witness=True)
         return r
 
+class msg_no_witness_blocktxn(msg_blocktxn):
+    def serialize(self):
+        r = b""
+        r += self.block_transactions.serialize(with_witness=False)
+        return r
+
 # This is what a callback should look like for NodeConn
 # Reimplement the on_* functions to provide handling for events
 class NodeConnCB(object):
