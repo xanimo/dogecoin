@@ -142,7 +142,7 @@ class CompactBlocksTest(BitcoinTestFramework):
     def make_utxos(self):
         # Doesn't matter which node we use, just use node0.
         block = self.build_block_on_tip(self.nodes[0])
-        self.test_node.send_and_ping(msg_block(block))
+        self.test_node.send_and_ping(msg_no_witness_block(block))
         assert(int(self.nodes[0].getbestblockhash(), 16) == block.sha256)
         self.nodes[0].generate(100)
 
@@ -158,7 +158,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         block2.vtx.append(tx)
         block2.hashMerkleRoot = block2.calc_merkle_root()
         block2.solve()
-        self.test_node.send_and_ping(msg_block(block2))
+        self.test_node.send_and_ping(msg_no_witness_block(block2))
         assert_equal(int(self.nodes[0].getbestblockhash(), 16), block2.sha256)
         self.utxos.extend([[tx.sha256, i, out_value] for i in range(10)])
         return
@@ -292,12 +292,12 @@ class CompactBlocksTest(BitcoinTestFramework):
             # a witness address.
             address = node.addwitnessaddress(address)
             value_to_send = node.getbalance()
-            node.sendtoaddress(address, satoshi_round(value_to_send-Decimal(2)))
+            node.sendtoaddress(address, satoshi_round(value_to_send-Decimal(1)))
             node.generate(1)
 
         segwit_tx_generated = False
         for i in range(num_transactions):
-            txid = node.sendtoaddress(address, 0.1)
+            txid = node.sendtoaddress(address, 1)
             hex_tx = node.gettransaction(txid)["hex"]
             tx = FromHex(CTransaction(), hex_tx)
             if not tx.wit.is_null():
@@ -605,9 +605,9 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         # Deliver the block
         if version==2:
-            test_node.send_and_ping(msg_witness_block(block))
-        else:
             test_node.send_and_ping(msg_block(block))
+        else:
+            test_node.send_and_ping(msg_no_witness_block(block))
         assert_equal(int(node.getbestblockhash(), 16), block.sha256)
 
     def test_getblocktxn_handler(self, node, test_node, version):

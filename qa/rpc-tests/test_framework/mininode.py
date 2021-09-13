@@ -1194,6 +1194,11 @@ class msg_generic(object):
     def __repr__(self):
         return "msg_generic()"
 
+class msg_no_witness_block(msg_block):
+    __slots__ = ()
+    def serialize(self):
+        return self.block.serialize(with_witness=False)
+        
 class msg_witness_block(msg_block):
 
     def serialize(self):
