@@ -11,8 +11,7 @@
 #include <stdint.h>
 #include <immintrin.h>
 
-#include <crypto/common.h>
-
+#include <attributes.h>
 
 namespace {
 
