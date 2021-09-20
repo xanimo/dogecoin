@@ -777,10 +777,10 @@ void inline Initialize_transform_ptr(void)
         have_x86_shani = (ebx >> 29) & 1;
     }
 
-#if defined(ENABLE_SHANI) && !defined(BUILD_BITCOIN_INTERNAL)
-    if (have_shani) {
+#if defined(ENABLE_X86_SHANI) && !defined(BUILD_BITCOIN_INTERNAL)
+    if (have_x86_shani) {
         sha256::transform_ptr = sha256_x86_shani::Transform;
-        sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256d64_x86_shani::Transform>;
+        sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256_x86_shani::Transform>;
         sha256::transfrom_ptr_d64_2way = sha256d64_x86_shani::Transform_2way;
         have_sse4 = false; // Disable SSE4/AVX2;
         have_avx2 = false;
@@ -829,7 +829,7 @@ void inline Initialize_transform_ptr(void)
 
     if (have_arm_shani) {
         sha256::transform_ptr = sha256_arm_shani::Transform;
-        sha256::transfrom_ptr_d64 = shar256::TransformD64Wrapper<sha256_arm_shani::Transform>;
+        sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256_arm_shani::Transform>;
         sha256::transfrom_ptr_d64_2way = sha256d64_arm_shani::Transform_2way;
     }
 #endif
