@@ -124,7 +124,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         # Start up node0 to be a version 1, pre-segwit node.
         self.nodes = start_nodes(self.num_nodes, self.options.tmpdir, 
                 [["-debug", "-logtimemicros=1", "-bip9params=segwit:0:0"], 
-                 ["-debug", "-logtimemicros", "-txindex", "-prematurewitness", "-walletprematurewitness"]])
+                 ["-debug", "-logtimemicros", "-txindex"]])
         connect_nodes(self.nodes[0], 1)
 
     def build_block_on_tip(self, node, segwit=False):
@@ -458,7 +458,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         for i in range(num_transactions):
             tx = CTransaction()
             tx.vin.append(CTxIn(COutPoint(utxo[0], utxo[1]), b''))
-            tx.vout.append(CTxOut(utxo[2] - 1000000, CScript([OP_TRUE, OP_DROP] * 15 + [OP_TRUE])))
+            tx.vout.append(CTxOut(utxo[2] - 10000, CScript([OP_TRUE])))
             tx.rehash()
             utxo = [tx.sha256, 0, tx.vout[0].nValue]
             block.vtx.append(tx)
@@ -498,7 +498,7 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         msg_bt = msg_blocktxn()
         if with_witness:
-            msg_bt = msg_witness_blocktxn() # serialize with witnesses
+            msg_bt = msg_no_witness_blocktxn() # serialize with witnesses
         msg_bt.block_transactions = BlockTransactions(block.sha256, block.vtx[1:])
         test_tip_after_message(node, test_node, msg_bt, block.sha256)
 
@@ -589,7 +589,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         # enough for now.
         msg = msg_blocktxn()
         if version==2:
-            msg = msg_witness_blocktxn()
+            msg = msg_no_witness_blocktxn()
         msg.block_transactions = BlockTransactions(block.sha256, [block.vtx[5]] + block.vtx[7:])
         test_node.send_and_ping(msg)
 
@@ -918,8 +918,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         print ("Running tests, post-segwit activation...")
 
         print("\tTesting compactblock construction...")
-        self.test_compactblock_construction(self.nodes[1], self.old_node, 1, True)
-        self.test_compactblock_construction(self.nodes[1], self.segwit_node, 2, True)
+        self.test_compactblock_construction(self.nodes[1], self.old_node, 1, False) # Segregated witness not enabled on network
+        self.test_compactblock_construction(self.nodes[1], self.segwit_node, 2, False) # Segregated witness not enabled on network
         sync_blocks(self.nodes)
 
         print("\tTesting compactblock requests (unupgraded node)... ")
@@ -929,7 +929,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.test_getblocktxn_requests(self.nodes[0], self.test_node, 1)
 
         # Need to manually sync node0 and node1, because post-segwit activation,
-        # node1 will not download blocks from node0.
+        # node1 will download blocks from node0.
         print("\tSyncing nodes...")
         assert(self.nodes[0].getbestblockhash() == self.nodes[1].getbestblockhash())
         while (self.nodes[0].getblockcount() > self.nodes[1].getblockcount()):
