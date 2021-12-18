@@ -165,20 +165,20 @@ def check_control_flow(binary) -> bool:
 
 
 CHECKS = {
-'ELF': [
+lief.EXE_FORMATS.ELF: [
     ('PIE', check_PIE),
     ('NX', check_NX),
     ('RELRO', check_ELF_RELRO),
     ('Canary', check_ELF_Canary)
 ],
-'PE': [
+lief.EXE_FORMATS.PE: [
     ('PIE', check_PIE),
     ('DYNAMIC_BASE', check_PE_DYNAMIC_BASE),
     ('HIGH_ENTROPY_VA', check_PE_HIGH_ENTROPY_VA),
     ('NX', check_NX),
     ('RELOC_SECTION', check_PE_RELOC_SECTION)
 ],
-'MACHO': [
+lief.EXE_FORMATS.MACHO: [
     ('PIE', check_PIE),
     ('NOUNDEFS', check_MACHO_NOUNDEFS),
     ('NX', check_NX),
@@ -192,7 +192,7 @@ if __name__ == '__main__':
     for filename in sys.argv[1:]:
         try:
             binary = lief.parse(filename)
-            etype = binary.format.name
+            etype = binary.format
             if etype == lief.EXE_FORMATS.UNKNOWN:
                 print(f'{filename}: unknown executable format')
                 retval = 1
