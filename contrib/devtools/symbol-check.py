@@ -113,13 +113,6 @@ ELF_ALLOWED_LIBRARIES = {
 'libfreetype.so.6', # font parsing
 'libdl.so.2' # programming interface to dynamic linker
 }
-ARCH_MIN_GLIBC_VER = {
-pixie.EM_386:    (2,1),
-pixie.EM_X86_64: (2,2,5),
-pixie.EM_ARM:    (2,4),
-pixie.EM_AARCH64:(2,11),
-pixie.EM_RISCV:  (2,27)
-}
 
 MACHO_ALLOWED_LIBRARIES = {
 # bitcoind and bitcoin-qt
@@ -136,15 +129,17 @@ MACHO_ALLOWED_LIBRARIES = {
 'Foundation', # base layer functionality for apps/frameworks
 'ImageIO', # read and write image file formats.
 'IOKit', # user-space access to hardware devices and drivers.
+'IOSurface', # cross process image/drawing buffers
 'libobjc.A.dylib', # Objective-C runtime library
 'DiskArbitration',
 'OpenGL',
 'AGL',
+'Metal', # 3D graphics
 'Security',
 'SystemConfiguration',
 'libcups.2.dylib',
 'CFNetwork',
-
+'QuartzCore', # animation
 }
 
 PE_ALLOWED_LIBRARIES = {
@@ -164,21 +159,28 @@ PE_ALLOWED_LIBRARIES = {
 'GDI32.dll', # graphics device interface
 'IMM32.dll', # input method editor
 'IMM32.DLL',
+'NETAPI32.dll',
 'ole32.dll', # component object model
 'OLEAUT32.dll', # OLE Automation API
 'SHLWAPI.dll', # light weight shell API
+'USERENV.dll',
 'UxTheme.dll',
 'VERSION.dll', # version checking
 'WINMM.dll', # WinMM audio API
 'WINMM.DLL',
+'WTSAPI32.dll',
 }
+
 
 def check_version(max_versions, version, arch) -> bool:
     (lib, _, ver) = version.rpartition('_')
     ver = tuple([int(x) for x in ver.split('.')])
     if not lib in max_versions:
         return False
-    return ver <= max_versions[lib] or lib == 'GLIBC' and ver <= ARCH_MIN_GLIBC_VER[arch]
+    if isinstance(max_versions[lib], tuple):
+        return ver <= max_versions[lib]
+    else:
+        return ver <= max_versions[lib][arch]
 
 def check_imported_symbols(binary) -> bool:
     ok: bool = True
@@ -227,12 +229,12 @@ def check_MACHO_libraries(binary) -> bool:
     return ok
 
 def check_MACHO_min_os(binary) -> bool:
-    if binary.build_version.minos == [10,11,0]:
+    if binary.build_version.minos == [10,15,0]:
         return True
     return False
 
 def check_MACHO_sdk(binary) -> bool:
-    if binary.build_version.sdk == [10, 11, 0]:
+    if binary.build_version.sdk == [10, 15, 6]:
         return True
     return False
 
@@ -257,35 +259,35 @@ def check_ELF_interpreter(binary) -> bool:
     return binary.concrete.interpreter == expected_interpreter
 
 CHECKS = {
-'ELF': [
+lief.EXE_FORMATS.ELF: [
     ('IMPORTED_SYMBOLS', check_imported_symbols),
     ('EXPORTED_SYMBOLS', check_exported_symbols),
     ('LIBRARY_DEPENDENCIES', check_ELF_libraries),
     ('INTERPRETER_NAME', check_ELF_interpreter),
 ],
-'MACHO': [
+lief.EXE_FORMATS.MACHO: [
     ('DYNAMIC_LIBRARIES', check_MACHO_libraries),
     ('MIN_OS', check_MACHO_min_os),
     ('SDK', check_MACHO_sdk),
 ],
-'PE' : [
+lief.EXE_FORMATS.PE: [
     ('DYNAMIC_LIBRARIES', check_PE_libraries),
     ('SUBSYSTEM_VERSION', check_PE_subsystem_version),
 ]
 }
 
 if __name__ == '__main__':
-    retval = 0
+    retval: int = 0
     for filename in sys.argv[1:]:
         try:
             binary = lief.parse(filename)
-            etype = binary.format.name
+            etype = binary.format
             if etype == lief.EXE_FORMATS.UNKNOWN:
                 print(f'{filename}: unknown executable format')
                 retval = 1
                 continue
 
-            failed = []
+            failed: List[str] = []
             for (name, func) in CHECKS[etype]:
                 if not func(binary):
                     failed.append(name)
