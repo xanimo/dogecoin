@@ -51,9 +51,9 @@ if ENABLE_AVX2
 LIBDOGECOIN_CRYPTO_AVX2 = crypto/libdogecoin_crypto_avx2.a
 LIBDOGECOIN_CRYPTO += $(LIBDOGECOIN_CRYPTO_AVX2)
 endif
-if ENABLE_SHANI
-LIBDOGECOIN_CRYPTO_SHANI = crypto/libdogecoin_crypto_shani.a
-LIBDOGECOIN_CRYPTO += $(LIBDOGECOIN_CRYPTO_SHANI)
+if ENABLE_X86_SHANI
+LIBDOGECOIN_CRYPTO_X86_SHANI = crypto/libdogecoin_crypto_x86_shani.a
+LIBDOGECOIN_CRYPTO += $(LIBDOGECOIN_CRYPTO_X86_SHANI)
 endif
 
 $(LIBSECP256K1): $(wildcard secp256k1/src/*) $(wildcard secp256k1/include/*)
@@ -316,11 +316,11 @@ crypto_libdogecoin_crypto_avx2_a_CXXFLAGS += $(AVX2_CXXFLAGS)
 crypto_libdogecoin_crypto_avx2_a_CPPFLAGS += -DENABLE_AVX2
 crypto_libdogecoin_crypto_avx2_a_SOURCES = crypto/sha256_avx2.cpp
 
-crypto_libdogecoin_crypto_shani_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-crypto_libdogecoin_crypto_shani_a_CPPFLAGS = $(AM_CPPFLAGS)
-crypto_libdogecoin_crypto_shani_a_CXXFLAGS += $(SHANI_CXXFLAGS)
-crypto_libdogecoin_crypto_shani_a_CPPFLAGS += -DENABLE_SHANI
-crypto_libdogecoin_crypto_shani_a_SOURCES = crypto/sha256_shani.cpp
+crypto_libdogecoin_crypto_x86_shani_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+crypto_libdogecoin_crypto_x86_shani_a_CPPFLAGS = $(AM_CPPFLAGS)
+crypto_libdogecoin_crypto_x86_shani_a_CXXFLAGS += $(X86_SHANI_CXXFLAGS)
+crypto_libdogecoin_crypto_x86_shani_a_CPPFLAGS += -DENABLE_X86_SHANI
+crypto_libdogecoin_crypto_x86_shani_a_SOURCES = crypto/sha256_x86_shani.cpp
 
 # consensus: shared between all executables that validate any consensus rules.
 libdogecoin_consensus_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
