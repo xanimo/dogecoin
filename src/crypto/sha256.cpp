@@ -56,6 +56,16 @@ static const uint32_t K[] =
 };
 #endif  /** ARM Headers */
 
+#if defined(__linux__) && defined(ENABLE_ARM_SHANI) && !defined(BUILD_BITCOIN_INTERNAL)
+#include <sys/auxv.h>
+#include <asm/hwcap.h>
+#endif
+
+#if defined(MAC_OSX) && defined(ENABLE_ARM_SHANI) && !defined(BUILD_BITCOIN_INTERNAL)
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#endif
+
 #if defined(__x86_64__) || defined(__amd64__) || defined(__i386__)
 #if defined(USE_ASM)
 #include <cpuid.h>
@@ -82,6 +92,11 @@ void Transform_2way(unsigned char* out, const unsigned char* in);
 }
 
 namespace sha256_x86_shani
+{
+void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks);
+}
+
+namespace sha256_arm_shani
 {
 void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks);
 }
@@ -721,14 +736,7 @@ bool AVXEnabled()
 /** Initialize the function pointer */
 void inline Initialize_transform_ptr(void)
 {
-// Override the function pointer for ARMV8/AVX2
-#if ((defined(USE_ARMV8) || defined(USE_ARMV82)) && defined(__APPLE__))
-    if (sysctlbyname("hw.optional.arm.FEAT_SHA256", NULL, NULL, NULL, 0) == 0)
-       sha256::transform_ptr = &sha256::Transform_ARMV8;
-#elif (defined(USE_ARMV8) || defined(USE_ARMV82))
-    if (getauxval(AT_HWCAP) & HWCAP_SHA2)
-       sha256::transform_ptr = &sha256::Transform_ARMV8;
-#elif USE_AVX2 && defined(__linux__)
+#if USE_AVX2 && defined(__linux__)
     if (__builtin_cpu_supports("avx2"))
        sha256::transform_ptr = &sha256::Transform_AVX2;
 #elif USE_AVX2 && defined(__WIN64__)
@@ -789,6 +797,36 @@ void inline Initialize_transform_ptr(void)
             sha256::transfrom_ptr_d64_8way = sha256d64_avx2::Transform_8way;
         }
 #endif
+#endif
+
+#if defined(ENABLE_ARM_SHANI) && !defined(BUILD_BITCOIN_INTERNAL)
+    bool have_arm_shani = false;
+
+#if defined(__linux__)
+#if defined(__arm__) // 32-bit
+    if (getauxval(AT_HWCAP2) & HWCAP2_SHA2) {
+        have_arm_shani = true;
+    }
+#endif
+#if defined(__aarch64__) // 64-bit
+    if (getauxval(AT_HWCAP) & HWCAP_SHA2) {
+        have_arm_shani = true;
+    }
+#endif
+#endif
+
+#if defined(MAC_OSX)
+    int val = 0;
+    size_t len = sizeof(val);
+    if (sysctlbyname("hw.optional.arm.FEAT_SHA256", &val, &len, nullptr, 0) == 0) {
+        have_arm_shani = val != 0;
+    }
+#endif
+
+    if (have_arm_shani) {
+        sha256::transform_ptr = sha256_arm_shani::Transform;
+        sha256::transfrom_ptr_d64 = shar256::TransformD64Wrapper<sha256_arm_shani::Transform>;
+    }
 #endif
 }
 
