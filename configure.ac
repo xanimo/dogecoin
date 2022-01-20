@@ -288,13 +288,43 @@ if test "x$CXXFLAGS_overridden" = "xno"; then
   AX_CHECK_COMPILE_FLAG([-Wdeprecated-register],[CXXFLAGS="$CXXFLAGS -Wno-deprecated-register"],,[[$CXXFLAG_WERROR]])
 fi
 
-# Check for optional instruction set support. Enabling these does _not_ imply that all code will
-# be compiled with them, rather that specific objects/libs may use them after checking for runtime
-# compatibility.
-AX_CHECK_COMPILE_FLAG([-msse4.2],[[SSE42_CXXFLAGS="-msse4.2"]],,[[$CXXFLAG_WERROR]])
-AX_CHECK_COMPILE_FLAG([-msse4.1],[[SSE41_CXXFLAGS="-msse4.1"]],,[[$CXXFLAG_WERROR]])
-AX_CHECK_COMPILE_FLAG([-mavx -mavx2],[[AVX2_CXXFLAGS="-mavx -mavx2"]],,[[$CXXFLAG_WERROR]])
-AX_CHECK_COMPILE_FLAG([-msse4 -msha],[[SHANI_CXXFLAGS="-msse4 -msha"]],,[[$CXXFLAG_WERROR]])
+dnl Don't allow extended (non-ASCII) symbols in identifiers. This is easier for code review.
+AX_CHECK_COMPILE_FLAG([-fno-extended-identifiers], [CXXFLAGS="$CXXFLAGS -fno-extended-identifiers"], [], [$CXXFLAG_WERROR])
+
+enable_sse42=no
+enable_sse41=no
+enable_avx2=no
+enable_x86_shani=no
+
+if test "$use_asm" = "yes"; then
+
+dnl Check for optional instruction set support. Enabling these does _not_ imply that all code will
+dnl be compiled with them, rather that specific objects/libs may use them after checking for runtime
+dnl compatibility.
+
+dnl x86
+AX_CHECK_COMPILE_FLAG([-msse4.2], [SSE42_CXXFLAGS="-msse4.2"], [], [$CXXFLAG_WERROR])
+AX_CHECK_COMPILE_FLAG([-msse4.1], [SSE41_CXXFLAGS="-msse4.1"], [], [$CXXFLAG_WERROR])
+AX_CHECK_COMPILE_FLAG([-mavx -mavx2], [AVX2_CXXFLAGS="-mavx -mavx2"], [], [$CXXFLAG_WERROR])
+AX_CHECK_COMPILE_FLAG([-msse4 -msha], [X86_SHANI_CXXFLAGS="-msse4 -msha"], [], [$CXXFLAG_WERROR])
+
+enable_clmul=
+AX_CHECK_COMPILE_FLAG([-mpclmul], [enable_clmul=yes], [], [$CXXFLAG_WERROR], [AC_LANG_PROGRAM([
+  #include <stdint.h>
+  #include <x86intrin.h>
+], [
+  __m128i a = _mm_cvtsi64_si128((uint64_t)7);
+  __m128i b = _mm_clmulepi64_si128(a, a, 37);
+  __m128i c = _mm_srli_epi64(b, 41);
+  __m128i d = _mm_xor_si128(b, c);
+  uint64_t e = _mm_cvtsi128_si64(d);
+  return e == 0;
+])])
+
+if test "$enable_clmul" = "yes"; then
+  CLMUL_CXXFLAGS="-mpclmul"
+  AC_DEFINE([HAVE_CLMUL], [1], [Define this symbol if clmul instructions can be used])
+fi
 
 TEMP_CXXFLAGS="$CXXFLAGS"
 CXXFLAGS="$CXXFLAGS $SSE42_CXXFLAGS"
@@ -349,8 +379,8 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 CXXFLAGS="$TEMP_CXXFLAGS"
 
 TEMP_CXXFLAGS="$CXXFLAGS"
-CXXFLAGS="$CXXFLAGS $SHANI_CXXFLAGS"
-AC_MSG_CHECKING(for SHA-NI intrinsics)
+CXXFLAGS="$CXXFLAGS $X86_SHANI_CXXFLAGS"
+AC_MSG_CHECKING([for x86 SHA-NI intrinsics])
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
     #include <stdint.h>
     #include <immintrin.h>
@@ -360,10 +390,12 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
     __m128i k = _mm_set1_epi32(2);
     return _mm_extract_epi32(_mm_sha256rnds2_epu32(i, i, k), 0);
   ]])],
- [ AC_MSG_RESULT(yes); enable_shani=yes; AC_DEFINE(ENABLE_SHANI, 1, [Define this symbol to build code that uses SHA-NI intrinsics]) ],
- [ AC_MSG_RESULT(no)]
+ [ AC_MSG_RESULT([yes]); enable_x86_shani=yes; AC_DEFINE([ENABLE_X86_SHANI], [1], [Define this symbol to build code that uses x86 SHA-NI intrinsics]) ],
+ [ AC_MSG_RESULT([no])]
 )
 CXXFLAGS="$TEMP_CXXFLAGS"
+
+fi
 
 CPPFLAGS="$CPPFLAGS -DHAVE_BUILD_INFO -D__STDC_FORMAT_MACROS"
 
@@ -1289,7 +1321,7 @@ AM_CONDITIONAL([USE_ARMV82], [test x$armv82_crypto = xyes])
 AM_CONDITIONAL([ENABLE_HWCRC32],[test x$enable_hwcrc32 = xyes])
 AM_CONDITIONAL([ENABLE_SSE41],[test x$enable_sse41 = xyes])
 AM_CONDITIONAL([ENABLE_AVX2],[test x$enable_avx2 = xyes])
-AM_CONDITIONAL([ENABLE_SHANI],[test x$enable_shani = xyes])
+AM_CONDITIONAL([ENABLE_X86_SHANI], [test "$enable_x86_shani" = "yes"])
 AM_CONDITIONAL([USE_ASM],[test x$use_asm = xyes])
 
 AC_DEFINE(CLIENT_VERSION_MAJOR, _CLIENT_VERSION_MAJOR, [Major version])
@@ -1334,7 +1366,8 @@ AC_SUBST(SANITIZER_LDFLAGS)
 AC_SUBST(SSE42_CXXFLAGS)
 AC_SUBST(SSE41_CXXFLAGS)
 AC_SUBST(AVX2_CXXFLAGS)
-AC_SUBST(SHANI_CXXFLAGS)
+AC_SUBST(X86_SHANI_CXXFLAGS)
+AC_SUBST(ARM_CRC_CXXFLAGS)
 AC_SUBST(LIBTOOL_APP_LDFLAGS)
 AC_SUBST(USE_UPNP)
 AC_SUBST(USE_QRCODE)
