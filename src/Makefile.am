@@ -55,6 +55,10 @@ if ENABLE_X86_SHANI
 LIBDOGECOIN_CRYPTO_X86_SHANI = crypto/libdogecoin_crypto_x86_shani.a
 LIBDOGECOIN_CRYPTO += $(LIBDOGECOIN_CRYPTO_X86_SHANI)
 endif
+if ENABLE_ARM_SHANI
+LIBDOGECOIN_CRYPTO_ARM_SHANI = crypto/libdogecoin_crypto_arm_shani.a
+LIBDOGECOIN_CRYPTO += $(LIBDOGECOIN_CRYPTO_ARM_SHANI)
+endif
 
 $(LIBSECP256K1): $(wildcard secp256k1/src/*) $(wildcard secp256k1/include/*)
 	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C $(@D) $(@F)
@@ -319,6 +323,12 @@ crypto_libdogecoin_crypto_x86_shani_a_CPPFLAGS = $(AM_CPPFLAGS)
 crypto_libdogecoin_crypto_x86_shani_a_CXXFLAGS += $(X86_SHANI_CXXFLAGS)
 crypto_libdogecoin_crypto_x86_shani_a_CPPFLAGS += -DENABLE_X86_SHANI
 crypto_libdogecoin_crypto_x86_shani_a_SOURCES = crypto/sha256_x86_shani.cpp
+
+crypto_libdogecoin_crypto_arm_shani_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+crypto_libdogecoin_crypto_arm_shani_a_CPPFLAGS = $(AM_CPPFLAGS)
+crypto_libdogecoin_crypto_arm_shani_a_CXXFLAGS += $(ARM_SHANI_CXXFLAGS)
+crypto_libdogecoin_crypto_arm_shani_a_CPPFLAGS += -DENABLE_ARM_SHANI
+crypto_libdogecoin_crypto_arm_shani_a_SOURCES = crypto/sha256_arm_shani.cpp
 
 # consensus: shared between all executables that validate any consensus rules.
 libdogecoin_consensus_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
