@@ -101,6 +101,11 @@ namespace sha256_arm_shani
 void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks);
 }
 
+namespace sha256d64_arm_shani
+{
+void Transform_2way(unsigned char* out, const unsigned char* in);
+}
+
 // Internal implementation code.
 namespace
 {
@@ -653,7 +658,6 @@ void TransformD64(unsigned char* out, const unsigned char* in)
 /** Define SHA256 hardware */
 #if defined(__linux__)
 #define HWCAP_SHA2  (1<<6)
-#include <sys/auxv.h>
 #endif
 
 #if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
@@ -826,6 +830,7 @@ void inline Initialize_transform_ptr(void)
     if (have_arm_shani) {
         sha256::transform_ptr = sha256_arm_shani::Transform;
         sha256::transfrom_ptr_d64 = shar256::TransformD64Wrapper<sha256_arm_shani::Transform>;
+        sha256::transfrom_ptr_d64_2way = sha256d64_arm_shani::Transform_2way;
     }
 #endif
 }
