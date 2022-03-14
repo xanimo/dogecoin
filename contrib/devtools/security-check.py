@@ -10,7 +10,7 @@ Otherwise the exit status will be 1 and it will log which executables failed whi
 import sys
 from typing import List
 
-import lief
+import lief #type:ignore
 
 def check_ELF_RELRO(binary) -> bool:
     '''
@@ -97,7 +97,6 @@ def check_ELF_separate_code(binary):
     for segment in binary.segments:
         if segment.type ==  lief.ELF.SEGMENT_TYPES.LOAD:
             for section in segment.sections:
-                assert(section.name not in flags_per_section)
                 flags_per_section[section.name] = segment.flags
     # Spot-check ELF LOAD program header flags per section
     # If these sections exist, check them against the expected R/W/E flags
@@ -185,6 +184,24 @@ lief.EXE_FORMATS.MACHO: [
     ('LAZY_BINDINGS', check_MACHO_LAZY_BINDINGS),
     ('Canary', check_MACHO_Canary)
 ]
+
+CHECKS = {
+    lief.EXE_FORMATS.ELF: {
+        lief.ARCHITECTURES.X86: BASE_ELF + [('CONTROL_FLOW', check_ELF_control_flow)],
+        lief.ARCHITECTURES.ARM: BASE_ELF,
+        lief.ARCHITECTURES.ARM64: BASE_ELF,
+        lief.ARCHITECTURES.PPC: BASE_ELF,
+        lief.ARCHITECTURES.RISCV: BASE_ELF,
+    },
+    lief.EXE_FORMATS.PE: {
+        lief.ARCHITECTURES.X86: BASE_PE,
+    },
+    lief.EXE_FORMATS.MACHO: {
+        lief.ARCHITECTURES.X86: BASE_MACHO + [('PIE', check_PIE),
+                                              ('NX', check_NX),
+                                              ('CONTROL_FLOW', check_MACHO_control_flow)],
+        lief.ARCHITECTURES.ARM64: BASE_MACHO,
+    }
 }
 
 if __name__ == '__main__':
@@ -195,6 +212,11 @@ if __name__ == '__main__':
             etype = binary.format
             if etype == lief.EXE_FORMATS.UNKNOWN:
                 print(f'{filename}: unknown executable format')
+                retval = 1
+                continue
+
+            if arch == lief.ARCHITECTURES.NONE:
+                print(f'{filename}: unknown architecture')
                 retval = 1
                 continue
 

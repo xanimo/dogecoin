@@ -16,9 +16,6 @@ from typing import List, Dict
 
 import lief
 
-# temporary constant, to be replaced with lief.ELF.ARCH.RISCV
-# https://github.com/lief-project/LIEF/pull/562
-LIEF_ELF_ARCH_RISCV = lief.ELF.ARCH(243)
 
 # Debian 6.0.9 (Squeeze) has:
 #
@@ -48,8 +45,6 @@ MAX_VERSIONS = {
     lief.ELF.ARCH.x86_64: (2,11),
     lief.ELF.ARCH.ARM:    (2,11),
     lief.ELF.ARCH.AARCH64:(2,11),
-    lief.ELF.ARCH.PPC64:  (2,11),
-    LIEF_ELF_ARCH_RISCV:  (2,27),
 },
 'LIBATOMIC': (1,0),
 'V':         (0,5,0) # xkb (qt only)
@@ -83,7 +78,7 @@ ELF_INTERPRETER_NAMES: Dict[lief.ELF.ARCH, Dict[lief.ENDIANNESS, str]] = {
         lief.ENDIANNESS.BIG: "/lib64/ld64.so.1",
         lief.ENDIANNESS.LITTLE: "/lib64/ld64.so.2",
     },
-    LIEF_ELF_ARCH_RISCV:    {
+    lief.ELF.ARCH.RISCV:    {
         lief.ENDIANNESS.LITTLE: "/lib/ld-linux-riscv64-lp64d.so.1",
     },
 }
@@ -205,7 +200,7 @@ def check_exported_symbols(binary) -> bool:
         if not symbol.exported:
             continue
         name = symbol.name
-        if binary.header.machine_type == LIEF_ELF_ARCH_RISCV or name in IGNORE_EXPORTS:
+        if binary.header.machine_type == lief.ELF.ARCH.RISCV or name in IGNORE_EXPORTS:
             continue
         print(f'{binary.name}: export of symbol {name} not allowed!')
         ok = False
