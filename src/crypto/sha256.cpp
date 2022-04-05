@@ -744,10 +744,6 @@ void inline Initialize_transform_ptr(void)
     bool have_x86_shani = false;
     bool enabled_avx = false;
 
-    (void)AVXEnabled;
-    (void)have_sse4;
-    (void)have_avx;
-    (void)have_xsave;
     (void)have_avx2;
     (void)have_x86_shani;
     (void)enabled_avx;
@@ -790,7 +786,7 @@ void inline Initialize_transform_ptr(void)
             sha256::transfrom_ptr_d64_8way = sha256d64_avx2::Transform_8way;
         }
 #endif
-#endif
+#endif // defined(USE_ASM) && defined(HAVE_GETCPUID)
 
 #if defined(ENABLE_ARM_SHANI) && !defined(BUILD_BITCOIN_INTERNAL)
     bool have_arm_shani = false;
