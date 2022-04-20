@@ -72,10 +72,14 @@ public:
 };
 
 #ifdef DEBUG_LOCKORDER
-void EnterCritical(const char* pszName, const char* pszFile, int nLine, void* cs, bool fTry = false);
-void LeaveCritical();
+template <typename MutexType>
+inline void EnterCritical(const char* pszName, const char* pszFile, int nLine, MutexType* cs, bool fTry = false) {}
+void LeaveCritical() {};
 std::string LocksHeld();
-void AssertLockHeldInternal(const char* pszName, const char* pszFile, int nLine, void* cs);
+template <typename MutexType>
+inline void AssertLockHeldInternal(const char* pszName, const char* pszFile, int nLine, MutexType* cs) EXCLUSIVE_LOCKS_REQUIRED(cs) {}
+template <typename MutexType>
+void AssertLockNotHeldInternal(const char* pszName, const char* pszFile, int nLine, MutexType* cs) LOCKS_EXCLUDED(cs) {}
 void DeleteLock(void* cs);
 
 /**
@@ -85,12 +89,17 @@ void DeleteLock(void* cs);
  */
 extern bool g_debug_lockorder_abort;
 #else
-void static inline EnterCritical(const char* pszName, const char* pszFile, int nLine, void* cs, bool fTry = false) {}
-void static inline LeaveCritical() {}
-void static inline AssertLockHeldInternal(const char* pszName, const char* pszFile, int nLine, void* cs) {}
-void static inline DeleteLock(void* cs) {}
+template <typename MutexType>
+inline void EnterCritical(const char* pszName, const char* pszFile, int nLine, MutexType* cs, bool fTry = false) {}
+inline void LeaveCritical() {}
+inline void CheckLastCritical(void* cs, std::string& lockname, const char* guardname, const char* file, int line) {}
+template <typename MutexType>
+inline void AssertLockHeldInternal(const char* pszName, const char* pszFile, int nLine, MutexType* cs) EXCLUSIVE_LOCKS_REQUIRED(cs) {}
+template <typename MutexType>
+void AssertLockNotHeldInternal(const char* pszName, const char* pszFile, int nLine, MutexType* cs) LOCKS_EXCLUDED(cs) {}
+inline void DeleteLock(void* cs) {}
+inline bool LockStackEmpty() { return true; }
 #endif
-#define AssertLockHeld(cs) AssertLockHeldInternal(#cs, __FILE__, __LINE__, &cs)
 
 /**
  * Wrapped boost mutex: supports recursive locking, but no waiting
@@ -107,6 +116,12 @@ public:
 typedef CCriticalSection CDynamicCriticalSection;
 /** Wrapped boost mutex: supports waiting but not recursive locking */
 typedef AnnotatedMixin<boost::mutex> CWaitableCriticalSection;
+
+#define AssertLockHeld(cs) AssertLockHeldInternal(#cs, __FILE__, __LINE__, &cs)
+
+inline void AssertLockNotHeldInline(const char* name, const char* file, int line, CWaitableCriticalSection* cs) EXCLUSIVE_LOCKS_REQUIRED(!cs) { AssertLockNotHeldInternal(name, file, line, cs); }
+inline void AssertLockNotHeldInline(const char* name, const char* file, int line, CDynamicCriticalSection* cs) LOCKS_EXCLUDED(cs) { AssertLockNotHeldInternal(name, file, line, cs); }
+#define AssertLockNotHeld(cs) AssertLockNotHeldInline(#cs, __FILE__, __LINE__, &cs)
 
 /** Just a typedef for boost::condition_variable, can be wrapped later if desired */
 typedef boost::condition_variable CConditionVariable;
