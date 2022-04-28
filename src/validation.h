@@ -469,8 +469,8 @@ public:
 
     bool operator()();
 
-    void swap(CScriptCheck &check) {
-        scriptPubKey.swap(check.scriptPubKey);
+    void swap(CScriptCheck& check) noexcept
+    {
         std::swap(ptxTo, check.ptxTo);
         std::swap(amount, check.amount);
         std::swap(nIn, check.nIn);
