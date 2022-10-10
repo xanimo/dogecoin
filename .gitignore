@@ -129,3 +129,5 @@ stage/
 *.iws
 *.iml
 *.ipr
+
+/guix-build-*
