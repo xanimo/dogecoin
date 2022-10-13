@@ -2,7 +2,7 @@
 name: "dogecoin-linux-1.14"
 enable_cache: true
 suites:
-- "bionic"
+- "focal"
 architectures:
 - "amd64"
 packages:
@@ -27,7 +27,8 @@ packages:
 - "bison"
 - "bsdmainutils"
 - "ca-certificates"
-- "python"
+- "python3"
+- "python-is-python3"
 remotes:
 - "url": "https://github.com/dogecoin/dogecoin.git"
   "dir": "dogecoin"

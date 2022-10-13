@@ -2,7 +2,7 @@
 name: "dogecoin-win-1.14"
 enable_cache: true
 suites:
-- "bionic"
+- "focal"
 architectures:
 - "amd64"
 packages:
@@ -20,7 +20,8 @@ packages:
 - "nsis"
 - "zip"
 - "ca-certificates"
-- "python"
+- "python3"
+- "python-is-python3"
 - "rename"
 remotes:
 - "url": "https://github.com/dogecoin/dogecoin.git"
