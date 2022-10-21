@@ -162,9 +162,9 @@ class WalletBackupTest(BitcoinTestFramework):
         shutil.rmtree(self.options.tmpdir + "/node2/regtest/chainstate")
 
         # Restore wallets from backup
-        shutil.copyfile(tmpdir + "/node0/regtest/backups/wallet0.bak", tmpdir + "/node0/regtest/wallet.dat")
-        shutil.copyfile(tmpdir + "/node1/regtest/backups/wallet1.bak", tmpdir + "/node1/regtest/wallet.dat")
-        shutil.copyfile(tmpdir + "/node2/regtest/backups/wallet2.bak", tmpdir + "/node2/regtest/wallet.dat")
+        shutil.copyfile(tmpdir + "/node0/wallet0.bak", tmpdir + "/node0/regtest/wallet.dat")
+        shutil.copyfile(tmpdir + "/node1/wallet1.bak", tmpdir + "/node1/regtest/wallet.dat")
+        shutil.copyfile(tmpdir + "/node2/wallet2.bak", tmpdir + "/node2/regtest/wallet.dat")
 
         logging.info("Re-starting nodes")
         self.start_three()
