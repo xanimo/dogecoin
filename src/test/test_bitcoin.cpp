@@ -29,7 +29,6 @@
 #include <boost/test/unit_test.hpp>
 #include <boost/thread.hpp>
 
-std::unique_ptr<CConnman> g_connman;
 uint256 insecure_rand_seed = GetRandHash();
 FastRandomContext insecure_rand_ctx(insecure_rand_seed);
 
