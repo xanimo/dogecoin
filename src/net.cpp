@@ -45,12 +45,13 @@
 // We add a random period time (0 to 1 seconds) to feeler connections to prevent synchronization.
 #define FEELER_SLEEP_WINDOW 1
 
-#if !defined(HAVE_MSG_NOSIGNAL)
+// MSG_NOSIGNAL is not available on some platforms, if it doesn't exist define it as 0
+#if !defined(MSG_NOSIGNAL)
 #define MSG_NOSIGNAL 0
 #endif
 
 // MSG_DONTWAIT is not available on some platforms, if it doesn't exist define it as 0
-#if !defined(HAVE_MSG_DONTWAIT)
+#if !defined(MSG_DONTWAIT)
 #define MSG_DONTWAIT 0
 #endif
 
@@ -2239,6 +2240,12 @@ CConnman::CConnman(uint64_t nSeed0In, uint64_t nSeed1In) : nSeed0(nSeed0In), nSe
     nReceiveFloodSize = 0;
     semOutbound = NULL;
     semAddnode = NULL;
+    nMaxConnections = 0;
+    nMaxOutbound = 0;
+    nAvailableFds = 0;
+    nMaxAddnode = 0;
+    nBestHeight = 0;
+    clientInterface = NULL;
     flagInterruptMsgProc = false;
 
     Options connOptions;
@@ -2298,6 +2305,14 @@ bool CConnman::Start(CScheduler& scheduler, const Options& connOptions)
         }
         return false;
     }
+
+    nRelevantServices = connOptions.nRelevantServices;
+    nLocalServices = connOptions.nLocalServices;
+    nMaxConnections = connOptions.nMaxConnections;
+    nMaxOutbound = std::min((connOptions.nMaxOutbound), nMaxConnections);
+    nMaxAddnode = connOptions.nMaxAddnode;
+    nMaxFeeler = connOptions.nMaxFeeler;
+    nAvailableFds = connOptions.nAvailableFds;
 
     for (const auto& strDest : connOptions.vSeedNodes) {
         AddOneShot(strDest);
