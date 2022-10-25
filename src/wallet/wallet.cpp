@@ -447,17 +447,17 @@ void CWallet::Flush(bool shutdown)
 
 bool CWallet::Verify()
 {
-    if (GetBoolArg("-disablewallet", DEFAULT_DISABLE_WALLET))
+    if (gArgs.GetBoolArg("-disablewallet", DEFAULT_DISABLE_WALLET))
         return true;
 
     uiInterface.InitMessage(_("Verifying wallet..."));
-    std::string walletFile = GetArg("-wallet", DEFAULT_WALLET_DAT);
+    std::string walletFile = gArgs.GetArg("-wallet", DEFAULT_WALLET_DAT);
 
     std::string strError;
     if (!CWalletDB::VerifyEnvironment(walletFile, GetDataDir().string(), strError))
         return InitError(strError);
 
-    if (GetBoolArg("-salvagewallet", false))
+    if (gArgs.GetBoolArg("-salvagewallet", false))
     {
         // Recover readable keypairs:
         CWallet dummyWallet;
@@ -965,7 +965,7 @@ bool CWallet::AddToWallet(const CWalletTx& wtxIn, bool fFlushOnClose)
     NotifyTransactionChanged(this, hash, fInsertedNew ? CT_NEW : CT_UPDATED);
 
     // notify an external script when a wallet transaction comes in or is updated
-    std::string strCmd = GetArg("-walletnotify", "");
+    std::string strCmd = gArgs.GetArg("-walletnotify", "");
 
     if ( !strCmd.empty())
     {
@@ -2306,8 +2306,8 @@ bool CWallet::SelectCoins(const std::vector<COutput>& vAvailableCoins, const CAm
             ++it;
     }
 
-    size_t nMaxChainLength = std::min(GetArg("-limitancestorcount", DEFAULT_ANCESTOR_LIMIT), GetArg("-limitdescendantcount", DEFAULT_DESCENDANT_LIMIT));
-    bool fRejectLongChains = GetBoolArg("-walletrejectlongchains", DEFAULT_WALLET_REJECT_LONG_CHAINS);
+    size_t nMaxChainLength = std::min(gArgs.GetArg("-limitancestorcount", DEFAULT_ANCESTOR_LIMIT), gArgs.GetArg("-limitdescendantcount", DEFAULT_DESCENDANT_LIMIT));
+    bool fRejectLongChains = gArgs.GetBoolArg("-walletrejectlongchains", DEFAULT_WALLET_REJECT_LONG_CHAINS);
 
     bool res = nTargetValue <= nValueFromPresetInputs ||
         SelectCoinsMinConf(nTargetValue - nValueFromPresetInputs, 1, 6, 0, vCoins, setCoinsRet, nValueRet) ||
@@ -2793,15 +2793,15 @@ bool CWallet::CreateTransaction(const std::vector<CRecipient>& vecSend, CWalletT
         }
     }
 
-    if (GetBoolArg("-walletrejectlongchains", DEFAULT_WALLET_REJECT_LONG_CHAINS)) {
+    if (gArgs.GetBoolArg("-walletrejectlongchains", DEFAULT_WALLET_REJECT_LONG_CHAINS)) {
         // Lastly, ensure this tx will pass the mempool's chain limits
         LockPoints lp;
         CTxMemPoolEntry entry(wtxNew.tx, 0, 0, 0, 0, 0, false, 0, lp);
         CTxMemPool::setEntries setAncestors;
-        size_t nLimitAncestors = GetArg("-limitancestorcount", DEFAULT_ANCESTOR_LIMIT);
-        size_t nLimitAncestorSize = GetArg("-limitancestorsize", DEFAULT_ANCESTOR_SIZE_LIMIT)*1000;
-        size_t nLimitDescendants = GetArg("-limitdescendantcount", DEFAULT_DESCENDANT_LIMIT);
-        size_t nLimitDescendantSize = GetArg("-limitdescendantsize", DEFAULT_DESCENDANT_SIZE_LIMIT)*1000;
+        size_t nLimitAncestors = gArgs.GetArg("-limitancestorcount", DEFAULT_ANCESTOR_LIMIT);
+        size_t nLimitAncestorSize = gArgs.GetArg("-limitancestorsize", DEFAULT_ANCESTOR_SIZE_LIMIT)*1000;
+        size_t nLimitDescendants = gArgs.GetArg("-limitdescendantcount", DEFAULT_DESCENDANT_LIMIT);
+        size_t nLimitDescendantSize = gArgs.GetArg("-limitdescendantsize", DEFAULT_DESCENDANT_SIZE_LIMIT)*1000;
         std::string errString;
         if (!mempool.CalculateMemPoolAncestors(entry, setAncestors, nLimitAncestors, nLimitAncestorSize, nLimitDescendants, nLimitDescendantSize, errString)) {
             strFailReason = _("Transaction has too long of a mempool chain");
@@ -3092,7 +3092,7 @@ bool CWallet::NewKeyPool()
         if (IsLocked())
             return false;
 
-        int64_t nKeys = std::max(GetArg("-keypool", DEFAULT_KEYPOOL_SIZE), (int64_t)0);
+        int64_t nKeys = std::max(gArgs.GetArg("-keypool", DEFAULT_KEYPOOL_SIZE), (int64_t)0);
         for (int i = 0; i < nKeys; i++)
         {
             int64_t nIndex = i+1;
@@ -3119,7 +3119,7 @@ bool CWallet::TopUpKeyPool(unsigned int kpSize)
         if (kpSize > 0)
             nTargetSize = kpSize;
         else
-            nTargetSize = std::max(GetArg("-keypool", DEFAULT_KEYPOOL_SIZE), (int64_t) 0);
+            nTargetSize = std::max(gArgs.GetArg("-keypool", DEFAULT_KEYPOOL_SIZE), (int64_t) 0);
 
         while (setKeyPool.size() < (nTargetSize + 1))
         {
@@ -3685,7 +3685,7 @@ CWallet* CWallet::CreateWalletFromFile(const std::string walletFile)
     // needed to restore wallet transaction meta data after -zapwallettxes
     std::vector<CWalletTx> vWtx;
 
-    if (GetBoolArg("-zapwallettxes", false)) {
+    if (gArgs.GetBoolArg("-zapwallettxes", false)) {
         uiInterface.InitMessage(_("Zapping all transactions from wallet..."));
 
         CWallet *tempWallet = new CWallet(walletFile);
@@ -3732,9 +3732,9 @@ CWallet* CWallet::CreateWalletFromFile(const std::string walletFile)
         }
     }
 
-    if (GetBoolArg("-upgradewallet", fFirstRun))
+    if (gArgs.GetBoolArg("-upgradewallet", fFirstRun))
     {
-        int nMaxVersion = GetArg("-upgradewallet", 0);
+        int nMaxVersion = gArgs.GetArg("-upgradewallet", 0);
         if (nMaxVersion == 0) // the -upgradewallet without argument case
         {
             LogPrintf("Performing wallet upgrade to %i\n", FEATURE_LATEST);
@@ -3754,7 +3754,7 @@ CWallet* CWallet::CreateWalletFromFile(const std::string walletFile)
     if (fFirstRun)
     {
         // Create new keyUser and set as default key
-        if (GetBoolArg("-usehd", DEFAULT_USE_HD_WALLET) && !walletInstance->IsHDEnabled()) {
+        if (gArgs.GetBoolArg("-usehd", DEFAULT_USE_HD_WALLET) && !walletInstance->IsHDEnabled()) {
             // generate a new master key
             CPubKey masterPubKey = walletInstance->GenerateNewHDMasterKey();
             if (!walletInstance->SetHDMasterKey(masterPubKey))
@@ -3771,8 +3771,8 @@ CWallet* CWallet::CreateWalletFromFile(const std::string walletFile)
 
         walletInstance->SetBestChain(chainActive.GetLocator());
     }
-    else if (IsArgSet("-usehd")) {
-        bool useHD = GetBoolArg("-usehd", DEFAULT_USE_HD_WALLET);
+    else if (gArgs.IsArgSet("-usehd")) {
+        bool useHD = gArgs.GetBoolArg("-usehd", DEFAULT_USE_HD_WALLET);
         if (walletInstance->IsHDEnabled() && !useHD) {
             InitError(strprintf(_("Error loading %s: You can't disable HD on a already existing HD wallet"), walletFile));
             return NULL;
@@ -3788,7 +3788,7 @@ CWallet* CWallet::CreateWalletFromFile(const std::string walletFile)
     RegisterValidationInterface(walletInstance);
 
     CBlockIndex *pindexRescan = chainActive.Tip();
-    if (GetBoolArg("-rescan", false))
+    if (gArgs.GetBoolArg("-rescan", false))
         pindexRescan = chainActive.Genesis();
     else
     {
@@ -3825,7 +3825,7 @@ CWallet* CWallet::CreateWalletFromFile(const std::string walletFile)
         CWalletDB::IncrementUpdateCounter();
 
         // Restore wallet transaction metadata after -zapwallettxes=1
-        if (GetBoolArg("-zapwallettxes", false) && GetArg("-zapwallettxes", "1") != "2")
+        if (gArgs.GetBoolArg("-zapwallettxes", false) && gArgs.GetArg("-zapwallettxes", "1") != "2")
         {
             CWalletDB walletdb(walletFile);
 
@@ -3849,7 +3849,7 @@ CWallet* CWallet::CreateWalletFromFile(const std::string walletFile)
             }
         }
     }
-    walletInstance->SetBroadcastTransactions(GetBoolArg("-walletbroadcast", DEFAULT_WALLETBROADCAST));
+    walletInstance->SetBroadcastTransactions(gArgs.GetBoolArg("-walletbroadcast", DEFAULT_WALLETBROADCAST));
 
     {
         LOCK(walletInstance->cs_wallet);
@@ -3863,13 +3863,13 @@ CWallet* CWallet::CreateWalletFromFile(const std::string walletFile)
 
 bool CWallet::InitLoadWallet()
 {
-    if (GetBoolArg("-disablewallet", DEFAULT_DISABLE_WALLET)) {
+    if (gArgs.GetBoolArg("-disablewallet", DEFAULT_DISABLE_WALLET)) {
         pwalletMain = NULL;
         LogPrintf("Wallet disabled!\n");
         return true;
     }
 
-    std::string walletFile = GetArg("-wallet", DEFAULT_WALLET_DAT);
+    std::string walletFile = gArgs.GetArg("-wallet", DEFAULT_WALLET_DAT);
 
     CWallet * const pwallet = CreateWalletFromFile(walletFile);
     if (!pwallet) {
@@ -3896,57 +3896,57 @@ void CWallet::postInitProcess(CScheduler& scheduler)
 
 bool CWallet::ParameterInteraction()
 {
-    if (GetBoolArg("-disablewallet", DEFAULT_DISABLE_WALLET))
+    if (gArgs.GetBoolArg("-disablewallet", DEFAULT_DISABLE_WALLET))
         return true;
 
-    if (GetBoolArg("-blocksonly", DEFAULT_BLOCKSONLY) && SoftSetBoolArg("-walletbroadcast", false)) {
+    if (gArgs.GetBoolArg("-blocksonly", DEFAULT_BLOCKSONLY) && gArgs.SoftSetBoolArg("-walletbroadcast", false)) {
         LogPrintf("%s: parameter interaction: -blocksonly=1 -> setting -walletbroadcast=0\n", __func__);
     }
 
-    if (GetBoolArg("-salvagewallet", false) && SoftSetBoolArg("-rescan", true)) {
+    if (gArgs.GetBoolArg("-salvagewallet", false) && gArgs.SoftSetBoolArg("-rescan", true)) {
         // Rewrite just private keys: rescan to find transactions
         LogPrintf("%s: parameter interaction: -salvagewallet=1 -> setting -rescan=1\n", __func__);
     }
 
     // -zapwallettx implies a rescan
-    if (GetBoolArg("-zapwallettxes", false) && SoftSetBoolArg("-rescan", true)) {
+    if (gArgs.GetBoolArg("-zapwallettxes", false) && gArgs.SoftSetBoolArg("-rescan", true)) {
         LogPrintf("%s: parameter interaction: -zapwallettxes=<mode> -> setting -rescan=1\n", __func__);
     }
 
-    if (GetBoolArg("-sysperms", false))
+    if (gArgs.GetBoolArg("-sysperms", false))
         return InitError("-sysperms is not allowed in combination with enabled wallet functionality");
-    if (GetArg("-prune", 0) && GetBoolArg("-rescan", false))
+    if (gArgs.GetArg("-prune", 0) && gArgs.GetBoolArg("-rescan", false))
         return InitError(_("Rescans are not possible in pruned mode. You will need to use -reindex which will download the whole blockchain again."));
 
     if (::minRelayTxFeeRate.GetFeePerK() > HIGH_TX_FEE_PER_KB)
         InitWarning(AmountHighWarn("-minrelaytxfee") + " " +
                     _("The wallet will avoid paying less than the minimum relay fee."));
 
-    if (IsArgSet("-mintxfee"))
+    if (gArgs.IsArgSet("-mintxfee"))
     {
         CAmount n = 0;
-        if (!ParseMoney(GetArg("-mintxfee", ""), n) || 0 == n)
-            return InitError(AmountErrMsg("mintxfee", GetArg("-mintxfee", "")));
+        if (!ParseMoney(gArgs.GetArg("-mintxfee", ""), n) || 0 == n)
+            return InitError(AmountErrMsg("mintxfee", gArgs.GetArg("-mintxfee", "")));
         if (n > HIGH_TX_FEE_PER_KB)
             InitWarning(AmountHighWarn("-mintxfee") + " " +
                         _("This is the minimum transaction fee you pay on every transaction."));
         CWallet::minTxFee = CFeeRate(n);
     }
-    if (IsArgSet("-fallbackfee"))
+    if (gArgs.IsArgSet("-fallbackfee"))
     {
         CAmount nFeePerK = 0;
-        if (!ParseMoney(GetArg("-fallbackfee", ""), nFeePerK))
-            return InitError(strprintf(_("Invalid amount for -fallbackfee=<amount>: '%s'"), GetArg("-fallbackfee", "")));
+        if (!ParseMoney(gArgs.GetArg("-fallbackfee", ""), nFeePerK))
+            return InitError(strprintf(_("Invalid amount for -fallbackfee=<amount>: '%s'"), gArgs.GetArg("-fallbackfee", "")));
         if (nFeePerK > HIGH_TX_FEE_PER_KB)
             InitWarning(AmountHighWarn("-fallbackfee") + " " +
                         _("This is the transaction fee you may pay when fee estimates are not available."));
         CWallet::fallbackFee = CFeeRate(nFeePerK);
     }
-    if (IsArgSet("-paytxfee"))
+    if (gArgs.IsArgSet("-paytxfee"))
     {
         CAmount nFeePerK = 0;
-        if (!ParseMoney(GetArg("-paytxfee", ""), nFeePerK))
-            return InitError(AmountErrMsg("paytxfee", GetArg("-paytxfee", "")));
+        if (!ParseMoney(gArgs.GetArg("-paytxfee", ""), nFeePerK))
+            return InitError(AmountErrMsg("paytxfee", gArgs.GetArg("-paytxfee", "")));
         if (nFeePerK > HIGH_TX_FEE_PER_KB)
             InitWarning(AmountHighWarn("-paytxfee") + " " +
                         _("This is the transaction fee you will pay if you send a transaction."));
@@ -3955,38 +3955,38 @@ bool CWallet::ParameterInteraction()
         if (payTxFee < ::minRelayTxFeeRate)
         {
             return InitError(strprintf(_("Invalid amount for -paytxfee=<amount>: '%s' (must be at least %s)"),
-                                       GetArg("-paytxfee", ""), ::minRelayTxFeeRate.ToString()));
+                                       gArgs.GetArg("-paytxfee", ""), ::minRelayTxFeeRate.ToString()));
         }
 
         // if -mintxfee is not set, then a lower payTxFee overrides minTxFee
-        if (!IsArgSet("-mintxfee") && payTxFee < CWallet::minTxFee)
+        if (!gArgs.IsArgSet("-mintxfee") && payTxFee < CWallet::minTxFee)
         {
-            LogPrintf("%s: parameter interaction: -paytxfee=%s -> setting -mintxfee=%s\n", __func__, GetArg("-paytxfee",""), GetArg("-paytxfee",""));
+            LogPrintf("%s: parameter interaction: -paytxfee=%s -> setting -mintxfee=%s\n", __func__, gArgs.GetArg("-paytxfee",""), gArgs.GetArg("-paytxfee",""));
             CWallet::minTxFee = CFeeRate(nFeePerK,1000);
         }
     }
-    if (IsArgSet("-discardthreshold"))
+    if (gArgs.IsArgSet("-discardthreshold"))
     {
         CAmount nDiscardThreshold = 0;
-        if (!ParseMoney(GetArg("-discardthreshold", ""), nDiscardThreshold))
-            return InitError(AmountErrMsg("discardthreshold", GetArg("-discardthreshold", "")));
+        if (!ParseMoney(gArgs.GetArg("-discardthreshold", ""), nDiscardThreshold))
+            return InitError(AmountErrMsg("discardthreshold", gArgs.GetArg("-discardthreshold", "")));
 
         if (nDiscardThreshold < nDustLimit)
         {
             return InitError(strprintf(_("Invalid amount for -discardthreshold=<amount>: '%s' (must be at least the dust limit of %s to prevent stuck transactions)"),
-                                       GetArg("-discardthreshold", ""), FormatMoney(nDustLimit)));
+                                       gArgs.GetArg("-discardthreshold", ""), FormatMoney(nDustLimit)));
         }
         if (nDiscardThreshold > HIGH_TX_FEE_PER_KB)
             InitWarning(_("-discardthreshold is set very high! This is the output amount that the wallet will discard (to fee) if it is smaller than this setting."));
 
         CWallet::discardThreshold = nDiscardThreshold;
     }
-    nTxConfirmTarget = GetArg("-txconfirmtarget", DEFAULT_TX_CONFIRM_TARGET);
-    bSpendZeroConfChange = GetBoolArg("-spendzeroconfchange", DEFAULT_SPEND_ZEROCONF_CHANGE);
-    fSendFreeTransactions = GetBoolArg("-sendfreetransactions", DEFAULT_SEND_FREE_TRANSACTIONS);
-    fWalletRbf = GetBoolArg("-walletrbf", DEFAULT_WALLET_RBF);
+    nTxConfirmTarget = gArgs.GetArg("-txconfirmtarget", DEFAULT_TX_CONFIRM_TARGET);
+    bSpendZeroConfChange = gArgs.GetBoolArg("-spendzeroconfchange", DEFAULT_SPEND_ZEROCONF_CHANGE);
+    fSendFreeTransactions = gArgs.GetBoolArg("-sendfreetransactions", DEFAULT_SEND_FREE_TRANSACTIONS);
+    fWalletRbf = gArgs.GetBoolArg("-walletrbf", DEFAULT_WALLET_RBF);
 
-    if (fSendFreeTransactions && GetArg("-limitfreerelay", DEFAULT_LIMITFREERELAY) <= 0)
+    if (fSendFreeTransactions && gArgs.GetArg("-limitfreerelay", DEFAULT_LIMITFREERELAY) <= 0)
         return InitError("Creation of free transactions with their relay disabled is not supported.");
 
     return true;

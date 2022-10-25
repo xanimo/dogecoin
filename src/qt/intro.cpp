@@ -123,7 +123,7 @@ Intro::Intro(QWidget *parent) :
     ui->setupUi(this);
     ui->welcomeLabel->setText(ui->welcomeLabel->text().arg(tr(PACKAGE_NAME)));
     ui->storageLabel->setText(ui->storageLabel->text().arg(tr(PACKAGE_NAME)));
-    uint64_t pruneTarget = std::max<int64_t>(0, GetArg("-prune", 0));
+    uint64_t pruneTarget = std::max<int64_t>(0, gArgs.GetArg("-prune", 0));
     requiredSpace = BLOCK_CHAIN_SIZE;
     if (pruneTarget) {
         uint64_t prunedGBs = std::ceil(pruneTarget * 1024 * 1024.0 / GB_BYTES);
@@ -174,14 +174,14 @@ bool Intro::pickDataDirectory()
     QSettings settings;
     /* If data directory provided on command line, no need to look at settings
        or show a picking dialog */
-    if(!GetArg("-datadir", "").empty())
+    if(!gArgs.GetArg("-datadir", "").empty())
         return true;
     /* 1) Default data directory for operating system */
     QString dataDir = getDefaultDataDirectory();
     /* 2) Allow QSettings to override default dir */
     dataDir = settings.value("strDataDir", dataDir).toString();
 
-    if(!fs::exists(GUIUtil::qstringToBoostPath(dataDir)) || GetBoolArg("-choosedatadir", DEFAULT_CHOOSE_DATADIR) || settings.value("fReset", false).toBool() || GetBoolArg("-resetguisettings", false))
+    if(!fs::exists(GUIUtil::qstringToBoostPath(dataDir)) || gArgs.GetBoolArg("-choosedatadir", DEFAULT_CHOOSE_DATADIR) || settings.value("fReset", false).toBool() || gArgs.GetBoolArg("-resetguisettings", false))
     {
         /* If current default data directory does not exist, let the user choose one */
         Intro intro;
@@ -214,7 +214,7 @@ bool Intro::pickDataDirectory()
      * (to be consistent with bitcoind behavior)
      */
     if(dataDir != getDefaultDataDirectory())
-        SoftSetArg("-datadir", GUIUtil::qstringToBoostPath(dataDir).string()); // use OS locale for path setting
+        gArgs.SoftSetArg("-datadir", GUIUtil::qstringToBoostPath(dataDir).string()); // use OS locale for path setting
     return true;
 }
 

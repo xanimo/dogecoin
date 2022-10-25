@@ -1043,8 +1043,8 @@ UniValue gettxout(const JSONRPCRequest& request)
 
 UniValue verifychain(const JSONRPCRequest& request)
 {
-    int nCheckLevel = GetArg("-checklevel", DEFAULT_CHECKLEVEL);
-    int nCheckDepth = GetArg("-checkblocks", DEFAULT_CHECKBLOCKS);
+    int nCheckLevel = gArgs.GetArg("-checklevel", DEFAULT_CHECKLEVEL);
+    int nCheckDepth = gArgs.GetArg("-checkblocks", DEFAULT_CHECKBLOCKS);
     if (request.fHelp || request.params.size() > 2)
         throw std::runtime_error(
             "verifychain ( checklevel nblocks )\n"
@@ -1204,7 +1204,7 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
         obj.pushKV("pruneheight",        block->nHeight);
 
         // if 0, execution bypasses the whole if block.
-        bool automatic_pruning = (GetArg("-prune", 0) != 1);
+        bool automatic_pruning = (gArgs.GetArg("-prune", 0) != 1);
         obj.pushKV("automatic_pruning",  automatic_pruning);
         if (automatic_pruning) {
             obj.pushKV("prune_target_size",  nPruneTarget);
@@ -1350,7 +1350,7 @@ UniValue mempoolInfoToJSON()
     ret.pushKV("size", (int64_t) mempool.size());
     ret.pushKV("bytes", (int64_t) mempool.GetTotalTxSize());
     ret.pushKV("usage", (int64_t) mempool.DynamicMemoryUsage());
-    size_t maxmempool = GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000;
+    size_t maxmempool = gArgs.GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000;
     ret.pushKV("maxmempool", (int64_t) maxmempool);
     ret.pushKV("mempoolminfee", ValueFromAmount(mempool.GetMinFee(maxmempool).GetFeePerK()));
 
