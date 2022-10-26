@@ -155,6 +155,7 @@ BITCOIN_CORE_H = \
   ui_interface.h \
   undo.h \
   util.h \
+  util/memory.h \
   utilmoneystr.h \
   utiltime.h \
   util/asmap.h \
