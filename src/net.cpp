@@ -21,6 +21,7 @@
 #include "netbase.h"
 #include "scheduler.h"
 #include "ui_interface.h"
+#include "util/memory.h"
 #include "utilstrencodings.h"
 
 #ifdef WIN32
@@ -2776,7 +2777,7 @@ CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn
     nNextInvSend = 0;
     fRelayTxes = false;
     fSentAddr = false;
-    pfilter = new CBloomFilter();
+    pfilter = MakeUnique<CBloomFilter>();
     timeLastMempoolReq = 0;
     nLastBlockTime = 0;
     nLastTXTime = 0;
@@ -2806,9 +2807,6 @@ CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn
 CNode::~CNode()
 {
     CloseSocket(hSocket);
-
-    if (pfilter)
-        delete pfilter;
 }
 
 bool CConnman::NodeFullyConnected(const CNode* pnode)
