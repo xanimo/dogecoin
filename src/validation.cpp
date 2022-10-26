@@ -1203,6 +1203,7 @@ CBlockIndex *pindexBestForkTip = NULL, *pindexBestForkBase = NULL;
 static void AlertNotify(const std::string& strMessage)
 {
     uiInterface.NotifyAlertChanged();
+#if defined(HAVE_SYSTEM)
     std::string strCmd = gArgs.GetArg("-alertnotify", "");
     if (strCmd.empty()) return;
 
@@ -1215,6 +1216,8 @@ static void AlertNotify(const std::string& strMessage)
     boost::replace_all(strCmd, "%s", safeStatus);
 
     boost::thread t(runCommand, strCmd); // thread runs free
+    t.detach(); // thread runs free
+#endif
 }
 
 void CheckForkWarningConditions()

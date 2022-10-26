@@ -318,8 +318,10 @@ std::string HelpMessage(HelpMessageMode mode)
     std::string strUsage = HelpMessageGroup(_("Options:"));
     strUsage += HelpMessageOpt("-?", _("Print this help message and exit"));
     strUsage += HelpMessageOpt("-version", _("Print version and exit"));
+#if defined(HAVE_SYSTEM)
     strUsage += HelpMessageOpt("-alertnotify=<cmd>", _("Execute command when we see a really long fork (%s in cmd is replaced by message)"));
     strUsage += HelpMessageOpt("-blocknotify=<cmd>", _("Execute command when the best block changes (%s in cmd is replaced by block hash, %i is replaced by block number)"));
+#endif
     if (showDebug)
         strUsage += HelpMessageOpt("-blocksonly", strprintf(_("Whether to operate in a blocks only mode (default: %u)"), DEFAULT_BLOCKSONLY));
     strUsage +=HelpMessageOpt("-assumevalid=<hex>", strprintf(_("If this block is in the chain assume that it and its ancestors are valid and potentially skip their script verification (0 to verify all, default: %s, testnet: %s)"), Params(CBaseChainParams::MAIN).GetConsensus(0).defaultAssumeValid.GetHex(), Params(CBaseChainParams::TESTNET).GetConsensus(0).defaultAssumeValid.GetHex()));
@@ -524,6 +526,7 @@ std::string LicenseInfo()
            "\n";
 }
 
+#if defined(HAVE_SYSTEM)
 static void BlockNotifyCallback(bool initialSync, const CBlockIndex *pBlockIndex)
 {
     if (initialSync || !pBlockIndex)
@@ -535,6 +538,7 @@ static void BlockNotifyCallback(bool initialSync, const CBlockIndex *pBlockIndex
     boost::replace_all(strCmd, "%i", boost::lexical_cast<std::string>(pBlockIndex->nHeight));
     boost::thread t(runCommand, strCmd); // thread runs free
 }
+#endif
 
 static bool fHaveGenesis = false;
 static boost::mutex cs_GenesisWait;
@@ -1595,8 +1599,10 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
         fHaveGenesis = true;
     }
 
+#if defined(HAVE_SYSTEM)
     if (gArgs.IsArgSet("-blocknotify"))
         uiInterface.NotifyBlockTip.connect(BlockNotifyCallback);
+#endif
 
     std::vector<fs::path> vImportFiles;
     if (gArgs.IsArgSet("-loadblock"))
