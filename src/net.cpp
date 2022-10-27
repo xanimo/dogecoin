@@ -847,10 +847,10 @@ CNetMessage V1TransportDeserializer::GetMessage(const CMessageHeader::MessageSta
 
     msg.m_valid_checksum = (memcmp(hash.begin(), hdr.pchChecksum, CMessageHeader::CHECKSUM_SIZE) == 0);
     if (!msg.m_valid_checksum) {
-        LogPrint(BCLog::NET, "CHECKSUM ERROR (%s, %u bytes), expected %s was %s\n",
+        LogPrint("net", "CHECKSUM ERROR (%s, %u bytes), expected %s was %s\n",
                  SanitizeString(msg.m_command), msg.m_message_size,
-                 HexStr(hash.begin(), hash.begin()+CMessageHeader::CHECKSUM_SIZE),
-                 HexStr(hdr.pchChecksum, hdr.pchChecksum+CMessageHeader::CHECKSUM_SIZE));
+                 HexStr(Span<uint8_t>(hash.begin(), hash.begin() + CMessageHeader::CHECKSUM_SIZE)),
+                 HexStr(hdr.pchChecksum));
     }
 
     // store receive time

@@ -40,7 +40,7 @@ void ScriptPubKeyToJSON(const CScript& scriptPubKey, UniValue& out, bool fInclud
 
     out.pushKV("asm", ScriptToAsmStr(scriptPubKey));
     if (fIncludeHex)
-        out.pushKV("hex", HexStr(scriptPubKey.begin(), scriptPubKey.end()));
+        out.pushKV("hex", HexStr(scriptPubKey));
 
     if (!ExtractDestinations(scriptPubKey, type, addresses, nRequired)) {
         out.pushKV("type", GetTxnOutputType(type));
@@ -70,20 +70,20 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
         const CTxIn& txin = tx.vin[i];
         UniValue in(UniValue::VOBJ);
         if (tx.IsCoinBase())
-            in.pushKV("coinbase", HexStr(txin.scriptSig.begin(), txin.scriptSig.end()));
+            in.pushKV("coinbase", HexStr(txin.scriptSig));
         else {
             in.pushKV("txid", txin.prevout.hash.GetHex());
             in.pushKV("vout", (int64_t)txin.prevout.n);
             UniValue o(UniValue::VOBJ);
             o.pushKV("asm", ScriptToAsmStr(txin.scriptSig, true));
-            o.pushKV("hex", HexStr(txin.scriptSig.begin(), txin.scriptSig.end()));
+            o.pushKV("hex", HexStr(txin.scriptSig));
             in.pushKV("scriptSig", o);
         }
         if (tx.HasWitness()) {
                 UniValue txinwitness(UniValue::VARR);
                 for (unsigned int j = 0; j < tx.vin[i].scriptWitness.stack.size(); j++) {
                     std::vector<unsigned char> item = tx.vin[i].scriptWitness.stack[j];
-                    txinwitness.push_back(HexStr(item.begin(), item.end()));
+                    txinwitness.push_back(HexStr(item));
                 }
                 in.pushKV("txinwitness", txinwitness);
         }
@@ -310,7 +310,7 @@ UniValue gettxoutproof(const JSONRPCRequest& request)
     CDataStream ssMB(SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS);
     CMerkleBlock mb(block, setTxids);
     ssMB << mb;
-    std::string strHex = HexStr(ssMB.begin(), ssMB.end());
+    std::string strHex = HexStr(ssMB);
     return strHex;
 }
 
@@ -585,7 +585,7 @@ static void TxInErrorToJSON(const CTxIn& txin, UniValue& vErrorsRet, const std::
     UniValue entry(UniValue::VOBJ);
     entry.pushKV("txid", txin.prevout.hash.ToString());
     entry.pushKV("vout", (uint64_t)txin.prevout.n);
-    entry.pushKV("scriptSig", HexStr(txin.scriptSig.begin(), txin.scriptSig.end()));
+    entry.pushKV("scriptSig", HexStr(txin.scriptSig));
     entry.pushKV("sequence", (uint64_t)txin.nSequence);
     entry.pushKV("error", strMessage);
     vErrorsRet.push_back(entry);
