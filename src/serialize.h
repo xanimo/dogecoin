@@ -21,7 +21,8 @@
 #include <utility>
 #include <vector>
 
-#include "prevector.h"
+#include <prevector.h>
+#include <span.h>
 
 static const unsigned int MAX_SIZE = 0x02000000;
 

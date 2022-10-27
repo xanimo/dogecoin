@@ -116,7 +116,7 @@ public:
         CPubKey vchPubKey;
         obj.pushKV("isscript", false);
         if (pwalletMain && pwalletMain->GetPubKey(keyID, vchPubKey)) {
-            obj.pushKV("pubkey", HexStr(vchPubKey));
+            obj.pushKV("pubkey", HexStr(Span<CPubKey>(vchPubKey)));
             obj.pushKV("iscompressed", vchPubKey.IsCompressed());
         }
         return obj;
@@ -132,7 +132,7 @@ public:
             int nRequired;
             ExtractDestinations(subscript, whichType, addresses, nRequired);
             obj.pushKV("script", GetTxnOutputType(whichType));
-            obj.pushKV("hex", HexStr(subscript.begin(), subscript.end()));
+            obj.pushKV("hex", HexStr(Span<uint8_t>(subscript.begin(), subscript.end())));
             UniValue a(UniValue::VARR);
             for (const CTxDestination& addr : addresses)
                 a.push_back(CBitcoinAddress(addr).ToString());

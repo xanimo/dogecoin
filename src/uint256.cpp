@@ -7,20 +7,22 @@
 
 #include "utilstrencodings.h"
 
-#include <stdio.h>
 #include <string.h>
 
 template <unsigned int BITS>
 base_blob<BITS>::base_blob(const std::vector<unsigned char>& vch)
 {
     assert(vch.size() == sizeof(m_data));
-    memcpy(m_data, vch.data(), sizeof(m_data));
+    memcpy(m_data, &vch[0], sizeof(m_data));
 }
 
 template <unsigned int BITS>
 std::string base_blob<BITS>::GetHex() const
 {
-    return HexStr(std::reverse_iterator<const uint8_t*>(m_data + sizeof(m_data)), std::reverse_iterator<const uint8_t*>(m_data));
+    char psz[sizeof(m_data) * 2 + 1];
+    for (unsigned int i = 0; i < sizeof(m_data); i++)
+        sprintf(psz + i * 2, "%02x", m_data[sizeof(m_data) - i - 1]);
+    return std::string(psz, psz + sizeof(m_data) * 2);
 }
 
 template <unsigned int BITS>
@@ -76,3 +78,8 @@ template std::string base_blob<256>::GetHex() const;
 template std::string base_blob<256>::ToString() const;
 template void base_blob<256>::SetHex(const char*);
 template void base_blob<256>::SetHex(const std::string&);
+
+uint256& UINT256_ONE() {
+    static uint256* one = new uint256(uint256S("0000000000000000000000000000000000000000000000000000000000000001"));
+    return *one;
+}

@@ -23,6 +23,7 @@
 #include <memory>
 #include <string>
 #include <boost/test/unit_test.hpp>
+#include "utilstrencodings.h"
 #include "hash.h"
 #include "serialize.h"
 #include "streams.h"
@@ -30,6 +31,7 @@
 #include "netbase.h"
 #include "chainparams.h"
 #include "util.h"
+#include "version.h"
 
 class CAddrManSerializationMock : public CAddrMan
 {

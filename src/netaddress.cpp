@@ -10,13 +10,11 @@
 
 #include <crypto/common.h>
 #include <crypto/sha3.h>
-#include "netaddress.h"
-#include "hash.h"
-#include <prevector.h>
-#include "span.h"
-#include "utilstrencodings.h"
-#include "tinyformat.h"
+#include <netaddress.h>
+#include <hash.h>
+#include <utilstrencodings.h>
 #include <util/asmap.h>
+#include <tinyformat.h>
 
 #include <algorithm>
 #include <array>
@@ -613,7 +611,7 @@ int CNetAddr::GetReachabilityFrom(const CNetAddr *paddrPartner) const
     }
 }
 
-CService::CService() : port(0)
+CService::CService()
 {
 }
 

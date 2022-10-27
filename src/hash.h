@@ -79,15 +79,6 @@ inline uint256 Hash(const T& in1)
     return result;
 }
 
-/** Compute the 256-bit hash of an object. */
-template<typename T1>
-inline uint256 Hash(const T1 pbegin, const T1 pend)
-{
-    uint256 result;
-    CHash256().Write(MakeUCharSpan(in1)).Finalize(result);
-    return result;
-}
-
 /** Compute the 256-bit hash of the concatenation of two objects. */
 template<typename T1, typename T2>
 inline uint256 Hash(const T1& in1, const T2& in2) {
@@ -204,9 +195,6 @@ uint256 SerializeHash(const T& obj, int nType=SER_GETHASH, int nVersion=PROTOCOL
     ss << obj;
     return ss.GetHash();
 }
-
-/** Single-SHA256 a 32-byte input (represented as uint256). */
-NODISCARD uint256 SHA256Uint256(const uint256& input);
 
 unsigned int MurmurHash3(unsigned int nHashSeed, Span<const unsigned char> vDataToHash);
 

@@ -6,10 +6,6 @@
 #include "hash.h"
 #include "crypto/common.h"
 #include "crypto/hmac_sha512.h"
-#include "pubkey.h"
-#include "span.h"
-
-#include <string>
 
 inline uint32_t ROTL32(uint32_t x, int8_t r)
 {
@@ -45,7 +41,7 @@ unsigned int MurmurHash3(unsigned int nHashSeed, Span<const unsigned char> vData
 
         //----------
         // tail
-        const uint8_t* tail = (const uint8_t*)(&vDataToHash[0] + nblocks * 4);
+        const uint8_t* tail = vDataToHash.data() + nblocks * 4;
 
         uint32_t k1 = 0;
 

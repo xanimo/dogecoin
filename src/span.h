@@ -163,13 +163,6 @@ public:
                                 std::is_convertible<decltype(std::declval<V&>().size()), std::size_t>::value, std::nullptr_t>::type = nullptr)
         : m_data(other.data()), m_size(other.size()){}
 
-    template <typename V>
-    constexpr Span(const V& other SPAN_ATTR_LIFETIMEBOUND,
-        typename std::enable_if<!is_Span<V>::value &&
-                                std::is_convertible<typename std::remove_pointer<decltype(std::declval<const V&>().data())>::type (*)[], C (*)[]>::value &&
-                                std::is_convertible<decltype(std::declval<const V&>().size()), std::size_t>::value, std::nullptr_t>::type = nullptr)
-        : m_data(other.data()), m_size(other.size()){}
-
     constexpr C* data() const noexcept { return m_data; }
     constexpr C* begin() const noexcept { return m_data; }
     constexpr C* end() const noexcept { return m_data + m_size; }
