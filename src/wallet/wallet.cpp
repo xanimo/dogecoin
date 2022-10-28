@@ -3045,7 +3045,7 @@ bool CWallet::DelAddressBook(const CTxDestination& address)
         {
             // Delete destdata tuples associated with address
             std::string strAddress = CBitcoinAddress(address).ToString();
-            for (const PAIRTYPE(string, string) &item : mapAddressBook[address].destdata)
+            for (const PAIRTYPE(string, string) item : mapAddressBook[address].destdata)
             {
                 CWalletDB(strWalletFile).EraseDestData(strAddress, item.first);
             }
@@ -3384,7 +3384,7 @@ std::set<CTxDestination> CWallet::GetAccountAddresses(const std::string& strAcco
 {
     LOCK(cs_wallet);
     set<CTxDestination> result;
-    for (const PAIRTYPE(CTxDestination, CAddressBookData)& item : mapAddressBook)
+    for (const PAIRTYPE(CTxDestination, CAddressBookData) item : mapAddressBook)
     {
         const CTxDestination& address = item.first;
         const string& strName = item.second.name;
