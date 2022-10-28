@@ -81,7 +81,7 @@ bool CWalletDB::WriteKey(const CPubKey& vchPubKey, const CPrivKey& vchPrivKey, c
     vchKey.insert(vchKey.end(), vchPubKey.begin(), vchPubKey.end());
     vchKey.insert(vchKey.end(), vchPrivKey.begin(), vchPrivKey.end());
 
-    return Write(std::make_pair(std::string("key"), vchPubKey), std::make_pair(vchPrivKey, Hash(vchKey.begin(), vchKey.end())), false);
+    return Write(std::make_pair(std::string("key"), vchPubKey), std::make_pair(vchPrivKey, Hash(vchKey)), false);
 }
 
 bool CWalletDB::WriteCryptedKey(const CPubKey& vchPubKey,

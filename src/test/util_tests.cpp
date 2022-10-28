@@ -3,16 +3,30 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "util.h"
+#include <util/system.h>
 
 #include "clientversion.h"
+#include <hash.h> // For Hash()
+#include <key.h>  // For CKey
 #include "primitives/transaction.h"
 #include "sync.h"
+#include <uint256.h>
 #include "utilstrencodings.h"
 #include "utilmoneystr.h"
 #include "test/test_bitcoin.h"
+#include <utiltime.h>
 
+#include <array>
 #include <stdint.h>
+#include <thread>
+#include <univalue.h>
+#include <utility>
 #include <vector>
+#ifndef WIN32
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#endif
 
 #include <boost/test/unit_test.hpp>
 

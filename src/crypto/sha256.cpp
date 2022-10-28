@@ -352,6 +352,7 @@ void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks)
         s[6] += g;
         s[7] += h;
         chunk += 64;
+        }
 #endif
 }
 
