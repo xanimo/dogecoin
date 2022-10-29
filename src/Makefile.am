@@ -78,6 +78,7 @@ endif
 BITCOIN_CORE_H = \
   addrdb.h \
   addrman.h \
+  attributes.h \
   auxpow.h \
   base58.h \
   bloom.h \
@@ -159,6 +160,7 @@ BITCOIN_CORE_H = \
   util/memory.h \
   utilmoneystr.h \
   utiltime.h \
+  utilstr.h \
   validation.h \
   validationinterface.h \
   versionbits.h \
