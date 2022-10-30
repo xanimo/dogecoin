@@ -25,4 +25,4 @@ static void Scrypt(benchmark::State& state)
     }
 }
 
-BENCHMARK(Scrypt);
+BENCHMARK(Scrypt, 100);
