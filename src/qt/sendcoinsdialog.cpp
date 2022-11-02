@@ -769,7 +769,9 @@ void SendCoinsDialog::coinControlChangeEdited(const QString& text)
         }
         else // Valid address
         {
-            if (!model->IsSpendable(dest)) {
+            const CKeyID *keyid = boost::get<CKeyID>(&dest);
+            if (!model->havePrivKey(*keyid)) // Unknown change address
+            {
                 ui->labelCoinControlChangeLabel->setText(tr("Warning: Unknown change address"));
 
                 // confirmation dialog
@@ -777,7 +779,7 @@ void SendCoinsDialog::coinControlChangeEdited(const QString& text)
                     QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
 
                 if(btnRetVal == QMessageBox::Yes)
-                    CoinControlDialog::coinControl->destChange = addr.Get();
+                    CoinControlDialog::coinControl->destChange = dest;
                 else
                 {
                     ui->lineEditCoinControlChange->setText("");
@@ -796,7 +798,7 @@ void SendCoinsDialog::coinControlChangeEdited(const QString& text)
                 else
                     ui->labelCoinControlChangeLabel->setText(tr("(no label)"));
 
-                CoinControlDialog::coinControl->destChange = addr.Get();
+                CoinControlDialog::coinControl->destChange = dest;
             }
         }
     }
