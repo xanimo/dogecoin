@@ -28,6 +28,7 @@
 #include "net.h"
 #include "net_processing.h"
 #include "policy/policy.h"
+#include "random.h"
 #include "rpc/server.h"
 #include "rpc/register.h"
 #include "script/standard.h"
