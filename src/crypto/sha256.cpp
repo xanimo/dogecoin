@@ -88,8 +88,13 @@ void inline Initialize(uint32_t* s)
     s[7] = 0x5be0cd19ul;
 }
 
+#ifndef INTEL_AVX2
 /** Perform a number of SHA-256 transformations, processing 64-byte chunks. */
 void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks)
+#else
+/** Perform one SHA-256 transformation, processing a 64-byte chunk. */
+void Transform(uint32_t* s, const unsigned char* chunk)
+#endif
 {
 #if defined(USE_ARMV8) || defined(USE_ARMV82)
     // entire block is experimental
@@ -360,15 +365,29 @@ CSHA256& CSHA256::Write(const unsigned char* data, size_t len)
         memcpy(buf + bufsize, data, 64 - bufsize);
         bytes += 64 - bufsize;
         data += 64 - bufsize;
+#ifndef INTEL_AVX2
         sha256::Transform(s, buf, 1);
+#else
+        sha256::Transform(s, buf);
+#endif
         bufsize = 0;
     }
+
+#ifndef INTEL_AVX2
     if (end - data >= 64) {
         size_t blocks = (end - data) / 64;
         sha256::Transform(s, data, blocks);
         data += 64 * blocks;
         bytes += 64 * blocks;
     }
+#else
+    while (end >= data + 64) {
+        // Process full chunks directly from the source.
+        sha256::Transform(s, data);
+        bytes += 64;
+        data += 64;
+    }
+#endif
     if (end > data) {
         // Fill the buffer with what remains.
         memcpy(buf + bufsize, data, end - data);
