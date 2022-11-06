@@ -52,7 +52,7 @@ static const uint32_t K[] =
     0x90BEFFFA, 0xA4506CEB, 0xBEF9A3F7, 0xC67178F2,
 };
 
-#if !defined(INTEL_AVX2) && (defined(__x86_64__) || defined(__amd64__))
+#if defined(EXPERIMENTAL_ASM) && (defined(__x86_64__) || defined(__amd64__))
 #include <cpuid.h>
 namespace sha256_sse4
 {
@@ -97,7 +97,7 @@ void inline Initialize(uint32_t* s)
     s[7] = 0x5be0cd19ul;
 }
 
-#ifndef INTEL_AVX2
+#ifndef USE_AVX2
 /** Perform a number of SHA-256 transformations, processing 64-byte chunks. */
 void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks)
 #else
@@ -356,15 +356,14 @@ void Transform(uint32_t* s, const unsigned char* chunk)
 
 } // namespace sha256
 
-#ifndef INTEL_AVX2
+#ifndef USE_AVX2
 typedef void (*TransformType)(uint32_t*, const unsigned char*, size_t);
 #else
 typedef void (*TransformType)(uint32_t*, const unsigned char*);
 #endif
 
-
 bool SelfTest(TransformType tr) {
-#ifndef INTEL_AVX2
+#ifndef USE_AVX2
     static const unsigned char in1[65] = {0, 0x80};
     static const unsigned char in2[129] = {
         0,
@@ -400,7 +399,7 @@ TransformType Transform = sha256::Transform;
 
 std::string SHA256AutoDetect()
 {
-#if !defined(INTEL_AVX2) && (defined(__x86_64__) || defined(__amd64__))
+#if defined(EXPERIMENTAL_ASM) && (defined(__x86_64__) || defined(__amd64__))
     uint32_t eax, ebx, ecx, edx;
     if (__get_cpuid(1, &eax, &ebx, &ecx, &edx) && (ecx >> 19) & 1) {
         Transform = sha256_sse4::Transform;
@@ -429,7 +428,7 @@ CSHA256& CSHA256::Write(const unsigned char* data, size_t len)
         memcpy(buf + bufsize, data, 64 - bufsize);
         bytes += 64 - bufsize;
         data += 64 - bufsize;
-#ifndef INTEL_AVX2
+#ifndef USE_AVX2
         Transform(s, buf, 1);
 #else
         sha256::Transform(s, buf);
@@ -437,7 +436,7 @@ CSHA256& CSHA256::Write(const unsigned char* data, size_t len)
         bufsize = 0;
     }
 
-#ifndef INTEL_AVX2
+#ifndef USE_AVX2
     if (end - data >= 64) {
         size_t blocks = (end - data) / 64;
         Transform(s, data, blocks);
