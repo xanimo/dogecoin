@@ -4,6 +4,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <addrman.h>
+#include <clientversion.h>
 
 #include <hash.h>
 #include <serialize.h>

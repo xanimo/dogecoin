@@ -41,19 +41,19 @@ static void SHA256(benchmark::State& state)
         CSHA256().Write(in.data(), in.size()).Finalize(hash);
 }
 
-static void SHA3_256_1M(benchmark::Bench& bench)
+static void SHA3_256_1M(benchmark::State& bench)
 {
     uint8_t hash[SHA3_256::OUTPUT_SIZE];
     std::vector<uint8_t> in(BUFFER_SIZE,0);
-    bench.batch(in.size()).unit("byte").run([&] {
-        SHA3_256().Write(in).Finalize(hash);
-    });
+    // bench.batch(in.size()).unit("byte").run([&] {
+    //     SHA3_256().Write(in).Finalize(hash);
+    // });
 }
 
-static void SHA256_32b(benchmark::Bench& bench)
+static void SHA256_32b(benchmark::State& bench)
 {
     std::vector<uint8_t> in(32,0);
-    while (state.KeepRunning()) {
+    while (bench.KeepRunning()) {
         for (int i = 0; i < 1000000; i++) {
             CSHA256().Write(in.data(), in.size()).Finalize(&in[0]);
         }
