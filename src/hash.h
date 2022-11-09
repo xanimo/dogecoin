@@ -56,8 +56,8 @@ public:
         CRIPEMD160().Write(buf, CSHA256::OUTPUT_SIZE).Finalize(hash);
     }
 
-    CHash160& Write(const unsigned char *data, size_t len) {
-        sha.Write(data, len);
+    CHash160& Write(Span<const unsigned char> input) {
+        sha.Write(input.data(), input.size());
         return *this;
     }
 
@@ -110,7 +110,7 @@ inline uint160 Hash160(const T1 pbegin, const T1 pend)
 {
     static unsigned char pblank[1] = {};
     uint160 result;
-    CHash160().Write(pbegin == pend ? pblank : (const unsigned char*)&pbegin[0], (pend - pbegin) * sizeof(pbegin[0]))
+    CHash160().Write({pbegin == pend ? pblank : (const unsigned char*)&pbegin[0], (pend - pbegin) * sizeof(pbegin[0])})
               .Finalize((unsigned char*)&result);
     return result;
 }

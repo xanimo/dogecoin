@@ -862,7 +862,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     else if (opcode == OP_SHA256)
                         CSHA256().Write(vch.data(), vch.size()).Finalize(vchHash.data());
                     else if (opcode == OP_HASH160)
-                        CHash160().Write(vch.data(), vch.size()).Finalize(vchHash.data());
+                        CHash160().Write(vch).Finalize(vchHash.data());
                     else if (opcode == OP_HASH256)
                         CHash256().Write(vch.data(), vch.size()).Finalize(vchHash.data());
                     popstack(stack);
