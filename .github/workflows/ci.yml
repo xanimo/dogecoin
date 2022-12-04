@@ -44,7 +44,7 @@ jobs:
         include:
           - name: i686-linux
             host: i686-pc-linux-gnu
-            os: ubuntu-20.04
+            os: ubuntu-18.04
             packages: g++-multilib bc python3-pip python3-setuptools python3-zmq
             run-bench: true
             test-script: |
@@ -134,7 +134,7 @@ jobs:
             host: i686-w64-mingw32
             arch: "i386"
             os: ubuntu-20.04
-            packages: python3 nsis g++-mingw-w64-i686 wine-stable bc wine-binfmt
+            packages: python3 nsis g++-mingw-w64-i686 wine64 bc wine-binfmt
             postinstall: |
               sudo dpkg -s mono-runtime && sudo apt-get remove mono-runtime || echo "Very nothing to uninstall."
               sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix
@@ -186,7 +186,7 @@ jobs:
             goal: install
           - name: x86_64-macos
             host: x86_64-apple-darwin11
-            os: ubuntu-18.04
+            os: ubuntu-20.04
             packages: cmake imagemagick libcap-dev librsvg2-bin libz-dev libtiff-tools libtinfo5 python3-setuptools xorriso
             run-bench: false
             check-security: false
