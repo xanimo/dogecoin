@@ -88,7 +88,7 @@ jobs:
             test-script: |
               qemu-aarch64 -E LD_LIBRARY_PATH=/usr/aarch64-linux-gnu/lib/ /usr/aarch64-linux-gnu/lib/ld-linux-aarch64.so.1 src/test/test_dogecoin
             check-security: true
-            check-symbols: true
+            check-symbols: false
             dep-opts: "NO_QT=1"
             config-opts: "--enable-experimental --with-armv82-crypto --enable-zmq --enable-glibc-back-compat LDFLAGS=-static-libstdc++"
             goal: install
