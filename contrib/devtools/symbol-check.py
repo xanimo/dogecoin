@@ -106,6 +106,14 @@ MACHO_ALLOWED_LIBRARIES = {
 'ImageIO', # read and write image file formats.
 'IOKit', # user-space access to hardware devices and drivers.
 'libobjc.A.dylib', # Objective-C runtime library
+'DiskArbitration',
+'OpenGL',
+'AGL',
+'Security',
+'SystemConfiguration',
+'libcups.2.dylib',
+'CFNetwork',
+
 }
 
 PE_ALLOWED_LIBRARIES = {
@@ -116,16 +124,22 @@ PE_ALLOWED_LIBRARIES = {
 'SHELL32.dll', # shell API
 'USER32.dll', # user interface
 'WS2_32.dll', # sockets
+'comdlg32.dll',
+'COMDLG32.DLL',
+'CRYPT32.dll',
+'WINSPOOL.DRV',
 # bitcoin-qt only
 'dwmapi.dll', # desktop window manager
 'GDI32.dll', # graphics device interface
 'IMM32.dll', # input method editor
+'IMM32.DLL',
 'ole32.dll', # component object model
 'OLEAUT32.dll', # OLE Automation API
 'SHLWAPI.dll', # light weight shell API
 'UxTheme.dll',
 'VERSION.dll', # version checking
 'WINMM.dll', # WinMM audio API
+'WINMM.DLL',
 }
 
 class CPPFilt(object):
