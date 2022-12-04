@@ -16,6 +16,10 @@ READELF_CMD = os.getenv('READELF', '/usr/bin/readelf')
 OBJDUMP_CMD = os.getenv('OBJDUMP', '/usr/bin/objdump')
 OTOOL_CMD = os.getenv('OTOOL', '/usr/bin/otool')
 
+def run_command(command):
+    p = subprocess.run(command, stdout=subprocess.PIPE, check=True, universal_newlines=True)
+    return p.stdout
+
 def check_ELF_PIE(executable):
     '''
     Check for position independent executable (PIE), allowing for address space randomization.
