@@ -82,7 +82,7 @@ jobs:
             goal: install
           - name: aarch64-linux-sha512-experimental
             host: aarch64-linux-gnu
-            os: ubuntu-18.04
+            os: ubuntu-20.04
             packages: g++-aarch64-linux-gnu qemu-user-static qemu-user
             run-bench: false
             test-script: |
