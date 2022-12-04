@@ -44,8 +44,13 @@ jobs:
         include:
           - name: i686-linux
             host: i686-pc-linux-gnu
-            os: ubuntu-18.04
-            packages: g++-multilib bc python3-pip python3-setuptools python3-zmq
+            os: ubuntu-20.04
+            packages: g++-i686-linux-gnu bc python3-pip python3-setuptools python3-zmq
+            postinstall: |
+              sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/i686-linux-gnu-gcc 20
+              sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/i686-linux-gnu-g++ 20
+              sudo update-alternatives --set gcc /usr/bin/i686-linux-gnu-gcc
+              sudo update-alternatives --set g++ /usr/bin/i686-linux-gnu-g++
             run-bench: true
             test-script: |
               make check $MAKEJOBS VERBOSE=1
