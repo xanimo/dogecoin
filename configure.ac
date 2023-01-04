@@ -85,7 +85,6 @@ AC_PATH_PROG(CCACHE,ccache)
 AC_PATH_PROG(XGETTEXT,xgettext)
 AC_PATH_PROG(HEXDUMP,hexdump)
 AC_PATH_TOOL(READELF, readelf)
-AC_PATH_TOOL(CPPFILT, c++filt)
 AC_PATH_TOOL(OBJCOPY, objcopy)
 
 AC_ARG_VAR(PYTHONPATH, Augments the default search path for python module files)
@@ -488,7 +487,6 @@ if test x$use_glibc_compat != xno; then
 
   #glibc absorbed clock_gettime in 2.17. librt (its previous location) is safe to link
   #in anyway for back-compat.
-  AC_CHECK_LIB([rt],[clock_gettime],, AC_MSG_ERROR(lib missing))
 
   #__fdelt_chk's params and return type have changed from long unsigned int to long int.
   # See which one is present here.
@@ -504,7 +502,13 @@ if test x$use_glibc_compat != xno; then
   AC_MSG_RESULT($fdelt_type)
   AC_DEFINE_UNQUOTED(FDELT_TYPE, $fdelt_type,[parameter and return value type for __fdelt_chk])
   AX_CHECK_LINK_FLAG([[-Wl,--wrap=__divmoddi4]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=__divmoddi4"])
+  AX_CHECK_LINK_FLAG([[-Wl,--wrap=clock_gettime]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=clock_gettime"])
+  AX_CHECK_LINK_FLAG([[-Wl,--wrap=exp]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=exp"])
+  AX_CHECK_LINK_FLAG([[-Wl,--wrap=log]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=log"])  
   AX_CHECK_LINK_FLAG([[-Wl,--wrap=log2f]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=log2f"])
+  AX_CHECK_LINK_FLAG([[-Wl,--wrap=pow]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=pow"])  
+  AX_CHECK_LINK_FLAG([[-Wl,--wrap=fcntl]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=fcntl"])
+  AX_CHECK_LINK_FLAG([[-Wl,--wrap=fcntl64]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=fcntl64"])
 else
   AC_SEARCH_LIBS([clock_gettime],[rt])
 fi
@@ -1071,6 +1075,7 @@ fi
 AM_CONDITIONAL([TARGET_DARWIN], [test x$TARGET_OS = xdarwin])
 AM_CONDITIONAL([BUILD_DARWIN], [test x$BUILD_OS = xdarwin])
 AM_CONDITIONAL([TARGET_WINDOWS], [test x$TARGET_OS = xwindows])
+AM_CONDITIONAL([TARGET_LINUX], [test x$TARGET_OS = xlinux])
 AM_CONDITIONAL([ENABLE_WALLET],[test x$enable_wallet = xyes])
 AM_CONDITIONAL([ENABLE_TESTS],[test x$BUILD_TEST = xyes])
 AM_CONDITIONAL([ENABLE_QT],[test x$bitcoin_enable_qt = xyes])
