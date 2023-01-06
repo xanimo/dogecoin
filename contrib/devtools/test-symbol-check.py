@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2020 The Bitcoin Core developers
+# Copyright (c) 2020-2021 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 '''
@@ -37,14 +37,13 @@ class TestSymbolChecks(unittest.TestCase):
         source = 'test1.c'
         executable = 'test1'
         cc = determine_wellknown_cmd('CC', 'gcc')
-
         # there's no way to do this test for RISC-V at the moment; we build for
         # RISC-V in a glibc 2.27 envinonment and we allow all symbols from 2.27.
-        if 'riscv' in get_machine(cc):
-            self.skipTest("test not available for RISC-V")
+        if 'riscv' or 'i686-linux-gnu' in get_machine(cc):
+            self.skipTest("test not available for RISC-V or i686")
 
         # nextup was introduced in GLIBC 2.24, so is newer than our supported
-        # glibc (2.17), and available in our release build environment (2.24).
+        # glibc (2.18), and available in our release build environment (2.24).
         with open(source, 'w', encoding="utf8") as f:
             f.write('''
                 #define _GNU_SOURCE
@@ -82,20 +81,21 @@ class TestSymbolChecks(unittest.TestCase):
                 (1, executable + ': libutil.so.1 is not in ALLOWED_LIBRARIES!\n' +
                     executable + ': failed LIBRARY_DEPENDENCIES'))
 
-        # finally, check a conforming file that simply uses a math function
+        # finally, check a simple conforming binary
         source = 'test3.c'
         executable = 'test3'
         with open(source, 'w', encoding="utf8") as f:
             f.write('''
-                #include <math.h>
+                #include <stdio.h>
 
                 int main()
                 {
-                    return (int)pow(2.0, 4.0);
+                    printf("42");
+                    return 0;
                 }
         ''')
 
-        self.assertEqual(call_symbol_check(cc, source, executable, ['-lm']),
+        self.assertEqual(call_symbol_check(cc, source, executable, []),
                 (0, ''))
 
     def test_MACHO(self):
@@ -145,7 +145,7 @@ class TestSymbolChecks(unittest.TestCase):
                 }
         ''')
 
-        self.assertEqual(call_symbol_check(cc, source, executable, ['-Wl,-platform_version','-Wl,macos', '-Wl,10.14', '-Wl,11.4']),
+        self.assertEqual(call_symbol_check(cc, source, executable, ['-Wl,-platform_version','-Wl,macos', '-Wl,10.15', '-Wl,11.4']),
                 (1, f'{executable}: failed SDK'))
 
     def test_PE(self):
