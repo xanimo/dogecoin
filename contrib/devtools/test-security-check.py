@@ -66,7 +66,7 @@ class TestSecurityChecks(unittest.TestCase):
     def test_PE(self):
         source = 'test1.c'
         executable = 'test1.exe'
-        cc = determine_wellknown_cmd('CC', 'x86_64-w64-mingw32-gcc')
+        cc = determine_wellknown_cmd('CC', 'i686-w64-mingw32-gcc')
         write_testcode(source)
 
         self.assertEqual(call_security_check(cc, source, executable, ['-Wl,--no-nxcompat','-Wl,--disable-reloc-section','-Wl,--no-dynamicbase','-Wl,--no-high-entropy-va','-fno-PIE']),
