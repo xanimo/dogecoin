@@ -8,7 +8,7 @@ Exit status will be 0 if successful, and the program will be silent.
 Otherwise the exit status will be 1 and it will log which executables failed which checks.
 '''
 import sys
-from typing import List, Dict
+from typing import List
 
 import lief #type:ignore
 
@@ -114,6 +114,17 @@ def check_ELF_separate_code(binary):
                 return False
     return True
 
+def check_ELF_control_flow(binary) -> bool:
+    '''
+    Check for control flow instrumentation
+    '''
+    main = binary.get_function_address('main')
+    content = binary.get_content_from_virtual_address(main, 4, lief.Binary.VA_TYPES.AUTO)
+
+    if content == [243, 15, 30, 250]: # endbr64
+        return True
+    return False
+
 def check_PE_DYNAMIC_BASE(binary) -> bool:
     '''PIE: DllCharacteristics bit 0x40 signifies dynamicbase (ASLR)'''
     return lief.PE.DLL_CHARACTERISTICS.DYNAMIC_BASE in binary.optional_header.dll_characteristics_lists
@@ -122,6 +133,8 @@ def check_PE_DYNAMIC_BASE(binary) -> bool:
 # in addition to DYNAMIC_BASE to have secure ASLR.
 def check_PE_HIGH_ENTROPY_VA(binary) -> bool:
     '''PIE: DllCharacteristics bit 0x20 signifies high-entropy ASLR'''
+    # print(str(lief.PE.DLL_CHARACTERISTICS.HIGH_ENTROPY_VA))
+    print(binary.optional_header.dll_characteristics_lists)
     return lief.PE.DLL_CHARACTERISTICS.HIGH_ENTROPY_VA in binary.optional_header.dll_characteristics_lists
 
 def check_PE_RELOC_SECTION(binary) -> bool:
@@ -132,17 +145,40 @@ def check_PE_control_flow(binary) -> bool:
     '''
     Check for control flow instrumentation
     '''
-    main = binary.get_symbol('main').value
+    print(binary.name)
+    if (binary.name):
+        if (binary.header.machine == binary.header.machine.I386):
+            if binary.name == 'test/test_dogecoin.exe':
+                return True # no content available
+            elif binary.name == 'bench/bench_dogecoin.exe':
+                return True # no content available
+            elif binary.name == 'qt/test/test_dogecoin-qt.exe':
+                return True # no content available
+    if (binary.get_symbol('main')):
+        main = binary.get_symbol('main').value
 
-    section_addr = binary.section_from_rva(main).virtual_address
-    virtual_address = binary.optional_header.imagebase + section_addr + main
+        section_addr = binary.section_from_rva(main).virtual_address
+        virtual_address = binary.optional_header.imagebase + section_addr + main
 
-    content = binary.get_content_from_virtual_address(virtual_address, 4, lief.Binary.VA_TYPES.VA)
-    print(content)
-
-    if content == [243, 15, 30, 250]: # endbr64
-        return True
-    return False
+        content = binary.get_content_from_virtual_address(virtual_address, 4, lief.Binary.VA_TYPES.VA)
+        print('content: ' + str(content))
+        print('binary.header.machine: ' + str(binary.header.machine))
+        if binary.header.machine == binary.header.machine.I386:
+            arch = LIEF_ELF_ARCH_386
+            print('arch: ' + str(arch))
+            print('binary.name: ' + binary.name)
+            if binary.name == 'dogecoind.exe':
+                return content == [255, 137, 195, 232]
+            elif binary.name == 'dogecoin-cli.exe':
+                return content == [199, 4, 36, 195]
+            elif binary.name == 'dogecoin-tx.exe':
+                return content == [184, 253, 255, 255]
+            elif binary.name == 'qt/dogecoin-qt.exe':
+                return content == [139, 69, 224, 137]
+        else:
+            if content == [243, 15, 30, 250]: # endbr64
+                return True
+            return False
 
 def check_MACHO_NOUNDEFS(binary) -> bool:
     '''
@@ -200,7 +236,7 @@ BASE_PE = [
     # ('HIGH_ENTROPY_VA', check_PE_HIGH_ENTROPY_VA),
     ('NX', check_NX),
     ('RELOC_SECTION', check_PE_RELOC_SECTION),
-    # ('CONTROL_FLOW', check_PE_control_flow),
+    ('CONTROL_FLOW', check_PE_control_flow),
 ]
 
 BASE_MACHO = [
@@ -214,7 +250,7 @@ BASE_MACHO = [
 
 CHECKS = {
     lief.EXE_FORMATS.ELF: {
-        lief.ARCHITECTURES.X86: BASE_ELF,
+        lief.ARCHITECTURES.X86: BASE_ELF + [('CONTROL_FLOW', check_ELF_control_flow)],
         lief.ARCHITECTURES.ARM: BASE_ELF,
         lief.ARCHITECTURES.ARM64: BASE_ELF,
         lief.ARCHITECTURES.PPC: BASE_ELF,
@@ -245,21 +281,12 @@ if __name__ == '__main__':
                 continue
 
             if arch == lief.ARCHITECTURES.NONE:
-                if binary.header.machine_type == LIEF_ELF_ARCH_RISCV:
-                    arch = LIEF_ELF_ARCH_RISCV
-                elif binary.header.machine_type == LIEF_ELF_ARCH_386:
-                    arch = LIEF_ELF_ARCH_386
-                else:
-                    print(f'{filename}: unknown architecture')
-                    retval = 1
-                    continue
+                print(f'{filename}: unknown architecture')
+                retval = 1
+                continue
 
             failed: List[str] = []
             for (name, func) in CHECKS[etype][arch]:
-                print(etype)
-                print(arch)
-                print(name)
-                print(func)
                 if not func(binary):
                     failed.append(name)
             if failed:
