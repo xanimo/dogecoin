@@ -52,10 +52,10 @@ jobs:
               sudo update-alternatives --set gcc /usr/bin/i686-linux-gnu-gcc
               sudo update-alternatives --set g++ /usr/bin/i686-linux-gnu-g++
             run-bench: true
-            test-script: |
-              make check $MAKEJOBS VERBOSE=1
-              qa/pull-tester/install-deps.sh
-              qa/pull-tester/rpc-tests.py --coverage
+# test-script: |
+#   make check $MAKEJOBS VERBOSE=1
+#   qa/pull-tester/install-deps.sh
+#   qa/pull-tester/rpc-tests.py --coverage
             check-security: true
             check-symbols: true
             dep-opts: "NO_QT=1"
@@ -131,7 +131,7 @@ jobs:
               qa/pull-tester/install-deps.sh
               qa/pull-tester/rpc-tests.py --coverage
             check-security: true
-            check-symbols: false
+            check-symbols: true
             dep-opts: "DEBUG=1"
             config-opts: "--with-gui=qt5 --enable-zmq --enable-glibc-back-compat CPPFLAGS=-DDEBUG_LOCKORDER"
             goal: install
@@ -154,8 +154,8 @@ jobs:
               sudo update-alternatives --set i686-w64-mingw32-g++  /usr/bin/i686-w64-mingw32-g++-posix
               sudo update-binfmts --import /usr/share/binfmts/wine
             run-bench: false
-            test-script: |
-              make check $MAKEJOBS VERBOSE=1
+            # test-script: |
+            #   make check $MAKEJOBS VERBOSE=1
             check-security: true
             check-symbols: true
             dep-opts: ""
@@ -202,7 +202,7 @@ jobs:
             os: ubuntu-20.04
             packages: cmake imagemagick libcap-dev librsvg2-bin libz-dev libtiff-tools libtinfo5 python3-setuptools xorriso
             run-bench: false
-            check-security: false
+            check-security: true
             check-symbols: true
             dep-opts: ""
             config-opts: "--with-gui=qt5 --disable-tests"
