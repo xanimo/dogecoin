@@ -139,7 +139,7 @@ jobs:
             host: i686-w64-mingw32
             arch: "i386"
             os: ubuntu-20.04
-            packages: python3-setuptools nsis g++ g++-mingw-w64-i686 mingw-w64-i686-dev wine-stable winehq-stable bc wine-binfmt binfmt-support
+            packages: python3-setuptools nsis g++-9-multilib g++-mingw-w64-i686 mingw-w64-i686-dev wine-stable winehq-stable bc wine-binfmt binfmt-support
             preinstall: |
               OS_FLAVOR=$(cat /etc/*ease | grep UBUNTU_CODENAME | cut -d "=" -f 2)
               if [ ! -d "/etc/apt/keyrings" ]; then sudo mkdir -pm755 /etc/apt/keyrings; fi
