@@ -45,7 +45,7 @@ jobs:
           - name: i686-linux
             host: i686-pc-linux-gnu
             os: ubuntu-20.04
-            packages: g++-i686-linux-gnu bc python3-setuptools python3-zmq
+            packages: cpp-i686-linux-gnu=4:9.3.0-1ubuntu2 gcc-i686-linux-gnu=4:9.3.0-1ubuntu2 g++-i686-linux-gnu=4:9.3.0-1ubuntu2 bc python3-setuptools python3-zmq
             postinstall: |
               sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/i686-linux-gnu-gcc 20
               sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/i686-linux-gnu-g++ 20
