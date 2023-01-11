@@ -176,7 +176,7 @@ def check_PE_control_flow(binary) -> bool:
             elif binary.name == 'qt/dogecoin-qt.exe':
                 return content == [14, 163, 1, 141]
         else:
-            if content == [243, 15, 30, 250]: # endbr64
+            if content == [243, 15, 30, 250] and binary.name != 'test/test_dogecoin.exe': # endbr64
                 return True
             return False
 
