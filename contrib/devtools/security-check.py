@@ -168,13 +168,13 @@ def check_PE_control_flow(binary) -> bool:
             print('arch: ' + str(arch))
             print('binary.name: ' + binary.name)
             if binary.name == 'dogecoind.exe':
-                return content == [255, 137, 195, 232]
+                return content == [36, 32, 255, 255]
             elif binary.name == 'dogecoin-cli.exe':
-                return content == [199, 4, 36, 195]
+                return content == [4, 36, 7, 253]
             elif binary.name == 'dogecoin-tx.exe':
-                return content == [184, 253, 255, 255]
+                return content == [216, 255, 232, 233]
             elif binary.name == 'qt/dogecoin-qt.exe':
-                return content == [139, 69, 224, 137]
+                return content == [14, 163, 1, 141]
         else:
             if content == [243, 15, 30, 250]: # endbr64
                 return True
