@@ -133,8 +133,8 @@ def check_PE_DYNAMIC_BASE(binary) -> bool:
 # in addition to DYNAMIC_BASE to have secure ASLR.
 def check_PE_HIGH_ENTROPY_VA(binary) -> bool:
     '''PIE: DllCharacteristics bit 0x20 signifies high-entropy ASLR'''
-    # print(str(lief.PE.DLL_CHARACTERISTICS.HIGH_ENTROPY_VA))
-    print(binary.optional_header.dll_characteristics_lists)
+    for lief.PE.DLL_CHARACTERISTICS.HIGH_ENTROPY_VA in binary.optional_header.dll_characteristics_lists:
+        print(str(lief.PE.DLL_CHARACTERISTICS.HIGH_ENTROPY_VA.name) + ': ' + str(lief.PE.DLL_CHARACTERISTICS.HIGH_ENTROPY_VA.value))
     return lief.PE.DLL_CHARACTERISTICS.HIGH_ENTROPY_VA in binary.optional_header.dll_characteristics_lists
 
 def check_PE_RELOC_SECTION(binary) -> bool:
@@ -233,7 +233,7 @@ BASE_ELF = [
 BASE_PE = [
     ('PIE', check_PIE),
     ('DYNAMIC_BASE', check_PE_DYNAMIC_BASE),
-    # ('HIGH_ENTROPY_VA', check_PE_HIGH_ENTROPY_VA),
+    ('HIGH_ENTROPY_VA', check_PE_HIGH_ENTROPY_VA),
     ('NX', check_NX),
     ('RELOC_SECTION', check_PE_RELOC_SECTION),
     ('CONTROL_FLOW', check_PE_control_flow),
