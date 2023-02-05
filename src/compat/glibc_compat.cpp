@@ -69,12 +69,13 @@ extern "C" double log_old(double x);
 extern "C" double pow_old(double x, double y);
 
 #ifdef __i386__
-extern "C" int fcntl_old(int fd, int cmd, ...);
 
 __asm(".symver log2f_old,log2f@GLIBC_2.1");
 __asm(".symver exp_old,exp@GLIBC_2.0");
 __asm(".symver log_old,log@GLIBC_2.0");
 __asm(".symver pow_old,pow@GLIBC_2.0");
+
+extern "C" int fcntl_old(int fd, int cmd, ...);
 __asm(".symver fcntl_old,fcntl@GLIBC_2.0");
 __asm(".symver fcntl64,fcntl@GLIBC_2.0");
 
@@ -95,22 +96,41 @@ extern "C" int __wrap_fcntl64(int fd, int cmd, ...) {
 #elif defined(__amd64__)
 extern "C" int clock_gettime_old(clockid_t a, struct timespec *b);
 __asm(".symver clock_gettime_old,clock_gettime@GLIBC_2.2.5");
+extern "C" float __wrap_clock_gettime(clockid_t a, struct timespec *b) {
+    return clock_gettime_old(a, b);
+}
 __asm(".symver log2f_old,log2f@GLIBC_2.2.5");
 __asm(".symver exp_old,exp@GLIBC_2.2.5");
 __asm(".symver log_old,log@GLIBC_2.2.5");
 __asm(".symver pow_old,pow@GLIBC_2.2.5");
-extern "C" float __wrap_clock_gettime(clockid_t a, struct timespec *b) {
-    return clock_gettime_old(a, b);
-}
 #elif defined(__arm__)
 extern "C" int clock_gettime_old(clockid_t a, struct timespec *b);
 __asm(".symver clock_gettime_old,clock_gettime@GLIBC_2.4");
+extern "C" float __wrap_clock_gettime(clockid_t a, struct timespec *b) {
+    return clock_gettime_old(a, b);
+}
+
 __asm(".symver log2f_old,log2f@GLIBC_2.4");
 __asm(".symver exp_old,exp@GLIBC_2.4");
 __asm(".symver log_old,log@GLIBC_2.4");
 __asm(".symver pow_old,pow@GLIBC_2.4");
-extern "C" float __wrap_clock_gettime(clockid_t a, struct timespec *b) {
-    return clock_gettime_old(a, b);
+
+extern "C" int fcntl_old(int fd, int cmd, ...);
+__asm(".symver fcntl_old,fcntl@GLIBC_2.4");
+__asm(".symver fcntl64,fcntl@GLIBC_2.4");
+extern "C" int __wrap_fcntl(int fd, int cmd, ...) {
+    va_list ap;
+    va_start(ap, cmd);
+    void* arg = va_arg(ap, void*);
+    va_end(ap);
+    return fcntl_old(fd, cmd, arg);
+}
+extern "C" int __wrap_fcntl64(int fd, int cmd, ...) {
+    va_list ap;
+    va_start(ap, cmd);
+    void* arg = va_arg(ap, void*);
+    va_end(ap);
+    return fcntl_old(fd, cmd, arg);
 }
 #elif defined(__aarch64__)
 extern "C" int clock_gettime_old(clockid_t a, struct timespec *b);
