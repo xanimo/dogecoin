@@ -488,7 +488,7 @@ AX_GCC_FUNC_ATTRIBUTE([dllimport])
 if test x$use_glibc_compat != xno; then
   #glibc absorbed clock_gettime in 2.17. librt (its previous location) is safe to link
   #in anyway for back-compat.
-  AC_CHECK_LIB([rt],[clock_gettime],, AC_MSG_ERROR(librt missing))
+  AC_CHECK_LIB([rt],[clock_gettime],, AC_MSG_ERROR(lib missing))
 
   #__fdelt_chk's params and return type have changed from long unsigned int to long int.
   # See which one is present here.
@@ -503,20 +503,20 @@ if test x$use_glibc_compat != xno; then
     [ fdelt_type="long int"])
   AC_MSG_RESULT($fdelt_type)
   AC_DEFINE_UNQUOTED(FDELT_TYPE, $fdelt_type,[parameter and return value type for __fdelt_chk])
-  case $host in
-    i?86*linux* | arm*linux*)
-      AX_CHECK_LINK_FLAG([[-Wl,--wrap=fcntl]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=fcntl"])
-      AX_CHECK_LINK_FLAG([[-Wl,--wrap=fcntl64]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=fcntl64"])
-    ;;
-    * | arm*linux*)
-      AX_CHECK_LINK_FLAG([[-Wl,--wrap=clock_gettime]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=clock_gettime"])
-    ;;
-  esac
+  AX_CHECK_LINK_FLAG([[-Wl,--wrap=clock_gettime]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=clock_gettime"])
   AX_CHECK_LINK_FLAG([[-Wl,--wrap=__divmoddi4]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=__divmoddi4"])
   AX_CHECK_LINK_FLAG([[-Wl,--wrap=exp]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=exp"])
   AX_CHECK_LINK_FLAG([[-Wl,--wrap=log]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=log"])
   AX_CHECK_LINK_FLAG([[-Wl,--wrap=log2f]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=log2f"])
   AX_CHECK_LINK_FLAG([[-Wl,--wrap=pow]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=pow"])
+
+  dnl only wrap fcntl and fctnl64 for 32-bit linux
+  case $host in
+    i?86*linux* | arm*linux*)
+      AX_CHECK_LINK_FLAG([[-Wl,--wrap=fcntl]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=fcntl"])
+      AX_CHECK_LINK_FLAG([[-Wl,--wrap=fcntl64]], [COMPAT_LDFLAGS="$COMPAT_LDFLAGS -Wl,--wrap=fcntl64"])
+      ;;
+  esac
 else
   AC_SEARCH_LIBS([clock_gettime],[rt])
 fi
