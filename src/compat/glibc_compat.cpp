@@ -78,47 +78,43 @@ extern "C" float __wrap_log2f(float x)
     return log2f_old(x);
 }
 
-extern "C" float exp_old(float x);
-#ifdef __i386__
-__asm(".symver exp_old,exp@GLIBC_2.0");
-#elif defined(__amd64__)
+#if !defined(__i386__)
+extern "C" double exp_old(double x);
+#ifdef __amd64__
 __asm(".symver exp_old,exp@GLIBC_2.2.5");
 #elif defined(__arm__)
 __asm(".symver exp_old,exp@GLIBC_2.4");
 #elif defined(__aarch64__)
 __asm(".symver exp_old,exp@GLIBC_2.17");
 #endif
-extern "C" float __wrap_exp(float x) {
+extern "C" double __wrap_exp(double x) {
     return exp_old(x);
 }
 
-extern "C" float log_old(float x);
-#ifdef __i386__
-__asm(".symver log_old,log@GLIBC_2.0");
-#elif defined(__amd64__)
+extern "C" double log_old(double x);
+#ifdef __amd64__
 __asm(".symver log_old,log@GLIBC_2.2.5");
 #elif defined(__arm__)
 __asm(".symver log_old,log@GLIBC_2.4");
 #elif defined(__aarch64__)
 __asm(".symver log_old,log@GLIBC_2.17");
 #endif
-extern "C" float __wrap_log(float x) {
+extern "C" double __wrap_log(double x) {
     return log_old(x);
 }
 
-extern "C" float pow_old(float x);
-#ifdef __i386__
-__asm(".symver pow_old,pow@GLIBC_2.0");
-#elif defined(__amd64__)
+extern "C" double pow_old(double x);
+#ifdef __amd64__
 __asm(".symver pow_old,pow@GLIBC_2.2.5");
 #elif defined(__arm__)
 __asm(".symver pow_old,pow@GLIBC_2.4");
 #elif defined(__aarch64__)
 __asm(".symver pow_old,pow@GLIBC_2.17");
 #endif
-extern "C" float __wrap_pow(float x) {
+extern "C" double __wrap_pow(double x) {
     return pow_old(x);
 }
+#endif
 
 extern "C" int clock_gettime_old(clockid_t a, struct timespec *b);
 #ifdef __i386__
@@ -138,11 +134,11 @@ extern "C" float __wrap_clock_gettime(clockid_t a, struct timespec *b) {
 #if defined(__i386__) || defined(__arm__)
 extern "C" int fcntl_old(int fd, int cmd, ...);
 
-# if defined(__i386__)
+#if defined(__i386__)
 __asm(".symver fcntl_old,fcntl@GLIBC_2.0");
-# elif defined(__arm__)
+#elif defined(__arm__)
 __asm(".symver fcntl_old,fcntl@GLIBC_2.4");
-# endif
+#endif
 
 extern "C" int __wrap_fcntl(int fd, int cmd, ...) {
      va_list ap;

@@ -45,7 +45,14 @@ jobs:
           - name: i686-linux
             host: i686-pc-linux-gnu
             os: ubuntu-20.04
-            packages: g++-i686-linux-gnu bc python3-pip python3-setuptools python3-zmq
+            packages: g++-i686-linux-gnu=4:7.4.0-1ubuntu2.3 bc python3-pip python3-setuptools python3-zmq
+            preinstall: |
+              sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
+              sudo apt-get update -qq
+              sudo apt-get install -yqq --allow-downgrades libgd3/focal libpcre2-8-0/focal libpcre2-16-0/focal libpcre2-32-0/focal libpcre2-posix2/focal software-properties-common
+              sudo apt-get purge -yqq libmono* moby* mono* php* libgdiplus libpcre2-posix3 libzip4
+              sudo apt-add-repository "deb http://archive.ubuntu.com/ubuntu bionic main restricted universe multiverse"
+              sudo apt-add-repository "deb http://security.ubuntu.com/ubuntu bionic-security main restricted universe multiverse"
             postinstall: |
               sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/i686-linux-gnu-gcc 20
               sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/i686-linux-gnu-g++ 20
