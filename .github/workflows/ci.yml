@@ -102,8 +102,8 @@ jobs:
               qemu-aarch64 -E LD_LIBRARY_PATH=/usr/aarch64-linux-gnu/lib/ /usr/aarch64-linux-gnu/lib/ld-linux-aarch64.so.1 src/test/test_dogecoin
             check-security: true
             check-symbols: true
-            dep-opts: "NO_QT=1"
-            config-opts: "--enable-zmq --enable-glibc-back-compat LDFLAGS=-static-libstdc++"
+            dep-opts: ""
+            config-opts: "--with-gui=qt5 --enable-zmq --enable-glibc-back-compat LDFLAGS=-static-libstdc++"
             goal: install
           - name: x86_64-linux-nowallet
             host: x86_64-unknown-linux-gnu
