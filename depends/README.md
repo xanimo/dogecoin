@@ -29,7 +29,8 @@ sudo apt-get install g++-arm-linux-gnueabihf g++-9-arm-linux-gnueabihf \
 
 ```
 sudo apt-get install g++-aarch64-linux-gnu g++-9-aarch64-linux-gnu \
-                     gcc-9-aarch64-linux-gnu binutils-aarch64-linux-gnu
+                     gcc-9-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+                     libx11-xcb-dev
 ```
 
 #### Windows: i686-w64-mingw32 and x86_64-w64-mingw32
