@@ -5,9 +5,8 @@ OSX_SDK=$(SDK_PATH)/MacOSX$(OSX_SDK_VERSION).sdk
 clang_prog=$(build_prefix)/bin/clang
 clangxx_prog=$(clang_prog)++
 
-LD64_VERSION=409.12
-darwin_CC=clang -target $(host) -mmacosx-version-min=$(OSX_MIN_VERSION) --sysroot $(OSX_SDK) -mlinker-version=$(LD64_VERSION)
-darwin_CXX=clang++ -target $(host) -mmacosx-version-min=$(OSX_MIN_VERSION) --sysroot $(OSX_SDK) -mlinker-version=$(LD64_VERSION) -stdlib=libc++
+darwin_CC=$(clang_prog) -target $(host) -mmacosx-version-min=$(OSX_MIN_VERSION) --sysroot $(OSX_SDK)
+darwin_CXX=$(clangxx_prog) -target $(host) -mmacosx-version-min=$(OSX_MIN_VERSION) --sysroot $(OSX_SDK) -stdlib=libc++
 
 
 darwin_CFLAGS=-pipe
