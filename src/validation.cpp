@@ -44,6 +44,8 @@
 #include <atomic>
 #include <sstream>
 
+#include "kernel/disconnected_transactions.h"
+
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/bind/bind.hpp>
