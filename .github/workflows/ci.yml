@@ -215,7 +215,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install build-essential libtool autotools-dev automake \
                pkg-config bsdmainutils curl ca-certificates ccache rsync git \
-               procps bison python3 python3-pip python3-setuptools python3-wheel
+               procps bison python3 python3-pip python3-setuptools python3-wheel \
+               libxkbcommon-x11-0
           sudo apt-get install ${{ matrix.packages }}
           python3 -m pip install setuptools --upgrade
 
