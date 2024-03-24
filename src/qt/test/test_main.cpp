@@ -8,7 +8,6 @@
 #endif
 
 #include "chainparams.h"
-#include "key.h"
 #include "rpcnestedtests.h"
 #include "util.h"
 #include "uritests.h"
@@ -32,7 +31,6 @@ static const char* qt_argv = "dogecoin-qt";
 // This is all you need to run all the tests
 int main(int argc, char *argv[])
 {
-    ECC_Start();
     SetupEnvironment();
     SetupNetworking();
     SelectParams(CBaseChainParams::MAIN);
@@ -62,6 +60,5 @@ int main(int argc, char *argv[])
     if (QTest::qExec(&test4) != 0)
         fInvalid = true;
 
-    ECC_Stop();
     return fInvalid;
 }
