@@ -1412,7 +1412,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     }
 
     if (mapMultiArgs.count("-seednode")) {
-        BOOST_FOREACH(const std::string& strDest, mapMultiArgs.at("-seednode"))
+        for (const std::string& strDest : mapMultiArgs.at("-seednode"))
             connman.AddOneShot(strDest);
     }
 

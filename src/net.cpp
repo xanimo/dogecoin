@@ -1113,7 +1113,7 @@ void CConnman::DisconnectUnusedNodes()
     LOCK(cs_vNodes);
     // Disconnect unused nodes
     std::vector<CNode*> vNodesCopy = vNodes;
-    BOOST_FOREACH(CNode* pnode, vNodesCopy)
+    for (CNode* pnode : vNodesCopy)
     {
         if (pnode->fDisconnect)
         {
@@ -1136,7 +1136,7 @@ void CConnman::DisconnectUnusedNodes()
 void CConnman::DeleteDisconnectedNodes()
 {
     std::list<CNode*> vNodesDisconnectedCopy = vNodesDisconnected;
-    BOOST_FOREACH(CNode* pnode, vNodesDisconnectedCopy)
+    for (CNode* pnode : vNodesDisconnectedCopy)
     {
         // wait until threads are done using it
         if (pnode->GetRefCount() <= 0) {

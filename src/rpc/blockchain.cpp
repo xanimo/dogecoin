@@ -97,14 +97,14 @@ UniValue AuxpowToJSON(const CAuxPow& auxpow)
 
     {
         UniValue branch(UniValue::VARR);
-        BOOST_FOREACH(const uint256& node, auxpow.vMerkleBranch)
+        for (const uint256& node : auxpow.vMerkleBranch)
             branch.push_back(node.GetHex());
         result.pushKV("merklebranch", branch);
     }
 
     {
         UniValue branch(UniValue::VARR);
-        BOOST_FOREACH(const uint256& node, auxpow.vChainMerkleBranch)
+        for (const uint256& node : auxpow.vChainMerkleBranch)
             branch.push_back(node.GetHex());
         result.pushKV("chainmerklebranch", branch);
     }
