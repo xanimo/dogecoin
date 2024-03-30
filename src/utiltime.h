@@ -9,6 +9,9 @@
 
 #include <stdint.h>
 #include <string>
+#include <chrono>
+
+void UninterruptibleSleep(const std::chrono::microseconds& n);
 
 /**
  * GetTimeMicros() and GetTimeMillis() both return the system time, but in
