@@ -12,7 +12,9 @@
 
 struct MainSignalsInstance {
     boost::signals2::signal<void (const CBlockIndex *, const CBlockIndex *, bool fInitialDownload)> UpdatedBlockTip;
-    boost::signals2::signal<void (const CTransaction&, const CBlockIndex*, int)> SyncTransaction;
+    boost::signals2::signal<void (const CTransactionRef &)> TransactionAddedToMempool;
+    boost::signals2::signal<void (const std::shared_ptr<const CBlock> &, const CBlockIndex *, const std::vector<CTransactionRef> &)> BlockConnected;
+    boost::signals2::signal<void (const std::shared_ptr<const CBlock> &)> BlockDisconnected;
     boost::signals2::signal<void (const uint256 &)> UpdatedTransaction;
     boost::signals2::signal<void (const CBlockLocator &)> SetBestChain;
     boost::signals2::signal<void (const uint256 &)> Inventory;
@@ -47,7 +49,9 @@ CMainSignals& GetMainSignals()
 
 void RegisterValidationInterface(CValidationInterface* pwalletIn) {
     g_signals.m_internals->UpdatedBlockTip.connect(boost::bind(&CValidationInterface::UpdatedBlockTip, pwalletIn, boost::placeholders::_1, boost::placeholders::_2, boost::placeholders::_3));
-    g_signals.m_internals->SyncTransaction.connect(boost::bind(&CValidationInterface::SyncTransaction, pwalletIn, boost::placeholders::_1, boost::placeholders::_2, boost::placeholders::_3));
+    g_signals.m_internals->TransactionAddedToMempool.connect(boost::bind(&CValidationInterface::TransactionAddedToMempool, pwalletIn, boost::placeholders::_1));
+    g_signals.m_internals->BlockConnected.connect(boost::bind(&CValidationInterface::BlockConnected, pwalletIn, boost::placeholders::_1, boost::placeholders::_2, boost::placeholders::_3));
+    g_signals.m_internals->BlockDisconnected.connect(boost::bind(&CValidationInterface::BlockDisconnected, pwalletIn, boost::placeholders::_1));
     g_signals.m_internals->UpdatedTransaction.connect(boost::bind(&CValidationInterface::UpdatedTransaction, pwalletIn, boost::placeholders::_1));
     g_signals.m_internals->SetBestChain.connect(boost::bind(&CValidationInterface::SetBestChain, pwalletIn, boost::placeholders::_1));
     g_signals.m_internals->Inventory.connect(boost::bind(&CValidationInterface::Inventory, pwalletIn, boost::placeholders::_1));
@@ -60,7 +64,9 @@ void RegisterValidationInterface(CValidationInterface* pwalletIn) {
 
 void UnregisterValidationInterface(CValidationInterface* pwalletIn) {
     g_signals.m_internals->UpdatedBlockTip.disconnect(boost::bind(&CValidationInterface::UpdatedBlockTip, pwalletIn, boost::placeholders::_1, boost::placeholders::_2, boost::placeholders::_3));
-    g_signals.m_internals->SyncTransaction.disconnect(boost::bind(&CValidationInterface::SyncTransaction, pwalletIn, boost::placeholders::_1, boost::placeholders::_2, boost::placeholders::_3));
+    g_signals.m_internals->TransactionAddedToMempool.disconnect(boost::bind(&CValidationInterface::TransactionAddedToMempool, pwalletIn, boost::placeholders::_1));
+    g_signals.m_internals->BlockConnected.disconnect(boost::bind(&CValidationInterface::BlockConnected, pwalletIn, boost::placeholders::_1, boost::placeholders::_2, boost::placeholders::_3));
+    g_signals.m_internals->BlockDisconnected.disconnect(boost::bind(&CValidationInterface::BlockDisconnected, pwalletIn, boost::placeholders::_1));
     g_signals.m_internals->UpdatedTransaction.disconnect(boost::bind(&CValidationInterface::UpdatedTransaction, pwalletIn, boost::placeholders::_1));
     g_signals.m_internals->SetBestChain.disconnect(boost::bind(&CValidationInterface::SetBestChain, pwalletIn, boost::placeholders::_1));
     g_signals.m_internals->Inventory.disconnect(boost::bind(&CValidationInterface::Inventory, pwalletIn, boost::placeholders::_1));
@@ -73,7 +79,9 @@ void UnregisterValidationInterface(CValidationInterface* pwalletIn) {
 
 void UnregisterAllValidationInterfaces() {
     g_signals.m_internals->UpdatedBlockTip.disconnect_all_slots();
-    g_signals.m_internals->SyncTransaction.disconnect_all_slots();
+    g_signals.m_internals->TransactionAddedToMempool.disconnect_all_slots();
+    g_signals.m_internals->BlockConnected.disconnect_all_slots();
+    g_signals.m_internals->BlockDisconnected.disconnect_all_slots();
     g_signals.m_internals->UpdatedTransaction.disconnect_all_slots();
     g_signals.m_internals->SetBestChain.disconnect_all_slots();
     g_signals.m_internals->Inventory.disconnect_all_slots();
@@ -88,8 +96,16 @@ void CMainSignals::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockInd
     m_internals->UpdatedBlockTip(pindexNew, pindexFork, fInitialDownload);
 }
 
-void CMainSignals::SyncTransaction(const CTransaction& tx, const CBlockIndex* pindex, int nPosInBlock) {
-    m_internals->SyncTransaction(tx, pindex, nPosInBlock);
+void CMainSignals::TransactionAddedToMempool(const CTransactionRef &ptxn) {
+    m_internals->TransactionAddedToMempool(ptxn);
+}
+
+void CMainSignals::BlockConnected(const std::shared_ptr<const CBlock> &block, const CBlockIndex *pindex, const std::vector<CTransactionRef> &txnConflicted) {
+    m_internals->BlockConnected(block, pindex, txnConflicted);
+}
+
+void CMainSignals::BlockDisconnected(const std::shared_ptr<const CBlock> &block) {
+    m_internals->BlockDisconnected(block);
 }
 
 void CMainSignals::UpdatedTransaction(const uint256 &hash) {
