@@ -25,9 +25,6 @@
 #include <sys/syscall.h>
 #include <linux/random.h>
 #endif
-#if defined(HAVE_GETENTROPY) || (defined(HAVE_GETENTROPY_RAND) && defined(MAC_OSX))
-#include <unistd.h>
-#endif
 #if defined(HAVE_GETENTROPY_RAND) && defined(MAC_OSX)
 #include <sys/random.h>
 #endif
@@ -159,11 +156,17 @@ void GetOSRand(unsigned char *ent32)
             RandFailure();
         }
     }
-#elif defined(HAVE_GETENTROPY)
-    /* On OpenBSD this can return up to 256 bytes of entropy, will return an
-     * error if more are requested.
-     * The call cannot return less than the requested number of bytes.
+#elif defined(__OpenBSD__)
+    /* OpenBSD. From the arc4random(3) man page:
+       "Use of these functions is encouraged for almost all random number
+        consumption because the other interfaces are deficient in either
+        quality, portability, standardization, or availability."
+       The function call is always successful.
      */
+    arc4random_buf(ent32, NUM_OS_RANDOM_BYTES);
+    // Silence a compiler warning about unused function.
+    (void)GetDevURandom;
+#elif defined(HAVE_GETENTROPY_RAND) && defined(MAC_OSX)
     if (getentropy(ent32, NUM_OS_RANDOM_BYTES) != 0) {
         RandFailure();
     }
