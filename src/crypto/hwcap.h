@@ -5,7 +5,15 @@
 #ifndef BITCOIN_CRYPTO_HWCAP_H
 #define BITCOIN_CRYPTO_HWCAP_H
 
-#include "compat/cpuid.h"
+#if defined(USE_SSE2) && !defined(USE_SSE2_ALWAYS)
+#ifdef _MSC_VER
+// MSVC 64bit is unable to use inline asm
+#include <intrin.h>
+#else
+// GCC Linux or i686-w64-mingw32
+#include <compat/cpuid.h>
+#endif
+#endif
 
 struct HardwareCapabilities {
   bool has_sse2;

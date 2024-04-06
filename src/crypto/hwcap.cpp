@@ -16,8 +16,17 @@ HardwareCapabilities DetectHWCapabilities()
 
 // generic x86_64 and i686 detection
 #if defined(HAVE_GETCPUID)
-    uint32_t eax, ebx, ecx, edx;
-    GetCPUID(1, 0, eax, ebx, ecx, edx);
+    uint32_t eax, ebx, ecx, edx=0;
+    // 32bit x86 Linux or Windows, detect cpuid features
+#if defined(_MSC_VER)
+    // MSVC
+    int x86cpuid[4];
+    __cpuid(x86cpuid, 1);
+    edx = (unsigned int)buffer[3];
+#else // _MSC_VER
+    // Linux or i686-w64-mingw32 (gcc-4.6.3)
+    GetCPUID(1, 0, &eax, &ebx, &ecx, &edx);
+#endif // _MSC_VER
 
 // detect SSE2
 #if defined(USE_SSE2)
