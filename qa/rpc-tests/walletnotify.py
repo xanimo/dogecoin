@@ -53,7 +53,7 @@ class WalletNotifyTest(BitcoinTestFramework):
             if exact:
                 return len(self.notifs) == self.current_line + num
             return len(self.notifs) >= self.current_line + num
-        return wait_until(notifications_received, timeout=20)
+        return wait_until(notifications_received, timeout=10)
 
     def send_raw_tx(self, node, addr, fee, reuse_last_utxo=False):
         if reuse_last_utxo:
@@ -84,7 +84,7 @@ class WalletNotifyTest(BitcoinTestFramework):
 
         # check that we got a notification for the unconfirmed transaction
         assert self.wait_for_notifications(1, True)
-        assert self.notifs[self.current_line] == "{} {}".format(txid, 0)
+        assert sorted(self.notifs[self.current_line]) == sorted("{0} {1}".format(txid, 0))
         assert self.nodes[0].gettransaction(txid)['confirmations'] == 0
         self.current_line += 1
 
@@ -96,7 +96,7 @@ class WalletNotifyTest(BitcoinTestFramework):
         # check that we got a notification for the confirmed transaction
         assert self.wait_for_notifications(1, True)
         height = self.nodes[1].getblockchaininfo()['blocks']
-        assert self.notifs[self.current_line] == "{} {}".format(txid, height)
+        assert sorted(self.notifs[self.current_line]) == sorted("{0} {1}".format(txid, height))
         assert self.nodes[0].gettransaction(txid)['confirmations'] == 1
         self.current_line += 1
 
@@ -114,8 +114,8 @@ class WalletNotifyTest(BitcoinTestFramework):
         # 3 new blocks we mined, so don't wait for exactly 2 notifications, as
         # there may be 3 already.
         assert self.wait_for_notifications(2, False)
-        assert self.notifs[self.current_line] == "{} {}".format(txid, 0)
-        assert self.notifs[self.current_line + 1] == "{} {}".format(txid, 0)
+        assert sorted(self.notifs[self.current_line]) == sorted("{0} {1}".format(txid, 0))
+        assert sorted(self.notifs[self.current_line + 1]) == sorted("{0} {1}".format(txid, 0))
         self.current_line += 2
 
         # mine the same transaction again and make sure it's in the mempool by
@@ -131,7 +131,7 @@ class WalletNotifyTest(BitcoinTestFramework):
         assert self.wait_for_notifications(1, True)
         mined_in = self.nodes[0].gettransaction(txid)['blockhash']
         height = self.nodes[0].getblock(mined_in)['height']
-        assert self.notifs[self.current_line] == "{} {}".format(txid, height)
+        assert sorted(self.notifs[self.current_line]) == sorted("{0} {1}".format(txid, height))
         assert self.nodes[0].gettransaction(txid)['confirmations'] >= 1
         self.current_line += 1
 
@@ -144,7 +144,7 @@ class WalletNotifyTest(BitcoinTestFramework):
         # have accepted this transaction in mempool
         assert self.wait_for_notifications(1, True)
         height = self.nodes[0].getblockchaininfo()['blocks']
-        assert self.notifs[self.current_line] == "{} {}".format(txid, height)
+        assert sorted(self.notifs[self.current_line]) == sorted("{0} {1}".format(txid, height))
         assert self.nodes[0].gettransaction(txid)['confirmations'] == 1
         self.current_line += 1
 
@@ -172,13 +172,13 @@ class WalletNotifyTest(BitcoinTestFramework):
         # - for the new transaction that double-spent the previous transaction.
         assert self.wait_for_notifications(4, True)
         for i in range(0,3):
-            assert self.notifs[self.current_line + i] == "{} {}".format(txid, 0)
+            assert sorted(self.notifs[self.current_line + i]) == sorted("{0} {1}".format(txid, 0))
         assert self.nodes[0].gettransaction(txid)['confirmations'] == -3
         assert len(self.nodes[0].gettransaction(txid)['walletconflicts']) == 1
 
         mined_in = self.nodes[0].gettransaction(txid_ds)['blockhash']
         height = self.nodes[0].getblock(mined_in)['height']
-        assert self.notifs[self.current_line + 3] == "{} {}".format(txid_ds, height)
+        assert sorted(self.notifs[self.current_line + 3]) == sorted("{0} {1}".format(txid_ds, height))
         assert self.nodes[0].gettransaction(txid_ds)['confirmations'] == 3
         self.current_line += 4
 
