@@ -286,6 +286,12 @@ if test "x$CXXFLAGS_overridden" = "xno"; then
   AX_CHECK_COMPILE_FLAG([-Wself-assign],[CXXFLAGS="$CXXFLAGS -Wno-self-assign"],,[[$CXXFLAG_WERROR]])
   AX_CHECK_COMPILE_FLAG([-Wunused-local-typedef],[CXXFLAGS="$CXXFLAGS -Wno-unused-local-typedef"],,[[$CXXFLAG_WERROR]])
   AX_CHECK_COMPILE_FLAG([-Wdeprecated-register],[CXXFLAGS="$CXXFLAGS -Wno-deprecated-register"],,[[$CXXFLAG_WERROR]])
+
+  # Check for optional instruction set support. Enabling these does _not_ imply that all code will
+  # be compiled with them, rather that specific objects/libs may use them after checking for runtime
+  # compatibility.
+  AX_CHECK_COMPILE_FLAG([-msse4.2],[[enable_sse42=yes; SSE42_CXXFLAGS="-msse4.2"]],,[[$CXXFLAG_WERROR]])
+
 fi
 CPPFLAGS="$CPPFLAGS -DHAVE_BUILD_INFO -D__STDC_FORMAT_MACROS"
 
@@ -1187,6 +1193,7 @@ AM_CONDITIONAL([HARDEN],[test x$use_hardening = xyes])
 AM_CONDITIONAL([WORDS_BIGENDIAN],[test x$ac_cv_c_bigendian = xyes])
 AM_CONDITIONAL([USE_SCRYPT_SSE2], [test x$use_scrypt_sse2 = xyes])
 AM_CONDITIONAL([EXPERIMENTAL_ASM],[test x$experimental_asm = xyes])
+AM_CONDITIONAL([ENABLE_SSE42],[test x$enable_sse42 = xyes])
 
 AC_DEFINE(CLIENT_VERSION_MAJOR, _CLIENT_VERSION_MAJOR, [Major version])
 AC_DEFINE(CLIENT_VERSION_MINOR, _CLIENT_VERSION_MINOR, [Minor version])
@@ -1224,6 +1231,7 @@ AC_SUBST(HARDENED_CPPFLAGS)
 AC_SUBST(HARDENED_LDFLAGS)
 AC_SUBST(PIC_FLAGS)
 AC_SUBST(PIE_FLAGS)
+AC_SUBST(SSE42_CXXFLAGS)
 AC_SUBST(LIBTOOL_APP_LDFLAGS)
 AC_SUBST(USE_UPNP)
 AC_SUBST(USE_QRCODE)
