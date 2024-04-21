@@ -73,10 +73,10 @@ public:
     static bool ipcSendCommandLine();
 
     // parent should be QApplication object
-    PaymentServer(QObject* parent, bool startLocalServer = true);
-    PaymentServer(QObject* parent, bool startLocalServer = true, bool enableBip70Flag = false);
-    PaymentServer(QObject* parent, QString ipcServerName, bool startLocalServer = true);
-    PaymentServer(QObject* parent, QString ipcServerName, bool startLocalServer = true, bool enableBip70Flag = false);
+    explicit PaymentServer(QObject* parent, bool startLocalServer = true);
+    explicit PaymentServer(QObject* parent, bool startLocalServer = true, bool enableBip70Flag = false);
+    explicit PaymentServer(QObject* parent, QString ipcServerName, bool startLocalServer = true);
+    explicit PaymentServer(QObject* parent, QString ipcServerName, bool startLocalServer = true, bool enableBip70Flag = false);
     ~PaymentServer();
 
     // Load root certificate authorities. Pass NULL (default)
