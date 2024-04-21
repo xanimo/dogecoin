@@ -49,6 +49,7 @@
 #include <boost/bind/bind.hpp>
 #include <boost/math/distributions/poisson.hpp>
 #include <boost/thread.hpp>
+#include <thread>
 
 #if defined(NDEBUG)
 # error "Dogecoin cannot be compiled without assertions."
@@ -1258,7 +1259,8 @@ static void AlertNotify(const std::string& strMessage)
     safeStatus = singleQuote+safeStatus+singleQuote;
     boost::replace_all(strCmd, "%s", safeStatus);
 
-    boost::thread t(runCommand, strCmd); // thread runs free
+    std::thread t(runCommand, strCmd);
+    t.detach(); // thread runs free
 }
 
 void CheckForkWarningConditions()
