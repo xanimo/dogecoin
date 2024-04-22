@@ -66,8 +66,8 @@ public:
     static bool ipcSendCommandLine();
 
     // parent should be QApplication object
-    PaymentServer(QObject* parent, bool startLocalServer = true);
-    PaymentServer(QObject* parent, QString ipcServerName, bool startLocalServer = true);
+    explicit PaymentServer(QObject* parent, bool startLocalServer = true);
+    explicit PaymentServer(QObject* parent, QString ipcServerName, bool startLocalServer = true);
 
     // OptionsModel is used for getting proxy settings and display unit
     void setOptionsModel(OptionsModel *optionsModel);
