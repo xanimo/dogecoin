@@ -62,7 +62,11 @@ static void VerifyScriptBench(benchmark::State& state)
     key.Set(vchKey, vchKey + 32, false);
     CPubKey pubkey = key.GetPubKey();
     uint160 pubkeyHash;
+<<<<<<< HEAD
     CHash160().Write(pubkey.begin(), pubkey.size()).Finalize(pubkeyHash.begin());
+=======
+    CHash160().Write(pubkey).Finalize(pubkeyHash);
+>>>>>>> 02c4cc5c5d (Make CHash256/CHash160 output to Span)
 
     // Script.
     CScript scriptPubKey = CScript() << witnessversion << ToByteVector(pubkeyHash);
