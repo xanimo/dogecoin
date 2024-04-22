@@ -68,10 +68,10 @@ public:
     std::set<CScriptID> GetCScripts() const override;
     bool GetCScript(const CScriptID &hash, CScript& redeemScriptOut) const override;
 
-    virtual bool AddWatchOnly(const CScript &dest);
-    virtual bool RemoveWatchOnly(const CScript &dest);
-    virtual bool HaveWatchOnly(const CScript &dest) const;
-    virtual bool HaveWatchOnly() const;
+    virtual bool AddWatchOnly(const CScript &dest) override;
+    virtual bool RemoveWatchOnly(const CScript &dest) override;
+    virtual bool HaveWatchOnly(const CScript &dest) const override;
+    virtual bool HaveWatchOnly() const override;
 };
 
 typedef std::vector<unsigned char, secure_allocator<unsigned char> > CKeyingMaterial;

@@ -236,8 +236,8 @@ void PaymentServer::handleURIOrFile(const QString& s)
         SendCoinsRecipient recipient;
         if (GUIUtil::parseBitcoinURI(s, &recipient))
         {
-            CBitcoinAddress address(recipient.address.toStdString());
-            if (!address.IsValid()) {
+            CTxDestination address = DecodeDestination(recipient.address.toStdString());
+            if (!IsValidDestination(address)) {
                 Q_EMIT message(tr("URI handling"), tr("Invalid payment address %1").arg(recipient.address),
                     CClientUIInterface::MSG_ERROR);
             }
