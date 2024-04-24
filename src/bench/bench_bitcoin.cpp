@@ -4,6 +4,7 @@
 
 #include "bench.h"  // for BenchRunner
 #include "key.h"    // for ECC_Start, ECC_Stop
+#include "crypto/sha256.h"
 #include "util.h"   // for SetupEnvironment, fPrintToDebugLog
 #include "validation.h"
 #include "random.h"
@@ -11,6 +12,7 @@
 int
 main(int argc, char** argv)
 {
+    detect_sha256_hardware();
     RandomInit();
     ECC_Start();
     SetupEnvironment();

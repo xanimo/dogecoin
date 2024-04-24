@@ -1187,6 +1187,7 @@ bool AppInitSanityChecks()
     // ********************************************************* Step 4: sanity checks
 
     // Initialize elliptic curve code
+    detect_sha256_hardware();
     RandomInit();
     ECC_Start();
     globalVerifyHandle.reset(new ECCVerifyHandle());

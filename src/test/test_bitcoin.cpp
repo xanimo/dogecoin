@@ -10,6 +10,7 @@
 #include "chainparams.h"
 #include "consensus/consensus.h"
 #include "consensus/validation.h"
+#include "crypto/sha256.h"
 #include "fs.h"
 #include "key.h"
 #include "validation.h"
@@ -42,6 +43,7 @@ static const int COINBASE_MATURITY = 60*4; // 4 hours of blocks
 
 BasicTestingSetup::BasicTestingSetup(const std::string& chainName)
 {
+        detect_sha256_hardware();
         RandomInit();
         ECC_Start();
         SetupEnvironment();
