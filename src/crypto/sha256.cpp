@@ -731,10 +731,10 @@ void inline Initialize_transform_ptr(void)
 {
 #if USE_AVX2 && defined(__linux__)
     if (__builtin_cpu_supports("avx2"))
-       sha256::transform_ptr = &sha256::Transform_AVX2;
+       sha256::transform_ptr = sha256::Transform_AVX2;
 #elif USE_AVX2 && defined(__WIN64__)
     if (AVXEnabled)
-       sha256::transform_ptr = &sha256::Transform_AVX2;
+       sha256::transform_ptr = sha256::Transform_AVX2;
 #endif
 #if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
     bool have_sse4 = false;
