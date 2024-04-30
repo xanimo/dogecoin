@@ -310,11 +310,13 @@ void Transform_ARMV8(uint32_t* s, const unsigned char* chunk, size_t blocks)
 /** Perform one SHA-256 transformation, processing a 64-byte chunk. (AVX2) */
 void Transform_AVX2(uint32_t* s, const unsigned char* chunk, size_t blocks)
 {
-    (void)blocks;
 #if USE_AVX2
     // Perform SHA256 one block (Intel AVX2)
     EXPERIMENTAL_FEATURE
-    sha256_one_block_avx2(chunk, s);
+    while (blocks--) {
+        sha256_one_block_avx2(chunk, s);
+        chunk += 64;
+    }
 #endif
 }
 
@@ -809,13 +811,6 @@ bool AVXEnabled()
 /** Initialize the function pointer */
 void inline Initialize_transform_ptr(void)
 {
-#if USE_AVX2 && defined(__linux__)
-    if (__builtin_cpu_supports("avx2"))
-       sha256::transform_ptr = sha256::Transform_AVX2;
-#elif USE_AVX2 && defined(__WIN64__)
-    if (AVXEnabled)
-       sha256::transform_ptr = sha256::Transform_AVX2;
-#endif
 #if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
     bool have_sse4 = false;
     bool have_xsave = false;
@@ -892,6 +887,17 @@ void inline Initialize_transform_ptr(void)
         sha256::transform_ptr = sha256_arm_shani::Transform;
         sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256_arm_shani::Transform>;
         sha256::transfrom_ptr_d64_2way = sha256d64_arm_shani::Transform_2way;
+    }
+#endif
+#if USE_AVX2 && defined(__linux__)
+    if (__builtin_cpu_supports("avx2")) {
+        sha256::transform_ptr = sha256::Transform_AVX2;
+        sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256::Transform_AVX2>;   
+    }
+#elif USE_AVX2 && defined(__WIN64__)
+    if (AVXEnabled) {
+        sha256::transform_ptr = sha256::Transform_AVX2;
+        sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256::Transform_AVX2>;
     }
 #endif
     assert(SelfTest());
