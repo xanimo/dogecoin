@@ -35,6 +35,16 @@
 # endif
 #endif  /** ARM Headers */
 
+#if defined(__linux__)
+#define HWCAP_SHA1  (1<<5)
+#include <sys/auxv.h>
+#elif defined(__WIN64__)
+#include <intrin.h>
+#elif defined(MAC_OSX)
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#endif
+
 // Internal implementation code.
 namespace
 {
@@ -358,16 +368,13 @@ void Transform(uint32_t* s, const unsigned char* chunk)
     s[4] += e;
 }
 
-/** Define SHA1 hardware */
-#if defined(__linux__)
-#define HWCAP_SHA1  (1<<5)
-#include <sys/auxv.h>
-#elif defined(__WIN64__)
-#include <intrin.h>
-bool isAVX (void) {
-  int cpuinfo[4];
-  __cpuid(cpuinfo, 1);
-  return ((cpuinfo[2] & (1 << 28)) != 0);
+#if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
+/** Check whether the OS has enabled AVX registers. */
+bool AVXEnabled()
+{
+    uint32_t a, d;
+    __asm__("xgetbv" : "=a"(a), "=d"(d) : "c"(0));
+    return (a & 6) == 6;
 }
 #endif
 
@@ -388,7 +395,7 @@ void inline Initialize_transform_ptr(void)
     if (__builtin_cpu_supports("avx2"))
        transform_ptr = &Transform_AVX2;
 #elif USE_AVX2 && defined(__WIN64__)
-    if (isAVX)
+    if (AVXEnabled)
        transform_ptr = &Transform_AVX2;
 #endif
 }
