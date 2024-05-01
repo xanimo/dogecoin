@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 #if defined(HAVE_CONFIG_H)
-#include "bitcoin-config.h" // for USE_SSE2
+#include "config/bitcoin-config.h" // for USE_SSE2
 #endif
 
 static const int SCRYPT_SCRATCHPAD_SIZE = 131072 + 63;
