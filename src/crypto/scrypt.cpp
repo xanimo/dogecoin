@@ -39,7 +39,7 @@
 #include <intrin.h>
 #else
 // GCC Linux or i686-w64-mingw32
-#include <cpuid.h>
+#include <compat/cpuid.h>
 #endif
 #endif
 
@@ -237,7 +237,7 @@ bool scrypt_detect_sse2()
 #else // _MSC_VER
     // Linux or i686-w64-mingw32 (gcc-4.6.3)
     unsigned int eax, ebx, ecx;
-    __get_cpuid(1, &eax, &ebx, &ecx, &cpuid_edx);
+    GetCPUID(1, 0, &eax, &ebx, &ecx, &cpuid_edx);
 #endif // _MSC_VER
 
     if (cpuid_edx & 1<<26)
