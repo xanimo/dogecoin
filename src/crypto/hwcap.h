@@ -16,7 +16,14 @@
 #endif
 
 struct HardwareCapabilities {
+  bool have_sse4;
+  bool have_xsave;
+  bool have_avx;
   bool has_sse2;
+  bool have_avx2;
+  bool have_arm_shani;
+  bool have_x86_shani;
+  bool enabled_avx;
 };
 
 HardwareCapabilities DetectHWCapabilities();
