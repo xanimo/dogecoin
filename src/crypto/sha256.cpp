@@ -5,6 +5,7 @@
 
 #include "crypto/sha256.h"
 #include "crypto/common.h"
+#include "crypto/hwcap.h"
 #include "support/experimental.h"
 
 #include <string.h>
@@ -67,15 +68,10 @@ static const uint32_t K[] =
 #include <sys/sysctl.h>
 #endif
 
-#if defined(__x86_64__) || defined(__amd64__) || defined(__i386__)
-#if defined(USE_ASM)
-#include <compat/cpuid.h>
 namespace sha256_sse4
 {
 void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks);
 }
-#endif
-#endif
 
 namespace sha256d64_sse41
 {
@@ -787,53 +783,21 @@ bool SelfTest() {
     return true;
 }
 
-
-#if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
-/** Check whether the OS has enabled AVX registers. */
-bool AVXEnabled()
-{
-    uint32_t a, d;
-    __asm__("xgetbv" : "=a"(a), "=d"(d) : "c"(0));
-    return (a & 6) == 6;
-}
-#endif
-
 /** Initialize the function pointer */
-void inline Initialize_transform_ptr(void)
+void inline Initialize_transform_ptr()
 {
+    // get cpu capabilities
+    const HardwareCapabilities capabilities = DetectHWCapabilities();
 #if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
-    bool have_sse4 = false;
-    bool have_xsave = false;
-    bool have_avx = false;
-    [[maybe_unused]] bool have_avx2 = false;
-    [[maybe_unused]] bool have_x86_shani = false;
-    [[maybe_unused]] bool enabled_avx = false;
-
-    uint32_t eax, ebx, ecx, edx;
-    GetCPUID(1, 0, eax, ebx, ecx, edx);
-    have_sse4 = (ecx >> 19) & 1;
-    have_xsave = (ecx >> 27) & 1;
-    have_avx = (ecx >> 28) & 1;
-    if (have_xsave && have_avx) {
-        enabled_avx = AVXEnabled();
-    }
-    if (have_sse4) {
-        GetCPUID(7, 0, eax, ebx, ecx, edx);
-        have_avx2 = (ebx >> 5) & 1;
-        have_x86_shani = (ebx >> 29) & 1;
-    }
-
 #if defined(ENABLE_X86_SHANI) && !defined(BUILD_BITCOIN_INTERNAL)
-    if (have_x86_shani) {
+    if (capabilities.have_x86_shani) {
         sha256::transform_ptr = sha256_x86_shani::Transform;
         sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256_x86_shani::Transform>;
         sha256::transfrom_ptr_d64_2way = sha256d64_x86_shani::Transform_2way;
-        have_sse4 = false; // Disable SSE4/AVX2;
-        have_avx2 = false;
     }
 #endif
 
-    if (have_sse4) {
+    if (capabilities.have_sse4) {
 #if defined(__x86_64__) || defined(__amd64__)
         sha256::transform_ptr = sha256_sse4::Transform;
         sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256_sse4::Transform>;
@@ -843,49 +807,22 @@ void inline Initialize_transform_ptr(void)
 #endif
     }
 #if defined(ENABLE_AVX2) && !defined(BUILD_BITCOIN_INTERNAL)
-        if (have_avx2 && have_avx && enabled_avx) {
-            sha256::transfrom_ptr_d64_8way = sha256d64_avx2::Transform_8way;
-        }
+    if (capabilities.have_avx2 && capabilities.have_avx && capabilities.enabled_avx) {
+        sha256::transfrom_ptr_d64_8way = sha256d64_avx2::Transform_8way;
+    }
 #endif
 #endif // defined(USE_ASM) && defined(HAVE_GETCPUID)
 
 #if defined(ENABLE_ARM_SHANI) && !defined(BUILD_BITCOIN_INTERNAL)
-    bool have_arm_shani = false;
 
-#if defined(__linux__)
-#if defined(__arm__) // 32-bit
-    if (getauxval(AT_HWCAP2) & HWCAP2_SHA2) {
-        have_arm_shani = true;
-    }
-#endif
-#if defined(__aarch64__) // 64-bit
-    if (getauxval(AT_HWCAP) & HWCAP_SHA2) {
-        have_arm_shani = true;
-    }
-#endif
-#endif
-
-#if defined(MAC_OSX)
-    int val = 0;
-    size_t len = sizeof(val);
-    if (sysctlbyname("hw.optional.arm.FEAT_SHA256", &val, &len, nullptr, 0) == 0) {
-        have_arm_shani = val != 0;
-    }
-#endif
-
-    if (have_arm_shani) {
+    if (capabilities.have_arm_shani) {
         sha256::transform_ptr = sha256_arm_shani::Transform;
         sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256_arm_shani::Transform>;
         sha256::transfrom_ptr_d64_2way = sha256d64_arm_shani::Transform_2way;
     }
 #endif
-#if USE_AVX2 && defined(__linux__)
-    if (__builtin_cpu_supports("avx2")) {
-        sha256::transform_ptr = sha256::Transform_AVX2;
-        sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256::Transform_AVX2>;   
-    }
-#elif USE_AVX2 && defined(__WIN64__)
-    if (AVXEnabled) {
+#if defined(USE_AVX2)
+    if (capabilities.enabled_avx) {
         sha256::transform_ptr = sha256::Transform_AVX2;
         sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256::Transform_AVX2>;
     }
