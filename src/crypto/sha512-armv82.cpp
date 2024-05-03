@@ -273,28 +273,31 @@ static inline void sha512_neon_block(sha512_neon_core *core, const uint8_t *p)
 namespace sha512_armv82
 {
 
-/** Perform one SHA-512 transformation, processing a 128-byte chunk. (ARMv8.2) */
-void Transform_ARMV82(uint64_t* s, const unsigned char* chunk)
+/** Perform a number of SHA-512 transformation, processing 128-byte chunks. (ARMv8.2) */
+void Transform_ARMV82(uint64_t* s, const unsigned char* chunk, size_t blocks)
 {
 #ifdef USE_ARMV82
     sha512_neon_core core;
 
-    core.ab = vld1q_u64(s);
-    core.cd = vld1q_u64(s+2);
-    core.ef = vld1q_u64(s+4);
-    core.gh = vld1q_u64(s+6);
+    while (blocks--) {
+        core.ab = vld1q_u64(s);
+        core.cd = vld1q_u64(s+2);
+        core.ef = vld1q_u64(s+4);
+        core.gh = vld1q_u64(s+6);
 
-    // Perform SHA512 one block (ARMv8.2)
-    sha512_neon_block(&core, chunk);
+        // Perform SHA512 one block (ARMv8.2)
+        sha512_neon_block(&core, chunk);
 
-    s[0] = vgetq_lane_u64 (core.ab, 0);
-    s[1] = vgetq_lane_u64 (core.ab, 1);
-    s[2] = vgetq_lane_u64 (core.cd, 0);
-    s[3] = vgetq_lane_u64 (core.cd, 1);
-    s[4] = vgetq_lane_u64 (core.ef, 0);
-    s[5] = vgetq_lane_u64 (core.ef, 1);
-    s[6] = vgetq_lane_u64 (core.gh, 0);
-    s[7] = vgetq_lane_u64 (core.gh, 1);
+        s[0] = vgetq_lane_u64 (core.ab, 0);
+        s[1] = vgetq_lane_u64 (core.ab, 1);
+        s[2] = vgetq_lane_u64 (core.cd, 0);
+        s[3] = vgetq_lane_u64 (core.cd, 1);
+        s[4] = vgetq_lane_u64 (core.ef, 0);
+        s[5] = vgetq_lane_u64 (core.ef, 1);
+        s[6] = vgetq_lane_u64 (core.gh, 0);
+        s[7] = vgetq_lane_u64 (core.gh, 1);
+        chunk += 128;
+    }
 #endif
 }
 
