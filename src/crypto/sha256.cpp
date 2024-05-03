@@ -78,6 +78,11 @@ namespace sha256d64_sse41
 void Transform_4way(unsigned char* out, const unsigned char* in);
 }
 
+namespace sha256avx2
+{
+void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks);
+}
+
 namespace sha256d64_avx2
 {
 void Transform_8way(unsigned char* out, const unsigned char* in);
@@ -300,19 +305,6 @@ void Transform_ARMV8(uint32_t* s, const unsigned char* chunk, size_t blocks)
     /** Save state */
     vst1q_u32(&s[0], STATE0);
     vst1q_u32(&s[4], STATE1);
-#endif
-}
-
-/** Perform one SHA-256 transformation, processing a 64-byte chunk. (AVX2) */
-void Transform_AVX2(uint32_t* s, const unsigned char* chunk, size_t blocks)
-{
-#if USE_AVX2
-    // Perform SHA256 one block (Intel AVX2)
-    EXPERIMENTAL_FEATURE
-    while (blocks--) {
-        sha256_one_block_avx2(chunk, s);
-        chunk += 64;
-    }
 #endif
 }
 
@@ -823,8 +815,8 @@ void inline Initialize_transform_ptr()
 #endif
 #if defined(USE_AVX2)
     if (capabilities.enabled_avx) {
-        sha256::transform_ptr = sha256::Transform_AVX2;
-        sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256::Transform_AVX2>;
+        sha256::transform_ptr = sha256avx2::Transform;
+        sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256avx2::Transform>;
     }
 #endif
     assert(SelfTest());

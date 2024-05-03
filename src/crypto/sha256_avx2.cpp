@@ -5,7 +5,28 @@
 
 #include "crypto/sha256.h"
 #include "crypto/common.h"
+#include "support/experimental.h"
 
+#if (defined(__ia64__) || defined(__x86_64__)) && \
+    !defined(__APPLE__) && \
+    (defined(USE_AVX2))
+#include <intel-ipsec-mb.h>
+#endif
+
+namespace sha256avx2 {
+    /** Perform a number of SHA-256 transformations, processing 64-byte chunks. (AVX2) */
+    void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks)
+    {
+    #if USE_AVX2
+        // Perform SHA256 one block (Intel AVX2)
+        EXPERIMENTAL_FEATURE
+        while (blocks--) {
+            sha256_one_block_avx2(chunk, s);
+            chunk += 64;
+        }
+    #endif
+    }
+}
 namespace sha256d64_avx2 {
 namespace {
 
