@@ -81,7 +81,7 @@ const uint32_t k3 = 0x8F1BBCDCul;
 const uint32_t k4 = 0xCA62C1D6ul;
 
 /** Perform a SHA-1 transformation, processing a 64-byte chunk. (ARMv8) */
-void Transform_ARMV8(uint32_t* s, const unsigned char* chunk)
+void Transform_ARMV8(uint32_t* s, const unsigned char* chunk, size_t blocks)
 {
 #if defined(USE_ARMV8) || defined(USE_ARMV82)
     // this entire block is experimental
@@ -96,160 +96,163 @@ void Transform_ARMV8(uint32_t* s, const unsigned char* chunk)
     ABCD = vld1q_u32(&s[0]);
     E0 = s[4];
 
-    /** Save state */
-    ABCD_SAVED = ABCD;
-    E0_SAVED = E0;
+    while (blocks--) {
+        /** Save state */
+        ABCD_SAVED = ABCD;
+        E0_SAVED = E0;
 
-    /** Load message */
-    MSG0 = vld1q_u32((const uint32_t*)(chunk));
-    MSG1 = vld1q_u32((const uint32_t*)(chunk + 16));
-    MSG2 = vld1q_u32((const uint32_t*)(chunk + 32));
-    MSG3 = vld1q_u32((const uint32_t*)(chunk + 48));
+        /** Load message */
+        MSG0 = vld1q_u32((const uint32_t*)(chunk));
+        MSG1 = vld1q_u32((const uint32_t*)(chunk + 16));
+        MSG2 = vld1q_u32((const uint32_t*)(chunk + 32));
+        MSG3 = vld1q_u32((const uint32_t*)(chunk + 48));
 
-    /** Reverse for little endian */
-    MSG0 = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(MSG0)));
-    MSG1 = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(MSG1)));
-    MSG2 = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(MSG2)));
-    MSG3 = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(MSG3)));
+        /** Reverse for little endian */
+        MSG0 = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(MSG0)));
+        MSG1 = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(MSG1)));
+        MSG2 = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(MSG2)));
+        MSG3 = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(MSG3)));
+        chunk += 64;
 
-    TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0x5A827999));
-    TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0x5A827999));
+        TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0x5A827999));
+        TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0x5A827999));
 
-    /** Rounds 0-3 */
-    E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1cq_u32(ABCD, E0, TMP0);
-    TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0x5A827999));
-    MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
+        /** Rounds 0-3 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1cq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0x5A827999));
+        MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
 
-    /** Rounds 4-7 */
-    E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1cq_u32(ABCD, E1, TMP1);
-    TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0x5A827999));
-    MSG0 = vsha1su1q_u32(MSG0, MSG3);
-    MSG1 = vsha1su0q_u32(MSG1, MSG2, MSG3);
+        /** Rounds 4-7 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1cq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0x5A827999));
+        MSG0 = vsha1su1q_u32(MSG0, MSG3);
+        MSG1 = vsha1su0q_u32(MSG1, MSG2, MSG3);
 
-    /** Rounds 8-11 */
-    E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1cq_u32(ABCD, E0, TMP0);
-    TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0x5A827999));
-    MSG1 = vsha1su1q_u32(MSG1, MSG0);
-    MSG2 = vsha1su0q_u32(MSG2, MSG3, MSG0);
+        /** Rounds 8-11 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1cq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0x5A827999));
+        MSG1 = vsha1su1q_u32(MSG1, MSG0);
+        MSG2 = vsha1su0q_u32(MSG2, MSG3, MSG0);
 
-    /** Rounds 12-15 */
-    E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1cq_u32(ABCD, E1, TMP1);
-    TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0x6ED9EBA1));
-    MSG2 = vsha1su1q_u32(MSG2, MSG1);
-    MSG3 = vsha1su0q_u32(MSG3, MSG0, MSG1);
+        /** Rounds 12-15 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1cq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0x6ED9EBA1));
+        MSG2 = vsha1su1q_u32(MSG2, MSG1);
+        MSG3 = vsha1su0q_u32(MSG3, MSG0, MSG1);
 
-    /** Rounds 16-19 */
-    E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1cq_u32(ABCD, E0, TMP0);
-    TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0x6ED9EBA1));
-    MSG3 = vsha1su1q_u32(MSG3, MSG2);
-    MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
+        /** Rounds 16-19 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1cq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0x6ED9EBA1));
+        MSG3 = vsha1su1q_u32(MSG3, MSG2);
+        MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
 
-    /** Rounds 20-23 */
-    E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1pq_u32(ABCD, E1, TMP1);
-    TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0x6ED9EBA1));
-    MSG0 = vsha1su1q_u32(MSG0, MSG3);
-    MSG1 = vsha1su0q_u32(MSG1, MSG2, MSG3);
+        /** Rounds 20-23 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0x6ED9EBA1));
+        MSG0 = vsha1su1q_u32(MSG0, MSG3);
+        MSG1 = vsha1su0q_u32(MSG1, MSG2, MSG3);
 
-    /** Rounds 24-27 */
-    E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1pq_u32(ABCD, E0, TMP0);
-    TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0x6ED9EBA1));
-    MSG1 = vsha1su1q_u32(MSG1, MSG0);
-    MSG2 = vsha1su0q_u32(MSG2, MSG3, MSG0);
+        /** Rounds 24-27 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0x6ED9EBA1));
+        MSG1 = vsha1su1q_u32(MSG1, MSG0);
+        MSG2 = vsha1su0q_u32(MSG2, MSG3, MSG0);
 
-    /** Rounds 28-31 */
-    E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1pq_u32(ABCD, E1, TMP1);
-    TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0x6ED9EBA1));
-    MSG2 = vsha1su1q_u32(MSG2, MSG1);
-    MSG3 = vsha1su0q_u32(MSG3, MSG0, MSG1);
+        /** Rounds 28-31 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0x6ED9EBA1));
+        MSG2 = vsha1su1q_u32(MSG2, MSG1);
+        MSG3 = vsha1su0q_u32(MSG3, MSG0, MSG1);
 
-    /** Rounds 32-35 */
-    E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1pq_u32(ABCD, E0, TMP0);
-    TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0x8F1BBCDC));
-    MSG3 = vsha1su1q_u32(MSG3, MSG2);
-    MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
+        /** Rounds 32-35 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0x8F1BBCDC));
+        MSG3 = vsha1su1q_u32(MSG3, MSG2);
+        MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
 
-    /** Rounds 36-39 */
-    E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1pq_u32(ABCD, E1, TMP1);
-    TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0x8F1BBCDC));
-    MSG0 = vsha1su1q_u32(MSG0, MSG3);
-    MSG1 = vsha1su0q_u32(MSG1, MSG2, MSG3);
+        /** Rounds 36-39 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0x8F1BBCDC));
+        MSG0 = vsha1su1q_u32(MSG0, MSG3);
+        MSG1 = vsha1su0q_u32(MSG1, MSG2, MSG3);
 
-    /** Rounds 40-43 */
-    E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1mq_u32(ABCD, E0, TMP0);
-    TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0x8F1BBCDC));
-    MSG1 = vsha1su1q_u32(MSG1, MSG0);
-    MSG2 = vsha1su0q_u32(MSG2, MSG3, MSG0);
+        /** Rounds 40-43 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1mq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0x8F1BBCDC));
+        MSG1 = vsha1su1q_u32(MSG1, MSG0);
+        MSG2 = vsha1su0q_u32(MSG2, MSG3, MSG0);
 
-    /** Rounds 44-47 */
-    E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1mq_u32(ABCD, E1, TMP1);
-    TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0x8F1BBCDC));
-    MSG2 = vsha1su1q_u32(MSG2, MSG1);
-    MSG3 = vsha1su0q_u32(MSG3, MSG0, MSG1);
+        /** Rounds 44-47 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1mq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0x8F1BBCDC));
+        MSG2 = vsha1su1q_u32(MSG2, MSG1);
+        MSG3 = vsha1su0q_u32(MSG3, MSG0, MSG1);
 
-    /** Rounds 48-51 */
-    E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1mq_u32(ABCD, E0, TMP0);
-    TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0x8F1BBCDC));
-    MSG3 = vsha1su1q_u32(MSG3, MSG2);
-    MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
+        /** Rounds 48-51 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1mq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0x8F1BBCDC));
+        MSG3 = vsha1su1q_u32(MSG3, MSG2);
+        MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
 
-    /** Rounds 52-55 */
-    E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1mq_u32(ABCD, E1, TMP1);
-    TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0xCA62C1D6));
-    MSG0 = vsha1su1q_u32(MSG0, MSG3);
-    MSG1 = vsha1su0q_u32(MSG1, MSG2, MSG3);
+        /** Rounds 52-55 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1mq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0xCA62C1D6));
+        MSG0 = vsha1su1q_u32(MSG0, MSG3);
+        MSG1 = vsha1su0q_u32(MSG1, MSG2, MSG3);
 
-    /** Rounds 56-59 */
-    E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1mq_u32(ABCD, E0, TMP0);
-    TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0xCA62C1D6));
-    MSG1 = vsha1su1q_u32(MSG1, MSG0);
-    MSG2 = vsha1su0q_u32(MSG2, MSG3, MSG0);
+        /** Rounds 56-59 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1mq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG0, vdupq_n_u32(0xCA62C1D6));
+        MSG1 = vsha1su1q_u32(MSG1, MSG0);
+        MSG2 = vsha1su0q_u32(MSG2, MSG3, MSG0);
 
-    /** Rounds 60-63 */
-    E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1pq_u32(ABCD, E1, TMP1);
-    TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0xCA62C1D6));
-    MSG2 = vsha1su1q_u32(MSG2, MSG1);
-    MSG3 = vsha1su0q_u32(MSG3, MSG0, MSG1);
+        /** Rounds 60-63 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG1, vdupq_n_u32(0xCA62C1D6));
+        MSG2 = vsha1su1q_u32(MSG2, MSG1);
+        MSG3 = vsha1su0q_u32(MSG3, MSG0, MSG1);
 
-    /** Rounds 64-67 */
-    E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1pq_u32(ABCD, E0, TMP0);
-    TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0xCA62C1D6));
-    MSG3 = vsha1su1q_u32(MSG3, MSG2);
-    MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
+        /** Rounds 64-67 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E0, TMP0);
+        TMP0 = vaddq_u32(MSG2, vdupq_n_u32(0xCA62C1D6));
+        MSG3 = vsha1su1q_u32(MSG3, MSG2);
+        MSG0 = vsha1su0q_u32(MSG0, MSG1, MSG2);
 
-    /** Rounds 68-71 */
-    E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1pq_u32(ABCD, E1, TMP1);
-    TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0xCA62C1D6));
-    MSG0 = vsha1su1q_u32(MSG0, MSG3);
+        /** Rounds 68-71 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E1, TMP1);
+        TMP1 = vaddq_u32(MSG3, vdupq_n_u32(0xCA62C1D6));
+        MSG0 = vsha1su1q_u32(MSG0, MSG3);
 
-    /** Rounds 72-75 */
-    E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1pq_u32(ABCD, E0, TMP0);
+        /** Rounds 72-75 */
+        E1 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E0, TMP0);
 
-    /** Rounds 76-79 */
-    E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
-    ABCD = vsha1pq_u32(ABCD, E1, TMP1);
+        /** Rounds 76-79 */
+        E0 = vsha1h_u32(vgetq_lane_u32(ABCD, 0));
+        ABCD = vsha1pq_u32(ABCD, E1, TMP1);
 
-    /** Combine state */
-    E0 += E0_SAVED;
-    ABCD = vaddq_u32(ABCD_SAVED, ABCD);
+        /** Combine state */
+        E0 += E0_SAVED;
+        ABCD = vaddq_u32(ABCD_SAVED, ABCD);   
+    }
 
     /** Save state */
     vst1q_u32(&s[0], ABCD);
@@ -257,115 +260,119 @@ void Transform_ARMV8(uint32_t* s, const unsigned char* chunk)
 #endif
 }
 
-/** Perform a SHA-1 transformation, processing a 64-byte chunk. (AVX2) */
-void Transform_AVX2(uint32_t* s, const unsigned char* chunk)
+/** Perform a number of SHA-1 transformation, processing 64-byte chunks. (AVX2) */
+void Transform_AVX2(uint32_t* s, const unsigned char* chunk, size_t blocks)
 {
 #if USE_AVX2
     // Perform SHA1 one block (Intel AVX2)
     EXPERIMENTAL_FEATURE
-
-    sha1_one_block_avx2(chunk, s);
+    while (blocks--) {
+        sha1_one_block_avx2(chunk, s);
+        chunk += 64;
+    }
 #endif
 }
 
 /** Perform a SHA-1 transformation, processing a 64-byte chunk. */
-void Transform(uint32_t* s, const unsigned char* chunk)
+void Transform(uint32_t* s, const unsigned char* chunk, size_t blocks)
 {
     // Perform SHA one block (legacy)
+    while (blocks--) {
+        uint32_t a = s[0], b = s[1], c = s[2], d = s[3], e = s[4];
+        uint32_t w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15;
 
-    uint32_t a = s[0], b = s[1], c = s[2], d = s[3], e = s[4];
-    uint32_t w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15;
+        Round(a, b, c, d, e, f1(b, c, d), k1, w0 = ReadBE32(chunk + 0));
+        Round(e, a, b, c, d, f1(a, b, c), k1, w1 = ReadBE32(chunk + 4));
+        Round(d, e, a, b, c, f1(e, a, b), k1, w2 = ReadBE32(chunk + 8));
+        Round(c, d, e, a, b, f1(d, e, a), k1, w3 = ReadBE32(chunk + 12));
+        Round(b, c, d, e, a, f1(c, d, e), k1, w4 = ReadBE32(chunk + 16));
+        Round(a, b, c, d, e, f1(b, c, d), k1, w5 = ReadBE32(chunk + 20));
+        Round(e, a, b, c, d, f1(a, b, c), k1, w6 = ReadBE32(chunk + 24));
+        Round(d, e, a, b, c, f1(e, a, b), k1, w7 = ReadBE32(chunk + 28));
+        Round(c, d, e, a, b, f1(d, e, a), k1, w8 = ReadBE32(chunk + 32));
+        Round(b, c, d, e, a, f1(c, d, e), k1, w9 = ReadBE32(chunk + 36));
+        Round(a, b, c, d, e, f1(b, c, d), k1, w10 = ReadBE32(chunk + 40));
+        Round(e, a, b, c, d, f1(a, b, c), k1, w11 = ReadBE32(chunk + 44));
+        Round(d, e, a, b, c, f1(e, a, b), k1, w12 = ReadBE32(chunk + 48));
+        Round(c, d, e, a, b, f1(d, e, a), k1, w13 = ReadBE32(chunk + 52));
+        Round(b, c, d, e, a, f1(c, d, e), k1, w14 = ReadBE32(chunk + 56));
+        Round(a, b, c, d, e, f1(b, c, d), k1, w15 = ReadBE32(chunk + 60));
 
-    Round(a, b, c, d, e, f1(b, c, d), k1, w0 = ReadBE32(chunk + 0));
-    Round(e, a, b, c, d, f1(a, b, c), k1, w1 = ReadBE32(chunk + 4));
-    Round(d, e, a, b, c, f1(e, a, b), k1, w2 = ReadBE32(chunk + 8));
-    Round(c, d, e, a, b, f1(d, e, a), k1, w3 = ReadBE32(chunk + 12));
-    Round(b, c, d, e, a, f1(c, d, e), k1, w4 = ReadBE32(chunk + 16));
-    Round(a, b, c, d, e, f1(b, c, d), k1, w5 = ReadBE32(chunk + 20));
-    Round(e, a, b, c, d, f1(a, b, c), k1, w6 = ReadBE32(chunk + 24));
-    Round(d, e, a, b, c, f1(e, a, b), k1, w7 = ReadBE32(chunk + 28));
-    Round(c, d, e, a, b, f1(d, e, a), k1, w8 = ReadBE32(chunk + 32));
-    Round(b, c, d, e, a, f1(c, d, e), k1, w9 = ReadBE32(chunk + 36));
-    Round(a, b, c, d, e, f1(b, c, d), k1, w10 = ReadBE32(chunk + 40));
-    Round(e, a, b, c, d, f1(a, b, c), k1, w11 = ReadBE32(chunk + 44));
-    Round(d, e, a, b, c, f1(e, a, b), k1, w12 = ReadBE32(chunk + 48));
-    Round(c, d, e, a, b, f1(d, e, a), k1, w13 = ReadBE32(chunk + 52));
-    Round(b, c, d, e, a, f1(c, d, e), k1, w14 = ReadBE32(chunk + 56));
-    Round(a, b, c, d, e, f1(b, c, d), k1, w15 = ReadBE32(chunk + 60));
+        Round(e, a, b, c, d, f1(a, b, c), k1, w0 = left(w0 ^ w13 ^ w8 ^ w2));
+        Round(d, e, a, b, c, f1(e, a, b), k1, w1 = left(w1 ^ w14 ^ w9 ^ w3));
+        Round(c, d, e, a, b, f1(d, e, a), k1, w2 = left(w2 ^ w15 ^ w10 ^ w4));
+        Round(b, c, d, e, a, f1(c, d, e), k1, w3 = left(w3 ^ w0 ^ w11 ^ w5));
+        Round(a, b, c, d, e, f2(b, c, d), k2, w4 = left(w4 ^ w1 ^ w12 ^ w6));
+        Round(e, a, b, c, d, f2(a, b, c), k2, w5 = left(w5 ^ w2 ^ w13 ^ w7));
+        Round(d, e, a, b, c, f2(e, a, b), k2, w6 = left(w6 ^ w3 ^ w14 ^ w8));
+        Round(c, d, e, a, b, f2(d, e, a), k2, w7 = left(w7 ^ w4 ^ w15 ^ w9));
+        Round(b, c, d, e, a, f2(c, d, e), k2, w8 = left(w8 ^ w5 ^ w0 ^ w10));
+        Round(a, b, c, d, e, f2(b, c, d), k2, w9 = left(w9 ^ w6 ^ w1 ^ w11));
+        Round(e, a, b, c, d, f2(a, b, c), k2, w10 = left(w10 ^ w7 ^ w2 ^ w12));
+        Round(d, e, a, b, c, f2(e, a, b), k2, w11 = left(w11 ^ w8 ^ w3 ^ w13));
+        Round(c, d, e, a, b, f2(d, e, a), k2, w12 = left(w12 ^ w9 ^ w4 ^ w14));
+        Round(b, c, d, e, a, f2(c, d, e), k2, w13 = left(w13 ^ w10 ^ w5 ^ w15));
+        Round(a, b, c, d, e, f2(b, c, d), k2, w14 = left(w14 ^ w11 ^ w6 ^ w0));
+        Round(e, a, b, c, d, f2(a, b, c), k2, w15 = left(w15 ^ w12 ^ w7 ^ w1));
 
-    Round(e, a, b, c, d, f1(a, b, c), k1, w0 = left(w0 ^ w13 ^ w8 ^ w2));
-    Round(d, e, a, b, c, f1(e, a, b), k1, w1 = left(w1 ^ w14 ^ w9 ^ w3));
-    Round(c, d, e, a, b, f1(d, e, a), k1, w2 = left(w2 ^ w15 ^ w10 ^ w4));
-    Round(b, c, d, e, a, f1(c, d, e), k1, w3 = left(w3 ^ w0 ^ w11 ^ w5));
-    Round(a, b, c, d, e, f2(b, c, d), k2, w4 = left(w4 ^ w1 ^ w12 ^ w6));
-    Round(e, a, b, c, d, f2(a, b, c), k2, w5 = left(w5 ^ w2 ^ w13 ^ w7));
-    Round(d, e, a, b, c, f2(e, a, b), k2, w6 = left(w6 ^ w3 ^ w14 ^ w8));
-    Round(c, d, e, a, b, f2(d, e, a), k2, w7 = left(w7 ^ w4 ^ w15 ^ w9));
-    Round(b, c, d, e, a, f2(c, d, e), k2, w8 = left(w8 ^ w5 ^ w0 ^ w10));
-    Round(a, b, c, d, e, f2(b, c, d), k2, w9 = left(w9 ^ w6 ^ w1 ^ w11));
-    Round(e, a, b, c, d, f2(a, b, c), k2, w10 = left(w10 ^ w7 ^ w2 ^ w12));
-    Round(d, e, a, b, c, f2(e, a, b), k2, w11 = left(w11 ^ w8 ^ w3 ^ w13));
-    Round(c, d, e, a, b, f2(d, e, a), k2, w12 = left(w12 ^ w9 ^ w4 ^ w14));
-    Round(b, c, d, e, a, f2(c, d, e), k2, w13 = left(w13 ^ w10 ^ w5 ^ w15));
-    Round(a, b, c, d, e, f2(b, c, d), k2, w14 = left(w14 ^ w11 ^ w6 ^ w0));
-    Round(e, a, b, c, d, f2(a, b, c), k2, w15 = left(w15 ^ w12 ^ w7 ^ w1));
+        Round(d, e, a, b, c, f2(e, a, b), k2, w0 = left(w0 ^ w13 ^ w8 ^ w2));
+        Round(c, d, e, a, b, f2(d, e, a), k2, w1 = left(w1 ^ w14 ^ w9 ^ w3));
+        Round(b, c, d, e, a, f2(c, d, e), k2, w2 = left(w2 ^ w15 ^ w10 ^ w4));
+        Round(a, b, c, d, e, f2(b, c, d), k2, w3 = left(w3 ^ w0 ^ w11 ^ w5));
+        Round(e, a, b, c, d, f2(a, b, c), k2, w4 = left(w4 ^ w1 ^ w12 ^ w6));
+        Round(d, e, a, b, c, f2(e, a, b), k2, w5 = left(w5 ^ w2 ^ w13 ^ w7));
+        Round(c, d, e, a, b, f2(d, e, a), k2, w6 = left(w6 ^ w3 ^ w14 ^ w8));
+        Round(b, c, d, e, a, f2(c, d, e), k2, w7 = left(w7 ^ w4 ^ w15 ^ w9));
+        Round(a, b, c, d, e, f3(b, c, d), k3, w8 = left(w8 ^ w5 ^ w0 ^ w10));
+        Round(e, a, b, c, d, f3(a, b, c), k3, w9 = left(w9 ^ w6 ^ w1 ^ w11));
+        Round(d, e, a, b, c, f3(e, a, b), k3, w10 = left(w10 ^ w7 ^ w2 ^ w12));
+        Round(c, d, e, a, b, f3(d, e, a), k3, w11 = left(w11 ^ w8 ^ w3 ^ w13));
+        Round(b, c, d, e, a, f3(c, d, e), k3, w12 = left(w12 ^ w9 ^ w4 ^ w14));
+        Round(a, b, c, d, e, f3(b, c, d), k3, w13 = left(w13 ^ w10 ^ w5 ^ w15));
+        Round(e, a, b, c, d, f3(a, b, c), k3, w14 = left(w14 ^ w11 ^ w6 ^ w0));
+        Round(d, e, a, b, c, f3(e, a, b), k3, w15 = left(w15 ^ w12 ^ w7 ^ w1));
 
-    Round(d, e, a, b, c, f2(e, a, b), k2, w0 = left(w0 ^ w13 ^ w8 ^ w2));
-    Round(c, d, e, a, b, f2(d, e, a), k2, w1 = left(w1 ^ w14 ^ w9 ^ w3));
-    Round(b, c, d, e, a, f2(c, d, e), k2, w2 = left(w2 ^ w15 ^ w10 ^ w4));
-    Round(a, b, c, d, e, f2(b, c, d), k2, w3 = left(w3 ^ w0 ^ w11 ^ w5));
-    Round(e, a, b, c, d, f2(a, b, c), k2, w4 = left(w4 ^ w1 ^ w12 ^ w6));
-    Round(d, e, a, b, c, f2(e, a, b), k2, w5 = left(w5 ^ w2 ^ w13 ^ w7));
-    Round(c, d, e, a, b, f2(d, e, a), k2, w6 = left(w6 ^ w3 ^ w14 ^ w8));
-    Round(b, c, d, e, a, f2(c, d, e), k2, w7 = left(w7 ^ w4 ^ w15 ^ w9));
-    Round(a, b, c, d, e, f3(b, c, d), k3, w8 = left(w8 ^ w5 ^ w0 ^ w10));
-    Round(e, a, b, c, d, f3(a, b, c), k3, w9 = left(w9 ^ w6 ^ w1 ^ w11));
-    Round(d, e, a, b, c, f3(e, a, b), k3, w10 = left(w10 ^ w7 ^ w2 ^ w12));
-    Round(c, d, e, a, b, f3(d, e, a), k3, w11 = left(w11 ^ w8 ^ w3 ^ w13));
-    Round(b, c, d, e, a, f3(c, d, e), k3, w12 = left(w12 ^ w9 ^ w4 ^ w14));
-    Round(a, b, c, d, e, f3(b, c, d), k3, w13 = left(w13 ^ w10 ^ w5 ^ w15));
-    Round(e, a, b, c, d, f3(a, b, c), k3, w14 = left(w14 ^ w11 ^ w6 ^ w0));
-    Round(d, e, a, b, c, f3(e, a, b), k3, w15 = left(w15 ^ w12 ^ w7 ^ w1));
+        Round(c, d, e, a, b, f3(d, e, a), k3, w0 = left(w0 ^ w13 ^ w8 ^ w2));
+        Round(b, c, d, e, a, f3(c, d, e), k3, w1 = left(w1 ^ w14 ^ w9 ^ w3));
+        Round(a, b, c, d, e, f3(b, c, d), k3, w2 = left(w2 ^ w15 ^ w10 ^ w4));
+        Round(e, a, b, c, d, f3(a, b, c), k3, w3 = left(w3 ^ w0 ^ w11 ^ w5));
+        Round(d, e, a, b, c, f3(e, a, b), k3, w4 = left(w4 ^ w1 ^ w12 ^ w6));
+        Round(c, d, e, a, b, f3(d, e, a), k3, w5 = left(w5 ^ w2 ^ w13 ^ w7));
+        Round(b, c, d, e, a, f3(c, d, e), k3, w6 = left(w6 ^ w3 ^ w14 ^ w8));
+        Round(a, b, c, d, e, f3(b, c, d), k3, w7 = left(w7 ^ w4 ^ w15 ^ w9));
+        Round(e, a, b, c, d, f3(a, b, c), k3, w8 = left(w8 ^ w5 ^ w0 ^ w10));
+        Round(d, e, a, b, c, f3(e, a, b), k3, w9 = left(w9 ^ w6 ^ w1 ^ w11));
+        Round(c, d, e, a, b, f3(d, e, a), k3, w10 = left(w10 ^ w7 ^ w2 ^ w12));
+        Round(b, c, d, e, a, f3(c, d, e), k3, w11 = left(w11 ^ w8 ^ w3 ^ w13));
+        Round(a, b, c, d, e, f2(b, c, d), k4, w12 = left(w12 ^ w9 ^ w4 ^ w14));
+        Round(e, a, b, c, d, f2(a, b, c), k4, w13 = left(w13 ^ w10 ^ w5 ^ w15));
+        Round(d, e, a, b, c, f2(e, a, b), k4, w14 = left(w14 ^ w11 ^ w6 ^ w0));
+        Round(c, d, e, a, b, f2(d, e, a), k4, w15 = left(w15 ^ w12 ^ w7 ^ w1));
 
-    Round(c, d, e, a, b, f3(d, e, a), k3, w0 = left(w0 ^ w13 ^ w8 ^ w2));
-    Round(b, c, d, e, a, f3(c, d, e), k3, w1 = left(w1 ^ w14 ^ w9 ^ w3));
-    Round(a, b, c, d, e, f3(b, c, d), k3, w2 = left(w2 ^ w15 ^ w10 ^ w4));
-    Round(e, a, b, c, d, f3(a, b, c), k3, w3 = left(w3 ^ w0 ^ w11 ^ w5));
-    Round(d, e, a, b, c, f3(e, a, b), k3, w4 = left(w4 ^ w1 ^ w12 ^ w6));
-    Round(c, d, e, a, b, f3(d, e, a), k3, w5 = left(w5 ^ w2 ^ w13 ^ w7));
-    Round(b, c, d, e, a, f3(c, d, e), k3, w6 = left(w6 ^ w3 ^ w14 ^ w8));
-    Round(a, b, c, d, e, f3(b, c, d), k3, w7 = left(w7 ^ w4 ^ w15 ^ w9));
-    Round(e, a, b, c, d, f3(a, b, c), k3, w8 = left(w8 ^ w5 ^ w0 ^ w10));
-    Round(d, e, a, b, c, f3(e, a, b), k3, w9 = left(w9 ^ w6 ^ w1 ^ w11));
-    Round(c, d, e, a, b, f3(d, e, a), k3, w10 = left(w10 ^ w7 ^ w2 ^ w12));
-    Round(b, c, d, e, a, f3(c, d, e), k3, w11 = left(w11 ^ w8 ^ w3 ^ w13));
-    Round(a, b, c, d, e, f2(b, c, d), k4, w12 = left(w12 ^ w9 ^ w4 ^ w14));
-    Round(e, a, b, c, d, f2(a, b, c), k4, w13 = left(w13 ^ w10 ^ w5 ^ w15));
-    Round(d, e, a, b, c, f2(e, a, b), k4, w14 = left(w14 ^ w11 ^ w6 ^ w0));
-    Round(c, d, e, a, b, f2(d, e, a), k4, w15 = left(w15 ^ w12 ^ w7 ^ w1));
+        Round(b, c, d, e, a, f2(c, d, e), k4, w0 = left(w0 ^ w13 ^ w8 ^ w2));
+        Round(a, b, c, d, e, f2(b, c, d), k4, w1 = left(w1 ^ w14 ^ w9 ^ w3));
+        Round(e, a, b, c, d, f2(a, b, c), k4, w2 = left(w2 ^ w15 ^ w10 ^ w4));
+        Round(d, e, a, b, c, f2(e, a, b), k4, w3 = left(w3 ^ w0 ^ w11 ^ w5));
+        Round(c, d, e, a, b, f2(d, e, a), k4, w4 = left(w4 ^ w1 ^ w12 ^ w6));
+        Round(b, c, d, e, a, f2(c, d, e), k4, w5 = left(w5 ^ w2 ^ w13 ^ w7));
+        Round(a, b, c, d, e, f2(b, c, d), k4, w6 = left(w6 ^ w3 ^ w14 ^ w8));
+        Round(e, a, b, c, d, f2(a, b, c), k4, w7 = left(w7 ^ w4 ^ w15 ^ w9));
+        Round(d, e, a, b, c, f2(e, a, b), k4, w8 = left(w8 ^ w5 ^ w0 ^ w10));
+        Round(c, d, e, a, b, f2(d, e, a), k4, w9 = left(w9 ^ w6 ^ w1 ^ w11));
+        Round(b, c, d, e, a, f2(c, d, e), k4, w10 = left(w10 ^ w7 ^ w2 ^ w12));
+        Round(a, b, c, d, e, f2(b, c, d), k4, w11 = left(w11 ^ w8 ^ w3 ^ w13));
+        Round(e, a, b, c, d, f2(a, b, c), k4, w12 = left(w12 ^ w9 ^ w4 ^ w14));
+        Round(d, e, a, b, c, f2(e, a, b), k4, left(w13 ^ w10 ^ w5 ^ w15));
+        Round(c, d, e, a, b, f2(d, e, a), k4, left(w14 ^ w11 ^ w6 ^ w0));
+        Round(b, c, d, e, a, f2(c, d, e), k4, left(w15 ^ w12 ^ w7 ^ w1));
 
-    Round(b, c, d, e, a, f2(c, d, e), k4, w0 = left(w0 ^ w13 ^ w8 ^ w2));
-    Round(a, b, c, d, e, f2(b, c, d), k4, w1 = left(w1 ^ w14 ^ w9 ^ w3));
-    Round(e, a, b, c, d, f2(a, b, c), k4, w2 = left(w2 ^ w15 ^ w10 ^ w4));
-    Round(d, e, a, b, c, f2(e, a, b), k4, w3 = left(w3 ^ w0 ^ w11 ^ w5));
-    Round(c, d, e, a, b, f2(d, e, a), k4, w4 = left(w4 ^ w1 ^ w12 ^ w6));
-    Round(b, c, d, e, a, f2(c, d, e), k4, w5 = left(w5 ^ w2 ^ w13 ^ w7));
-    Round(a, b, c, d, e, f2(b, c, d), k4, w6 = left(w6 ^ w3 ^ w14 ^ w8));
-    Round(e, a, b, c, d, f2(a, b, c), k4, w7 = left(w7 ^ w4 ^ w15 ^ w9));
-    Round(d, e, a, b, c, f2(e, a, b), k4, w8 = left(w8 ^ w5 ^ w0 ^ w10));
-    Round(c, d, e, a, b, f2(d, e, a), k4, w9 = left(w9 ^ w6 ^ w1 ^ w11));
-    Round(b, c, d, e, a, f2(c, d, e), k4, w10 = left(w10 ^ w7 ^ w2 ^ w12));
-    Round(a, b, c, d, e, f2(b, c, d), k4, w11 = left(w11 ^ w8 ^ w3 ^ w13));
-    Round(e, a, b, c, d, f2(a, b, c), k4, w12 = left(w12 ^ w9 ^ w4 ^ w14));
-    Round(d, e, a, b, c, f2(e, a, b), k4, left(w13 ^ w10 ^ w5 ^ w15));
-    Round(c, d, e, a, b, f2(d, e, a), k4, left(w14 ^ w11 ^ w6 ^ w0));
-    Round(b, c, d, e, a, f2(c, d, e), k4, left(w15 ^ w12 ^ w7 ^ w1));
-
-    s[0] += a;
-    s[1] += b;
-    s[2] += c;
-    s[3] += d;
-    s[4] += e;
+        s[0] += a;
+        s[1] += b;
+        s[2] += c;
+        s[3] += d;
+        s[4] += e;
+        chunk += 64;
+    }
 }
 
 #if defined(USE_ASM) && (defined(__x86_64__) || defined(__amd64__) || defined(__i386__))
@@ -379,7 +386,7 @@ bool AVXEnabled()
 #endif
 
 /** Define a function pointer for Transform */
-void (*transform_ptr) (uint32_t*, const unsigned char*) = &Transform;
+void (*transform_ptr) (uint32_t*, const unsigned char*, size_t) = &Transform;
 
 /** Initialize the function pointer */
 void inline Initialize_transform_ptr(void)
@@ -419,14 +426,14 @@ CSHA1& CSHA1::Write(const unsigned char* data, size_t len)
         memcpy(buf + bufsize, data, 64 - bufsize);
         bytes += 64 - bufsize;
         data += 64 - bufsize;
-        sha1::transform_ptr(s, buf);
+        sha1::transform_ptr(s, buf, 1);
         bufsize = 0;
     }
-    while (end - data >= 64) {
-        // Process full chunks directly from the source.
-        sha1::transform_ptr(s, data);
-        bytes += 64;
-        data += 64;
+    if (end - data >= 64) {
+        size_t blocks = (end - data) / 64;
+        sha1::transform_ptr(s, data, blocks);
+        data += 64 * blocks;
+        bytes += 64 * blocks;
     }
     if (end > data) {
         // Fill the buffer with what remains.
