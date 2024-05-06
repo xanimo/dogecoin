@@ -13,6 +13,7 @@
 #include <atomic>
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/thread.hpp>
+#include <ctime>
 
 using namespace std;
 
@@ -27,6 +28,20 @@ int64_t GetTime()
     assert(now > 0);
     return now;
 }
+
+template <typename T>
+T GetTime()
+{
+    const std::chrono::seconds mocktime{nMockTime.load(std::memory_order_relaxed)};
+
+    return std::chrono::duration_cast<T>(
+        mocktime.count() ?
+            mocktime :
+            std::chrono::microseconds{GetTimeMicros()});
+}
+template std::chrono::seconds GetTime();
+template std::chrono::milliseconds GetTime();
+template std::chrono::microseconds GetTime();
 
 int64_t GetMockableTimeMicros()
 {
