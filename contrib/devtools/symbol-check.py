@@ -3,14 +3,9 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 '''
-<<<<<<< HEAD
-A script to check that release executables only contain certain symbols
-and are only linked against allowed libraries.
-=======
 A script to check that the (Linux) executables produced by gitian only contain
 allowed gcc and glibc version symbols. This makes sure they are still compatible
 with the minimum supported Linux distribution versions.
->>>>>>> b77d5ad59f (build: Disallow dynamic linking against c++ library)
 
 Example usage:
 
@@ -56,7 +51,8 @@ MAX_VERSIONS = {
 # Ignore symbols that are exported as part of every executable
 IGNORE_EXPORTS = {
   '_edata', '_end', '_init', '__bss_start', '_fini', '_IO_stdin_used',
-  'stdin', 'stdout', 'stderr'
+  'stdin', 'stdout', 'stderr',
+  'environ', '_environ', '__environ'
 }
 
 # Expected linker-loader names can be found here:
