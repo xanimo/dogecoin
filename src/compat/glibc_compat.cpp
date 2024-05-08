@@ -159,3 +159,102 @@ extern "C" int __wrap_fcntl64(int fd, int cmd, ...) {
      return fcntl_old(fd, cmd, arg);
 }
 #endif //defined(__i386__) || defined(__arm__)
+
+#ifdef CONFIG_GETAUXVAL
+/* Don't inline this because pulling in <sys/auxv.h> for
+   the system declaration of getauxval pulls in the system <elf.h>, which
+   conflicts with our version.  */
+
+#include <sys/auxv.h>
+
+extern "C" unsigned long __wrap_getauxval(unsigned long key)
+{
+    return getauxval(key);
+}
+#elif defined(__linux__)
+#include "elf.h"
+#include <fcntl.h>
+#include <malloc.h>
+#include <unistd.h>
+
+/* Our elf.h doesn't contain Elf32_auxv_t and Elf64_auxv_t, which is ok because
+   that just makes it easier to define it properly for the host here.  */
+typedef struct {
+    unsigned long a_type;
+    unsigned long a_val;
+} ElfW_auxv_t;
+
+static const ElfW_auxv_t *auxv;
+
+static const ElfW_auxv_t *init_auxval(void)
+{
+    ElfW_auxv_t *a;
+    ssize_t size = 512, r, ofs;
+    int fd;
+
+    /* Allocate some initial storage.  Make sure the first entry is set
+       to end-of-list, so that we've got a valid list in case of error.  */
+    auxv = a = (ElfW_auxv_t*)malloc(size);
+    a[0].a_type = 0;
+    a[0].a_val = 0;
+
+    fd = open("/proc/self/auxv", O_RDONLY);
+    if (fd < 0) {
+        return a;
+    }
+
+    /* Read the first SIZE bytes.  Hopefully, this covers everything.  */
+    r = read(fd, a, size);
+
+    if (r == size) {
+        /* Continue to expand until we do get a partial read.  */
+        do {
+            ofs = size;
+            size *= 2;
+            auxv = a = (ElfW_auxv_t*)realloc(a, size);
+            r = read(fd, (char *)a + ofs, ofs);
+        } while (r == ofs);
+    }
+
+    close(fd);
+    return a;
+}
+
+#define likely(x)       __builtin_expect(!!(x), 1)
+#define unlikely(x)     __builtin_expect(!!(x), 0)
+
+extern "C" unsigned long __wrap_getauxval(unsigned long type)
+{
+    const ElfW_auxv_t *a = auxv;
+
+    if (unlikely(a == NULL)) {
+        a = init_auxval();
+    }
+
+    for (; a->a_type != 0; a++) {
+        if (a->a_type == type) {
+            return a->a_val;
+        }
+    }
+
+    return 0;
+}
+
+#elif defined(__FreeBSD__)
+#include <sys/auxv.h>
+
+extern "C" unsigned long __wrap_getauxval(unsigned long type)
+{
+    unsigned long aux = 0;
+    elf_aux_info(type, &aux, sizeof(aux));
+    return aux;
+}
+
+// #else
+
+// extern "C" unsigned long __wrap_getauxval(unsigned long type)
+// {
+//     return 0;
+// }
+
+#endif
