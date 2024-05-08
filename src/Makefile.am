@@ -111,6 +111,7 @@ BITCOIN_CORE_H = \
   compat.h \
   compat/byteswap.h \
   compat/cpuid.h \
+  compat/elf.h \
   compat/endian.h \
   compat/sanity.h \
   compressor.h \
