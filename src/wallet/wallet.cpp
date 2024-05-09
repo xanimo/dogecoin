@@ -2165,7 +2165,7 @@ bool CWallet::SelectCoinsMinConf(const CAmount& nTargetValue, const int nConfMin
     vector<pair<CAmount, pair<const CWalletTx*,unsigned int> > > vValue;
     CAmount nTotalLower = 0;
 
-    random_shuffle(vCoins.begin(), vCoins.end(), GetRandInt);
+    Shuffle(vCoins.begin(), vCoins.end(), FastRandomContext());
 
     BOOST_FOREACH(const COutput &output, vCoins)
     {
@@ -2471,7 +2471,8 @@ bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wt
     CMutableTransaction txNew;
 
     {
-        set<pair<const CWalletTx*,unsigned int> > setCoins;
+        set<pair<const CWalletTx*,unsigned int>> setCoins;
+        std::vector<std::pair<const CWalletTx*, unsigned int>> selected_coins;
         LOCK2(cs_main, cs_wallet);
         {
             txNew.nLockTime = GetLocktimeForNewTransaction();
@@ -2643,6 +2644,14 @@ bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wt
                     nChangePosInOut = -1;
                 }
 
+                // Shuffle selected coins and fill in final vin
+                txNew.vin.clear();
+                std::vector<std::pair<const CWalletTx*, unsigned int>> selected_coins(setCoins.begin(), setCoins.end());
+                Shuffle(selected_coins.begin(), selected_coins.end(), FastRandomContext());
+                setCoins.clear();
+                for (const auto& coin : selected_coins)
+                    setCoins.insert(coin);
+
                 // Fill vin
                 //
                 // Note how the sequence number is set to non-maxint so that
@@ -2655,7 +2664,7 @@ bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wt
                 // behavior."
                 for (const auto& coin : setCoins)
                     txNew.vin.push_back(CTxIn(coin.first->GetHash(),coin.second,CScript(),
-                                              std::numeric_limits<unsigned int>::max() - (fWalletRbf ? 2 : 1)));
+                                              std::numeric_limits<unsigned int>::max() - (fWalletRbf ? 2 : 1))); // 1 was initially (CTxIn::SEQUENCE_FINAL - 1) in this commit but broke qa wallet tests
 
                 // Fill in dummy signatures for fee calculation.
                 if (!DummySignTx(txNew, setCoins)) {
