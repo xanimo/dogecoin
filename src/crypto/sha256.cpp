@@ -816,8 +816,8 @@ void inline Initialize_transform_ptr()
 #if defined(ENABLE_ARM_SHANI) && !defined(BUILD_BITCOIN_INTERNAL)
 
     if (capabilities.have_arm_shani) {
-        sha256::transform_ptr = sha256_arm_shani::Transform;
-        sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256_arm_shani::Transform>;
+        sha256::transform_ptr = sha256::Transform_ARMV8;
+        sha256::transfrom_ptr_d64 = sha256::TransformD64Wrapper<sha256::Transform_ARMV8>;
         sha256::transfrom_ptr_d64_2way = sha256d64_arm_shani::Transform_2way;
     }
 #endif
