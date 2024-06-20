@@ -182,7 +182,7 @@ void PaymentServerTests::paymentServerTests()
 
     // Test BIP70 DoS protection:
     unsigned char randData[BIP70_MAX_PAYMENTREQUEST_SIZE + 1];
-    GetRandBytes(randData, sizeof(randData));
+    GetRandBytes((unsigned char*)randData, sizeof((unsigned char*)randData));
     // Write data to a temp file:
     QTemporaryFile tempFile;
     tempFile.open();
