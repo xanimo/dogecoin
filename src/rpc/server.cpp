@@ -18,7 +18,6 @@
 #include <univalue.h>
 
 #include <boost/bind/bind.hpp>
-#include <boost/foreach.hpp>
 #include <boost/signals2/signal.hpp>
 #include <boost/thread.hpp>
 #include <boost/algorithm/string/case_conv.hpp> // for to_upper()
