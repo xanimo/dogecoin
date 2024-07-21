@@ -89,6 +89,18 @@ class PruneTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         self.num_nodes = 6
 
+        # Create nodes 0 and 1 to mine.
+        # Create node 2 to test pruning.
+        self.full_node_default_args = ["-maxreceivebuffer=20000","-blockmaxsize=999000", "-checkblocks=5", "-limitdescendantcount=100", "-limitdescendantsize=5000", "-limitancestorcount=100", "-limitancestorsize=5000" ]
+        # Create nodes 3 and 4 to test manual pruning (they will be re-started with manual pruning later)
+        # Create nodes 5 to test wallet in prune mode, but do not connect
+        self.extra_args = [self.full_node_default_args,
+                           self.full_node_default_args,
+                           ["-maxreceivebuffer=20000", "-prune=2200"],
+                           ["-maxreceivebuffer=20000", "-blockmaxsize=999000"],
+                           ["-maxreceivebuffer=20000", "-blockmaxsize=999000"],
+                           ["-prune=2200"]]
+
     def setup_network(self):
         self.nodes = []
         self.is_network_split = False
@@ -159,10 +171,16 @@ class PruneTest(BitcoinTestFramework):
             # Node 2 stays connected, so it hears about the stale blocks and then reorg's when node0 reconnects
             # Stopping node 0 also clears its mempool, so it doesn't have node1's transactions to accidentally mine
             self.stop_node(0)
-            self.nodes[0]=start_node(0, self.options.tmpdir, ["-debug","-maxreceivebuffer=20000", "-checkblocks=6"], timewait=1200)
-           
+            self.nodes[0]=start_node(0, self.options.tmpdir, self.full_node_default_args, timewait=1200)
             # Mine 24 blocks in node 1
-            mine_large_blocks(self.nodes[1], 24)
+            for i in range(24):
+                if j == 0:
+                    mine_large_block(self.nodes[1], self.utxo_cache_1)
+                else:
+                    # Add node1's wallet transactions back to the mempool, to
+                    # avoid the mined blocks from being too small.
+                    self.nodes[1].resendwallettransactions()
+                    self.nodes[1].generate(1) #tx's already in mempool from previous disconnects
 
             # Reorg back with 25 block chain from node 0
             mine_large_blocks(self.nodes[0], 25)
@@ -212,6 +230,21 @@ class PruneTest(BitcoinTestFramework):
         print("Reconnect nodes")
         connect_nodes(self.nodes[0], 1)
         connect_nodes(self.nodes[2], 1)
+        sync_blocks(self.nodes[0:3], timeout=300)
+
+        self.log.info("Verify height on node 2: %d" % self.nodes[2].getblockcount())
+        self.log.info("Usage possibly still high bc of stale blocks in block files: %d" % calc_usage(self.prunedir))
+
+        self.log.info("Mine 220 more blocks so we have requisite history (some blocks will be big and cause pruning of previous chain)")
+
+        # Get node0's wallet transactions back in its mempool, to avoid the
+        # mined blocks from being too small.
+        self.nodes[0].resendwallettransactions()
+
+        for i in range(22):
+            # This can be slow, so do this in multiple RPC calls to avoid
+            # RPC timeouts.
+            self.nodes[0].generate(10) #node 0 has many large tx's in its mempool from the disconnects
         sync_blocks(self.nodes[0:3], timeout=300)
 
         print("Verify height on node 2:",self.nodes[2].getblockcount())
