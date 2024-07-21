@@ -91,7 +91,7 @@ class PruneTest(BitcoinTestFramework):
 
         # Create nodes 0 and 1 to mine.
         # Create node 2 to test pruning.
-        self.full_node_default_args = ["-maxreceivebuffer=20000","-blockmaxsize=999000", "-checkblocks=5", "-limitdescendantcount=100", "-limitdescendantsize=5000", "-limitancestorcount=100", "-limitancestorsize=5000" ]
+        self.full_node_default_args = ["-maxreceivebuffer=20000","-blockmaxsize=999000", "-checkblocks=6", "-limitdescendantcount=100", "-limitdescendantsize=5000", "-limitancestorcount=100", "-limitancestorsize=5000" ]
         # Create nodes 3 and 4 to test manual pruning (they will be re-started with manual pruning later)
         # Create nodes 5 to test wallet in prune mode, but do not connect
         self.extra_args = [self.full_node_default_args,
@@ -175,7 +175,7 @@ class PruneTest(BitcoinTestFramework):
             # Mine 24 blocks in node 1
             for i in range(24):
                 if j == 0:
-                    mine_large_block(self.nodes[1], self.utxo_cache_1)
+                    mine_large_blocks(self.nodes[1], 1)
                 else:
                     # Add node1's wallet transactions back to the mempool, to
                     # avoid the mined blocks from being too small.
@@ -232,10 +232,10 @@ class PruneTest(BitcoinTestFramework):
         connect_nodes(self.nodes[2], 1)
         sync_blocks(self.nodes[0:3], timeout=300)
 
-        self.log.info("Verify height on node 2: %d" % self.nodes[2].getblockcount())
-        self.log.info("Usage possibly still high bc of stale blocks in block files: %d" % calc_usage(self.prunedir))
+        print("Verify height on node 2: %d" % self.nodes[2].getblockcount())
+        print("Usage possibly still high bc of stale blocks in block files: %d" % calc_usage(self.prunedir))
 
-        self.log.info("Mine 220 more blocks so we have requisite history (some blocks will be big and cause pruning of previous chain)")
+        print("Mine 220 more blocks so we have requisite history (some blocks will be big and cause pruning of previous chain)")
 
         # Get node0's wallet transactions back in its mempool, to avoid the
         # mined blocks from being too small.
@@ -256,7 +256,7 @@ class PruneTest(BitcoinTestFramework):
         self.nodes[0].resendwallettransactions()
         mine_large_blocks(self.nodes[0], 992)
 
-        sync_blocks(self.nodes[0:3], timeout=120)
+        sync_blocks(self.nodes[0:3], timeout=300)
 
         usage = calc_usage(self.prunedir)
         print("Usage should be below target:", usage)
