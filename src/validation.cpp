@@ -3794,6 +3794,8 @@ bool RewindBlockIndex(const CChainParams& params)
 {
     LOCK(cs_main);
 
+    // Note that during -reindex-chainstate we are called with an empty chainActive!
+
     int nHeight = 1;
     while (nHeight <= chainActive.Height()) {
         if (IsWitnessEnabled(chainActive[nHeight - 1], params.GetConsensus(nHeight - 1)) && !(chainActive[nHeight]->nStatus & BLOCK_OPT_WITNESS)) {
@@ -3863,12 +3865,19 @@ bool RewindBlockIndex(const CChainParams& params)
         }
     }
 
-    PruneBlockIndexCandidates();
+    if (chainActive.Tip() != NULL) {
+        // We can't prune block index candidates based on our tip if we have
+        // no tip due to chainActive being empty!
+        PruneBlockIndexCandidates();
 
-    CheckBlockIndex(params.GetConsensus(chainActive.Height()));
+        CheckBlockIndex(params.GetConsensus(pindex->nHeight));
 
-    if (!FlushStateToDisk(state, FLUSH_STATE_ALWAYS)) {
-        return false;
+        // FlushStateToDisk can possibly read chainActive. Be conservative
+        // and skip it here, we're about to -reindex-chainstate anyway, so
+        // it'll get called a bunch real soon.
+        if (!FlushStateToDisk(state, FLUSH_STATE_ALWAYS)) {
+            return false;
+        }
     }
 
     return true;
