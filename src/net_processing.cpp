@@ -834,7 +834,12 @@ void PeerLogicValidation::BlockConnected(const std::shared_ptr<const CBlock>& pb
     }
 
     // Forget tracked announcements for transactions included in a block.
-    g_txrequest.ForgetTxHash(tx.GetHash());
+    {
+        for (const auto& ptx : pblock->vtx) {
+            g_txrequest.ForgetTxHash(ptx->GetHash());
+            g_txrequest.ForgetTxHash(ptx->GetWitnessHash());
+        }
+    }
 }
 
 static CCriticalSection cs_most_recent_block;
