@@ -606,8 +606,8 @@ void TorController::protocolinfo_cb(TorControlConnection& _conn, const TorContro
                 clientNonce = std::vector<uint8_t>(TOR_NONCE_SIZE, 0);
                 GetRandBytes(clientNonce.data(), TOR_NONCE_SIZE);
                 _conn.Command("AUTHCHALLENGE SAFECOOKIE " + HexStr(clientNonce), boost::bind(&TorController::authchallenge_cb, this,
-                                                                                             _1,
-                                                                                             _2));
+                                                                                             boost::placeholders::_1,
+                                                                                             boost::placeholders::_2));
             } else {
                 if (status_cookie.first) {
                     LogPrintf("tor: Authentication cookie %s is not exactly %i bytes, as is required by the spec\n", cookiefile, TOR_COOKIE_SIZE);
