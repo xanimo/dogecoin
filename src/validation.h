@@ -164,7 +164,7 @@ struct BlockHasher
 };
 
 extern CScript COINBASE_FLAGS;
-extern CCriticalSection cs_main;
+extern RecursiveMutex cs_main;
 extern CTxMemPool mempool;
 typedef boost::unordered_map<uint256, CBlockIndex*, BlockHasher> BlockMap;
 extern BlockMap mapBlockIndex;
@@ -172,8 +172,8 @@ extern uint64_t nLastBlockTx;
 extern uint64_t nLastBlockSize;
 extern uint64_t nLastBlockWeight;
 extern const std::string strMessageMagic;
-extern CWaitableCriticalSection csBestBlock;
-extern CConditionVariable cvBlockChange;
+extern Mutex csBestBlock;
+extern std::condition_variable cvBlockChange;
 extern std::atomic_bool fImporting;
 extern bool fReindex;
 extern int nScriptCheckThreads;

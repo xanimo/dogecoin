@@ -839,7 +839,7 @@ void PeerLogicValidation::BlockConnected(const std::shared_ptr<const CBlock>& pb
     // g_txrequest.ForgetTxHash(tx.GetHash());
 }
 
-static CCriticalSection cs_most_recent_block;
+static RecursiveMutex cs_most_recent_block;
 static std::shared_ptr<const CBlock> most_recent_block;
 static std::shared_ptr<const CBlockHeaderAndShortTxIDs> most_recent_compact_block;
 static uint256 most_recent_block_hash;

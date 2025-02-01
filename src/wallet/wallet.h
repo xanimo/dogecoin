@@ -614,7 +614,7 @@ public:
      *      fFileBacked (immutable after instantiation)
      *      strWalletFile (immutable after instantiation)
      */
-    mutable CCriticalSection cs_wallet;
+    mutable RecursiveMutex cs_wallet;
 
     const std::string strWalletFile;
 

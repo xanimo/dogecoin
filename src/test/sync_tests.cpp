@@ -16,7 +16,7 @@ BOOST_AUTO_TEST_CASE(potential_deadlock_detected)
     g_debug_lockorder_abort = false;
     #endif
 
-    CCriticalSection mutex1, mutex2;
+    RecursiveMutex mutex1, mutex2;
     {
         LOCK2(mutex1, mutex2);
     }
