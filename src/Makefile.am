@@ -165,6 +165,8 @@ BITCOIN_CORE_H = \
   util.h \
   utilmemory.h \
   utilmoneystr.h \
+  utilthread.h \
+  utilthreadnames.h \
   utiltime.h \
   utilstring.h \
   validation.h \
@@ -377,6 +379,8 @@ libdogecoin_util_a_SOURCES = \
   util.cpp \
   utilmoneystr.cpp \
   utilstrencodings.cpp \
+  utilthread.cpp \
+  utilthreadnames.cpp \
   utiltime.cpp \
   $(BITCOIN_CORE_H)
 

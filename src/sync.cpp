@@ -6,6 +6,7 @@
 
 #include "util.h"
 #include "utilstrencodings.h"
+#include "utilthreadnames.h"
 
 #include <stdio.h>
 
