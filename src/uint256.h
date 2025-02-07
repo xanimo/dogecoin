@@ -12,7 +12,6 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
-#include "crypto/common.h"
 
 /** Template base class for fixed-sized opaque blobs. */
 template<unsigned int BITS>
@@ -129,16 +128,6 @@ public:
     explicit uint256(const base_blob<256>& b) : base_blob<256>(b) {}
     constexpr explicit uint256(uint8_t v) : base_blob<256>(v) {}
     explicit uint256(const std::vector<unsigned char>& vch) : base_blob<256>(vch) {}
-
-    /** A cheap hash function that just returns 64 bits from the result, it can be
-     * used when the contents are considered uniformly random. It is not appropriate
-     * when the value can easily be influenced from outside as e.g. a network adversary could
-     * provide values to trigger worst-case behavior.
-     */
-    uint64_t GetCheapHash() const
-    {
-        return ReadLE64(data);
-    }
 
     static const uint256 ZERO;
     static const uint256 ONE;
