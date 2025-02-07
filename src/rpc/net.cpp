@@ -21,7 +21,6 @@
 #include "utilstrencodings.h"
 #include "version.h"
 
-#include <boost/foreach.hpp>
 
 #include <univalue.h>
 
