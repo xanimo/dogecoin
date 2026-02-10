@@ -12,6 +12,7 @@
 #include "dogecoin.h"
 #include "dogecoin-fees.h"
 #include "fs.h"
+#include "hash.h"
 #include "wallet/coincontrol.h"
 #include "consensus/consensus.h"
 #include "consensus/validation.h"
@@ -3544,6 +3545,19 @@ public:
     }
 
     void operator()(const CNoDestination &none) {}
+    void operator()(const WitnessV0KeyHash &id) {
+        CKeyID keyId(id);
+        if (keystore.HaveKey(keyId))
+            vKeys.push_back(keyId);
+    }
+    void operator()(const WitnessV0ScriptHash &id) {
+        CScriptID scriptId;
+        CRIPEMD160().Write(id.begin(), 32).Finalize(scriptId.begin());
+        CScript script;
+        if (keystore.GetCScript(scriptId, script))
+            Process(script);
+    }
+    void operator()(const WitnessUnknown &id) {}
 };
 
 void CWallet::GetKeyBirthTimes(std::map<CTxDestination, int64_t> &mapKeyBirth) const {
