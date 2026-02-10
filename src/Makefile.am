@@ -259,6 +259,7 @@ libdogecoin_wallet_a_SOURCES = \
 # crypto primitives library
 crypto_libdogecoin_crypto_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_CONFIG_INCLUDES)
 crypto_libdogecoin_crypto_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+crypto_libdogecoin_crypto_a_CFLAGS = $(AM_CFLAGS) $(PIE_FLAGS)
 crypto_libdogecoin_crypto_a_SOURCES = \
   crypto/aes.cpp \
   crypto/aes.h \
@@ -278,7 +279,37 @@ crypto_libdogecoin_crypto_a_SOURCES = \
   crypto/sha256.cpp \
   crypto/sha256.h \
   crypto/sha512.cpp \
-  crypto/sha512.h
+  crypto/sha512.h \
+  crypto/sphincs/address.c \
+  crypto/sphincs/address.h \
+  crypto/sphincs/api.h \
+  crypto/sphincs/compat.h \
+  crypto/sphincs/context.h \
+  crypto/sphincs/context_sha2.c \
+  crypto/sphincs/fors.c \
+  crypto/sphincs/fors.h \
+  crypto/sphincs/hash.h \
+  crypto/sphincs/hash_sha2.c \
+  crypto/sphincs/merkle.c \
+  crypto/sphincs/merkle.h \
+  crypto/sphincs/nistapi.h \
+  crypto/sphincs/params.h \
+  crypto/sphincs/randombytes.c \
+  crypto/sphincs/randombytes.h \
+  crypto/sphincs/sha2.c \
+  crypto/sphincs/sha2.h \
+  crypto/sphincs/sha2_offsets.h \
+  crypto/sphincs/sign.c \
+  crypto/sphincs/thash.h \
+  crypto/sphincs/thash_sha2_simple.c \
+  crypto/sphincs/utils.c \
+  crypto/sphincs/utils.h \
+  crypto/sphincs/utilsx1.c \
+  crypto/sphincs/utilsx1.h \
+  crypto/sphincs/wots.c \
+  crypto/sphincs/wots.h \
+  crypto/sphincs/wotsx1.c \
+  crypto/sphincs/wotsx1.h
 
 # only include SSE2 scrypt sources if USE_SCRYPT_SSE2 is defined
 if USE_SCRYPT_SSE2
