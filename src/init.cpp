@@ -21,6 +21,7 @@
 #include "fs.h"
 #include "httpserver.h"
 #include "httprpc.h"
+#include "index/blockfilterindex.h"
 #include "key.h"
 #include "validation.h"
 #include "miner.h"
@@ -213,6 +214,8 @@ void Shutdown()
     g_connman.reset();
 
     StopTorControl();
+    // Stop block filter indexes before unregistering validation signals.
+    ForEachBlockFilterIndex([](BlockFilterIndex& index) { index.Stop(); });
     UnregisterNodeSignals(GetNodeSignals());
     if (fDumpMempoolLater)
         DumpMempool();
@@ -242,6 +245,7 @@ void Shutdown()
         delete pblocktree;
         pblocktree = NULL;
     }
+    DestroyAllBlockFilterIndexes();
 #ifdef ENABLE_WALLET
     if (pwalletMain)
         pwalletMain->Flush(true);
@@ -363,6 +367,8 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-sysperms", _("Create new files with system default permissions, instead of umask 077 (only effective with disabled wallet functionality)"));
 #endif
     strUsage += HelpMessageOpt("-txindex", strprintf(_("Maintain a full transaction index, used by the getrawtransaction rpc call (default: %u)"), DEFAULT_TXINDEX));
+    strUsage += HelpMessageOpt("-blockfilterindex=<type>",
+        strprintf(_("Maintain an index of compact filters by block (default: %s, values: %s)."), "0", "basic"));
 
     strUsage += HelpMessageGroup(_("Connection options:"));
     strUsage += HelpMessageOpt("-addnode=<ip>", _("Add a node to connect to and attempt to keep the connection open"));
@@ -377,6 +383,7 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-forcednsseed", strprintf(_("Always query for peer addresses via DNS lookup (default: %u)"), DEFAULT_FORCEDNSSEED));
     strUsage += HelpMessageOpt("-listen", _("Accept connections from outside (default: 1 if no -proxy or -connect/-noconnect)"));
     strUsage += HelpMessageOpt("-listenonion", strprintf(_("Automatically create Tor hidden service (default: %d)"), DEFAULT_LISTEN_ONION));
+    strUsage += HelpMessageOpt("-peerblockfilters", strprintf(_("Serve compact block filters to peers per BIP 157 (default: %u)"), 0));
     strUsage += HelpMessageOpt("-maxconnections=<n>", strprintf(_("Maintain at most <n> connections to peers (default: %u)"), DEFAULT_MAX_PEER_CONNECTIONS));
     strUsage += HelpMessageOpt("-maxreceivebuffer=<n>", strprintf(_("Maximum per-connection receive buffer, <n>*1000 bytes (default: %u)"), DEFAULT_MAXRECEIVEBUFFER));
     strUsage += HelpMessageOpt("-maxsendbuffer=<n>", strprintf(_("Maximum per-connection send buffer, <n>*1000 bytes (default: %u)"), DEFAULT_MAXSENDBUFFER));
@@ -1105,6 +1112,12 @@ bool AppInitParameterInteraction()
     if (GetBoolArg("-peerbloomfilters", DEFAULT_PEERBLOOMFILTERS))
         nLocalServices = ServiceFlags(nLocalServices | NODE_BLOOM);
 
+    if (GetBoolArg("-peerblockfilters", false)) {
+        if (!GetBoolArg("-blockfilterindex", false))
+            return InitError("Cannot set -peerblockfilters without -blockfilterindex.");
+        nLocalServices = ServiceFlags(nLocalServices | NODE_COMPACT_FILTERS);
+    }
+
     if (GetArg("-rpcserialversion", DEFAULT_RPC_SERIALIZE_VERSION) < 0)
         return InitError("rpcserialversion must be non-negative.");
 
@@ -1649,6 +1662,14 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
 
     // ********************************************************* Step 10: import blocks
 
+    // Initialize block filter index if requested.
+    if (GetBoolArg("-blockfilterindex", false)) {
+        auto filter_type = BlockFilterType::BASIC;
+        size_t n_cache_size = 2 << 20; // 2 MiB default cache
+        if (!InitBlockFilterIndex(filter_type, n_cache_size, false, false))
+            return InitError("Error initializing block filter index.");
+    }
+
     if (!CheckDiskSpace())
         return false;
 
@@ -1686,6 +1707,10 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     //// debug print
     LogPrintf("mapBlockIndex.size() = %u\n",   mapBlockIndex.size());
     LogPrintf("nBestHeight = %d\n",                   chainActive.Height());
+
+    // Start block filter index if requested.
+    ForEachBlockFilterIndex([](BlockFilterIndex& index) { index.Start(); });
+
     if (GetBoolArg("-listenonion", DEFAULT_LISTEN_ONION))
         StartTorControl(threadGroup, scheduler);
 

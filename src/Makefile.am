@@ -101,6 +101,7 @@ BITCOIN_CORE_H = \
   core_io.h \
   core_memusage.h \
   cuckoocache.h \
+  flatfile.h \
   dogecoin.cpp \
   dogecoin.h \
   dogecoin-fees.cpp \
@@ -109,6 +110,8 @@ BITCOIN_CORE_H = \
   httprpc.h \
   httpserver.h \
   indirectmap.h \
+  index/base.h \
+  index/blockfilterindex.h \
   init.h \
   key.h \
   keystore.h \
@@ -159,6 +162,7 @@ BITCOIN_CORE_H = \
   ui_interface.h \
   undo.h \
   util.h \
+  util/bytevectorhash.h \
   utilmoneystr.h \
   utiltime.h \
   utilstring.h \
@@ -194,6 +198,9 @@ libdogecoin_server_a_SOURCES = \
   bloom.cpp \
   blockencodings.cpp \
   blockfilter.cpp \
+  flatfile.cpp \
+  index/base.cpp \
+  index/blockfilterindex.cpp \
   chain.cpp \
   checkpoints.cpp \
   httprpc.cpp \
@@ -364,6 +371,7 @@ libdogecoin_util_a_SOURCES = \
   rpc/protocol.cpp \
   support/cleanse.cpp \
   sync.cpp \
+  util/bytevectorhash.cpp \
   threadinterrupt.cpp \
   util.cpp \
   utilmoneystr.cpp \

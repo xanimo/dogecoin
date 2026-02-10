@@ -7,6 +7,7 @@
 #include "rpc/blockchain.h"
 
 #include "amount.h"
+#include "blockfilter.h"
 #include "chain.h"
 #include "chainparams.h"
 #include "checkpoints.h"
@@ -14,6 +15,7 @@
 #include "consensus/validation.h"
 #include "core_io.h"
 #include "dogecoin.h"
+#include "index/blockfilterindex.h"
 #include "validation.h"
 #include "policy/policy.h"
 #include "primitives/transaction.h"
@@ -1832,6 +1834,82 @@ static UniValue getblockstats(const JSONRPCRequest& request)
     return ret;
 }
 
+UniValue getblockfilter(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 2)
+        throw runtime_error(
+            "getblockfilter \"blockhash\" ( \"filtertype\" )\n"
+            "\nRetrieve a BIP 157 content filter for a particular block.\n"
+            "\nArguments:\n"
+            "1. \"blockhash\"    (string, required) The hash of the block\n"
+            "2. \"filtertype\"   (string, optional, default=\"basic\") The type name of the filter\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"filter\" : \"hex\",   (string) the hex-encoded filter data\n"
+            "  \"header\" : \"hex\",   (string) the hex-encoded filter header\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("getblockfilter", "\"00000000c937983704a73af28acdec37b049d214adbda81d7e2a3dd146f6ed09\" \"basic\"")
+            + HelpExampleRpc("getblockfilter", "\"00000000c937983704a73af28acdec37b049d214adbda81d7e2a3dd146f6ed09\", \"basic\"")
+        );
+
+    uint256 block_hash = ParseHashV(request.params[0], "blockhash");
+    std::string filtertype_name = "basic";
+    if (!request.params[1].isNull()) {
+        filtertype_name = request.params[1].get_str();
+    }
+
+    BlockFilterType filtertype;
+    if (!BlockFilterTypeByName(filtertype_name, filtertype)) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Unknown filtertype");
+    }
+
+    BlockFilterIndex* index = GetBlockFilterIndex(filtertype);
+    if (!index) {
+        throw JSONRPCError(RPC_MISC_ERROR, "Index is not enabled for filtertype " + filtertype_name);
+    }
+
+    const CBlockIndex* block_index;
+    bool block_was_connected;
+    {
+        LOCK(cs_main);
+        BlockMap::iterator it = mapBlockIndex.find(block_hash);
+        if (it == mapBlockIndex.end()) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
+        }
+        block_index = it->second;
+        block_was_connected = block_index->IsValid(BLOCK_VALID_SCRIPTS);
+    }
+
+    bool index_ready = index->BlockUntilSyncedToCurrentChain();
+
+    BlockFilter filter;
+    uint256 filter_header;
+    if (!index->LookupFilter(block_index, filter) ||
+        !index->LookupFilterHeader(block_index, filter_header)) {
+        int err_code;
+        std::string errmsg = "Filter not found.";
+
+        if (!block_was_connected) {
+            err_code = RPC_INVALID_ADDRESS_OR_KEY;
+            errmsg += " Block was not connected to active chain.";
+        } else if (!index_ready) {
+            err_code = RPC_MISC_ERROR;
+            errmsg += " Block filters are still in the process of being indexed.";
+        } else {
+            err_code = RPC_INTERNAL_ERROR;
+            errmsg += " This error is unexpected and indicates index corruption.";
+        }
+
+        throw JSONRPCError(err_code, errmsg);
+    }
+
+    UniValue ret(UniValue::VOBJ);
+    ret.pushKV("filter", HexStr(filter.GetEncodedFilter()));
+    ret.pushKV("header", filter_header.GetHex());
+    return ret;
+}
+
 static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         okSafe argNames
   //  --------------------- ------------------------  -----------------------  ------ ----------
@@ -1842,6 +1920,7 @@ static const CRPCCommand commands[] =
     { "blockchain",         "getblock",               &getblock,               true,  {"blockhash","verbosity"} },
     { "blockchain",         "getblockhash",           &getblockhash,           true,  {"height"} },
     { "blockchain",         "getblockheader",         &getblockheader,         true,  {"blockhash","verbose"} },
+    { "blockchain",         "getblockfilter",         &getblockfilter,         true,  {"blockhash","filtertype"} },
     { "blockchain",         "getchaintips",           &getchaintips,           true,  {} },
     { "blockchain",         "getdifficulty",          &getdifficulty,          true,  {} },
     { "blockchain",         "getmempoolancestors",    &getmempoolancestors,    true,  {"txid","verbose"} },

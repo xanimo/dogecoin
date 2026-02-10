@@ -246,6 +246,41 @@ extern const char *GETBLOCKTXN;
  * @since protocol version 70014 as described by BIP 152
  */
 extern const char *BLOCKTXN;
+/**
+ * getcfilters requests compact filters for a range of blocks.
+ * Only available with service bit NODE_COMPACT_FILTERS as described by
+ * BIP 157.
+ */
+extern const char *GETCFILTERS;
+/**
+ * cfilter is a response to a getcfilters request containing a single compact
+ * filter.
+ */
+extern const char *CFILTER;
+/**
+ * getcfheaders requests a compact filter header and the filter hashes for a
+ * range of blocks.
+ * Only available with service bit NODE_COMPACT_FILTERS as described by
+ * BIP 157.
+ */
+extern const char *GETCFHEADERS;
+/**
+ * cfheaders is a response to a getcfheaders request containing a filter header
+ * and a vector of filter hashes.
+ */
+extern const char *CFHEADERS;
+/**
+ * getcfcheckpt requests evenly spaced compact filter headers, enabling
+ * parallelized download and validation of the headers between them.
+ * Only available with service bit NODE_COMPACT_FILTERS as described by
+ * BIP 157.
+ */
+extern const char *GETCFCHECKPT;
+/**
+ * cfcheckpt is a response to a getcfcheckpt request containing a vector of
+ * evenly spaced filter headers for blocks on the active chain.
+ */
+extern const char *CFCHECKPT;
 };
 
 /* Get a vector of all valid message types (see above) */
@@ -273,6 +308,9 @@ enum ServiceFlags : uint64_t {
     // NODE_XTHIN means the node supports Xtreme Thinblocks
     // If this is turned off then the node will not service nor make xthin requests
     NODE_XTHIN = (1 << 4),
+    // NODE_COMPACT_FILTERS means the node will service basic block filter
+    // requests as described in BIP 157 & BIP 158.
+    NODE_COMPACT_FILTERS = (1 << 6),
 
     // Bits 24-31 are reserved for temporary experiments. Just pick a bit that
     // isn't getting used, or one not being used much, and notify the

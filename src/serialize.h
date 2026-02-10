@@ -106,6 +106,17 @@ template<typename Stream> inline uint64_t ser_readdata64(Stream &s)
     s.read((char*)&obj, 8);
     return le64toh(obj);
 }
+template<typename Stream> inline void ser_writedata32be(Stream &s, uint32_t obj)
+{
+    obj = htobe32(obj);
+    s.write((char*)&obj, 4);
+}
+template<typename Stream> inline uint32_t ser_readdata32be(Stream &s)
+{
+    uint32_t obj;
+    s.read((char*)&obj, 4);
+    return be32toh(obj);
+}
 inline uint64_t ser_double_to_uint64(double x)
 {
     union { double x; uint64_t y; } tmp;
@@ -526,6 +537,174 @@ template<typename Stream, typename T> void Unserialize(Stream& os, std::shared_p
 template<typename Stream, typename T> void Serialize(Stream& os, const std::unique_ptr<const T>& p);
 template<typename Stream, typename T> void Unserialize(Stream& os, std::unique_ptr<const T>& p);
 
+
+/**
+ * Serialization wrapper class for objects that need a custom formatter.
+ *
+ * The formatter must define Ser(Stream&, const T&) and Unser(Stream&, T&) methods.
+ * Usage: READWRITE(REF(Using<MyFormatter>(obj)))
+ */
+template<typename Formatter, typename T>
+class Wrapper
+{
+protected:
+    T& m_object;
+public:
+    explicit Wrapper(T& obj) : m_object(obj) {}
+
+    template<typename Stream>
+    void Serialize(Stream& s) const
+    {
+        Formatter().Ser(s, m_object);
+    }
+
+    template<typename Stream>
+    void Unserialize(Stream& s)
+    {
+        Formatter().Unser(s, m_object);
+    }
+};
+
+/** Construct a Wrapper that applies Formatter to a reference. */
+template<typename Formatter, typename T>
+static inline Wrapper<Formatter, T> Using(T& t) { return Wrapper<Formatter, T>(t); }
+
+/** Default formatter. Serializes objects using the standard Serialize/Unserialize. */
+struct DefaultFormatter
+{
+    template<typename Stream, typename T>
+    static void Ser(Stream& s, const T& t) { ::Serialize(s, t); }
+
+    template<typename Stream, typename T>
+    static void Unser(Stream& s, T& t) { ::Unserialize(s, t); }
+};
+
+/**
+ * Formatter to serialize/deserialize vector elements using another formatter.
+ *
+ * Example usage in SerializationOp:
+ *   READWRITE(REF(Using<VectorFormatter<MyFormatter>>(v)));
+ *
+ * V is not required to be an std::vector type. It works for any class that
+ * exposes a value_type, size, resize, and begin/end iterators.
+ */
+template<class Formatter>
+struct VectorFormatter
+{
+    template<typename Stream, typename V>
+    void Ser(Stream& s, const V& v)
+    {
+        Formatter formatter;
+        WriteCompactSize(s, v.size());
+        for (const auto& elem : v) {
+            formatter.Ser(s, elem);
+        }
+    }
+
+    template<typename Stream, typename V>
+    void Unser(Stream& s, V& v)
+    {
+        Formatter formatter;
+        v.clear();
+        size_t size = ReadCompactSize(s);
+        size_t i = 0;
+        size_t nMid = 0;
+        while (nMid < size) {
+            nMid += 5000000 / sizeof(typename V::value_type);
+            if (nMid > size) nMid = size;
+            v.resize(nMid);
+            for (; i < nMid; i++) {
+                formatter.Unser(s, v[i]);
+            }
+        }
+    }
+};
+
+/**
+ * Serialization wrapper for custom-width unsigned integers (1 to 8 bytes).
+ *
+ * Example: Using<CustomUintFormatter<6>>(shorttxids) to serialize 6-byte integers.
+ */
+template<int Bytes, bool BigEndian = false>
+struct CustomUintFormatter
+{
+    static_assert(Bytes > 0 && Bytes <= 8, "CustomUintFormatter Bytes out of range");
+
+    template<typename Stream, typename I>
+    void Ser(Stream& s, I v)
+    {
+        if (BigEndian) {
+            uint64_t raw = static_cast<uint64_t>(v);
+            for (int i = Bytes - 1; i >= 0; i--) {
+                ser_writedata8(s, (raw >> (8 * i)) & 0xff);
+            }
+        } else {
+            uint64_t raw = static_cast<uint64_t>(v);
+            for (int i = 0; i < Bytes; i++) {
+                ser_writedata8(s, (raw >> (8 * i)) & 0xff);
+            }
+        }
+    }
+
+    template<typename Stream, typename I>
+    void Unser(Stream& s, I& v)
+    {
+        uint64_t raw = 0;
+        if (BigEndian) {
+            for (int i = Bytes - 1; i >= 0; i--) {
+                raw |= static_cast<uint64_t>(ser_readdata8(s)) << (8 * i);
+            }
+        } else {
+            for (int i = 0; i < Bytes; i++) {
+                raw |= static_cast<uint64_t>(ser_readdata8(s)) << (8 * i);
+            }
+        }
+        if (raw > static_cast<uint64_t>(std::numeric_limits<I>::max())) {
+            throw std::ios_base::failure("CustomUintFormatter value overflow");
+        }
+        v = static_cast<I>(raw);
+    }
+};
+
+template<int Bytes>
+using BigEndianFormatter = CustomUintFormatter<Bytes, true>;
+
+/**
+ * Formatter for differentially-encoded (compact-size) integer vectors.
+ *
+ * Used for BIP 152 BlockTransactionsRequest where indexes are encoded
+ * as differences from the previous value. Each value is serialized as
+ * the CompactSize-encoded difference from (previous_value + 1).
+ *
+ * Example: Using<VectorFormatter<DifferenceFormatter>>(indexes)
+ */
+class DifferenceFormatter
+{
+    uint64_t m_shift = 0;
+
+public:
+    template<typename Stream, typename I>
+    void Ser(Stream& s, I v)
+    {
+        if (static_cast<uint64_t>(v) < m_shift || static_cast<uint64_t>(v) >= std::numeric_limits<uint64_t>::max()) {
+            throw std::ios_base::failure("differential value overflow");
+        }
+        WriteCompactSize(s, static_cast<uint64_t>(v) - m_shift);
+        m_shift = static_cast<uint64_t>(v) + 1;
+    }
+
+    template<typename Stream, typename I>
+    void Unser(Stream& s, I& v)
+    {
+        uint64_t n = ReadCompactSize(s);
+        m_shift += n;
+        if (m_shift < n || m_shift >= std::numeric_limits<uint64_t>::max() ||
+            m_shift > static_cast<uint64_t>(std::numeric_limits<I>::max())) {
+            throw std::ios_base::failure("differential value overflow");
+        }
+        v = static_cast<I>(m_shift++);
+    }
+};
 
 
 /**

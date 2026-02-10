@@ -106,7 +106,8 @@ testScripts = [
     # vv Tests less than 5m vv
     'p2p-fullblocktest.py',
     'fundrawtransaction.py',
-    #'p2p-compactblocks.py',
+    'p2p-compactblocks.py',
+    'p2p-compactfilters.py',
     # 'segwit.py',
     # vv Tests less than 2m vv
     'auxpow.py',
@@ -176,6 +177,7 @@ testScripts = [
     'wallet_create_tx.py',
     'liststucktransactions.py',
     'getblock.py',
+    'getblockfilter.py',
     'getblockstats.py',
     'addnode.py',
     'getmocktime.py',
