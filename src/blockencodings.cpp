@@ -4,6 +4,7 @@
 
 #include "blockencodings.h"
 #include "consensus/consensus.h"
+#include "consensus/merkle.h"
 #include "consensus/validation.h"
 #include "chainparams.h"
 #include "hash.h"
@@ -14,8 +15,6 @@
 #include "util.h"
 
 #include <unordered_map>
-
-#define MIN_TRANSACTION_BASE_SIZE (::GetSerializeSize(CTransaction(), SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS))
 
 CBlockHeaderAndShortTxIDs::CBlockHeaderAndShortTxIDs(const CBlock& block, bool fUseWTXID) :
         nonce(GetRand(std::numeric_limits<uint64_t>::max())),
@@ -50,7 +49,7 @@ uint64_t CBlockHeaderAndShortTxIDs::GetShortID(const uint256& txhash) const {
 ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& cmpctblock, const std::vector<std::pair<uint256, CTransactionRef>>& extra_txn) {
     if (cmpctblock.header.IsNull() || (cmpctblock.shorttxids.empty() && cmpctblock.prefilledtxn.empty()))
         return READ_STATUS_INVALID;
-    if (cmpctblock.shorttxids.size() + cmpctblock.prefilledtxn.size() > MAX_BLOCK_BASE_SIZE / MIN_TRANSACTION_BASE_SIZE)
+    if (cmpctblock.shorttxids.size() + cmpctblock.prefilledtxn.size() > MAX_BLOCK_WEIGHT / MIN_SERIALIZABLE_TRANSACTION_WEIGHT)
         return READ_STATUS_INVALID;
 
     if (!header.IsNull() || !txn_available.empty()) {
@@ -207,17 +206,15 @@ ReadStatus PartiallyDownloadedBlock::FillBlock(CBlock& block, const std::vector<
     if (vtx_missing.size() != tx_missing_offset)
         return READ_STATUS_INVALID;
 
-    CValidationState state;
-    // TODO: Make sure lack of block height doesn't cause verification problems
-    if (!CheckBlock(block, state)) {
-        // TODO: We really want to just check merkle tree manually here,
-        // but that is expensive, and CheckBlock caches a block's
-        // "checked-status" (in the CBlock?). CBlock should be able to
-        // check its own merkle root and cache that check.
-        if (state.CorruptionPossible())
-            return READ_STATUS_FAILED; // Possible Short ID collision
-        return READ_STATUS_CHECKBLOCK_FAILED;
-    }
+    // Check that the merkle root of the reconstructed block matches the header.
+    // This detects short ID collisions that produce a valid-looking block but
+    // with wrong transactions. We also check for merkle tree malleability
+    // (CVE-2012-2459) where duplicate transactions could produce a valid merkle
+    // root but an invalid block.
+    bool mutated;
+    uint256 merkleroot = BlockMerkleRoot(block, &mutated);
+    if (block.hashMerkleRoot != merkleroot || mutated)
+        return READ_STATUS_FAILED; // Possible Short ID collision
 
     LogPrint("cmpctblock", "Successfully reconstructed block %s with %lu txn prefilled, %lu txn from mempool (incl at least %lu from extra pool) and %lu txn requested\n", hash.ToString(), prefilled_count, mempool_count, extra_count, vtx_missing.size());
     if (vtx_missing.size() < 5) {

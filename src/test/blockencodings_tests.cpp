@@ -93,15 +93,14 @@ BOOST_AUTO_TEST_CASE(SimpleRoundTripTest)
             partialBlock = tmp;
         }
 
-        // Wrong transaction
+        // Wrong transaction - should be detected by merkle root mismatch
         {
             PartiallyDownloadedBlock tmp = partialBlock;
-            partialBlock.FillBlock(block2, {block.vtx[2]}); // Current implementation doesn't check txn here, but don't require that
+            BOOST_CHECK(partialBlock.FillBlock(block2, {block.vtx[2]}) == READ_STATUS_FAILED);
             partialBlock = tmp;
         }
-        bool mutated;
-        BOOST_CHECK(block.hashMerkleRoot != BlockMerkleRoot(block2, &mutated));
 
+        bool mutated;
         CBlock block3;
         BOOST_CHECK(partialBlock.FillBlock(block3, {block.vtx[1]}) == READ_STATUS_OK);
         BOOST_CHECK_EQUAL(block.GetHash().ToString(), block3.GetHash().ToString());
@@ -195,15 +194,14 @@ BOOST_AUTO_TEST_CASE(NonCoinbasePreforwardRTTest)
             partialBlock = tmp;
         }
 
-        // Wrong transaction
+        // Wrong transaction - should be detected by merkle root mismatch
         {
             PartiallyDownloadedBlock tmp = partialBlock;
-            partialBlock.FillBlock(block2, {block.vtx[1]}); // Current implementation doesn't check txn here, but don't require that
+            BOOST_CHECK(partialBlock.FillBlock(block2, {block.vtx[1]}) == READ_STATUS_FAILED);
             partialBlock = tmp;
         }
-        bool mutated;
-        BOOST_CHECK(block.hashMerkleRoot != BlockMerkleRoot(block2, &mutated));
 
+        bool mutated;
         CBlock block3;
         PartiallyDownloadedBlock partialBlockCopy = partialBlock;
         BOOST_CHECK(partialBlock.FillBlock(block3, {block.vtx[0]}) == READ_STATUS_OK);

@@ -17,6 +17,8 @@ static const unsigned int MAX_BLOCK_WEIGHT = 4000000;
 static const unsigned int MAX_BLOCK_BASE_SIZE = 1000000;
 /** The maximum allowed number of signature check operations in a block (network rule) */
 static const int64_t MAX_BLOCK_SIGOPS_COST = 80000;
+/** The minimum weight of a serializable transaction (10 bytes non-witness * WITNESS_SCALE_FACTOR) */
+static const unsigned int MIN_SERIALIZABLE_TRANSACTION_WEIGHT = 10 * 4;
 
 /** Flags for nSequence and nLockTime locks */
 enum {
