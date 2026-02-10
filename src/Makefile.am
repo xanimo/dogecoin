@@ -259,6 +259,7 @@ libdogecoin_wallet_a_SOURCES = \
 # crypto primitives library
 crypto_libdogecoin_crypto_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_CONFIG_INCLUDES)
 crypto_libdogecoin_crypto_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+crypto_libdogecoin_crypto_a_CFLAGS = $(AM_CFLAGS) $(PIE_FLAGS)
 crypto_libdogecoin_crypto_a_SOURCES = \
   crypto/aes.cpp \
   crypto/aes.h \
@@ -278,7 +279,24 @@ crypto_libdogecoin_crypto_a_SOURCES = \
   crypto/sha256.cpp \
   crypto/sha256.h \
   crypto/sha512.cpp \
-  crypto/sha512.h
+  crypto/sha512.h \
+  crypto/falcon.h \
+  crypto/falcon/api.h \
+  crypto/falcon/fips202.c \
+  crypto/falcon/fips202.h \
+  crypto/falcon/fpr.c \
+  crypto/falcon/fpr.h \
+  crypto/falcon/inner.h \
+  crypto/falcon/randombytes.c \
+  crypto/falcon/randombytes.h \
+  crypto/falcon/codec.c \
+  crypto/falcon/common.c \
+  crypto/falcon/fft.c \
+  crypto/falcon/keygen.c \
+  crypto/falcon/rng.c \
+  crypto/falcon/sign.c \
+  crypto/falcon/vrfy.c \
+  crypto/falcon/pqclean.c
 
 # only include SSE2 scrypt sources if USE_SCRYPT_SSE2 is defined
 if USE_SCRYPT_SSE2
