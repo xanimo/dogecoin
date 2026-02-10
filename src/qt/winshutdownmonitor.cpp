@@ -12,7 +12,7 @@
 
 #include <QDebug>
 
-#include <openssl/rand.h>
+#include "random.h"
 
 // If we don't want a message to be processed by Qt, return true and set result to
 // the value that the window procedure should return. Otherwise return false.
@@ -22,15 +22,8 @@ bool WinShutdownMonitor::nativeEventFilter(const QByteArray &eventType, void *pM
 
        MSG *pMsg = static_cast<MSG *>(pMessage);
 
-       // Seed OpenSSL PRNG with Windows event data (e.g.  mouse movements and other user interactions)
-       if (RAND_event(pMsg->message, pMsg->wParam, pMsg->lParam) == 0) {
-            // Warn only once as this is performance-critical
-            static bool warned = false;
-            if (!warned) {
-                LogPrintf("%s: OpenSSL RAND_event() failed to seed OpenSSL PRNG with enough data.\n", __func__);
-                warned = true;
-            }
-       }
+       // Accumulate entropy from Windows event data (e.g. mouse movements and other user interactions)
+       RandAddEvent(pMsg->message);
 
        switch(pMsg->message)
        {

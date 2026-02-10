@@ -13,11 +13,14 @@
 #include <stdint.h>
 #include <limits>
 
-/* Seed OpenSSL PRNG with additional entropy data */
-void RandAddSeed();
-
 /**
- * Functions to gather random data via the OpenSSL PRNG
+ * Overall design of the RNG:
+ * - GetRandBytes() for general-purpose randomness (fast, auto-seeded CSPRNG)
+ * - GetStrongRandBytes() when strong OS-level entropy is required (e.g., key gen)
+ * - RandAddEvent() to accumulate entropy from external events (network, GUI)
+ * - RandAddPeriodic() called on a schedule to periodically stir in fresh entropy
+ *
+ * The internal CSPRNG state is a 256-bit value maintained via SHA-512.
  */
 void GetRandBytes(unsigned char* buf, int num);
 uint64_t GetRand(uint64_t nMax);
@@ -25,10 +28,24 @@ int GetRandInt(int nMax);
 uint256 GetRandHash();
 
 /**
- * Function to gather random data from multiple sources, failing whenever any
- * of those source fail to provide a result.
+ * Gather random data from multiple sources with strong OS entropy,
+ * failing if any source fails. Use for key generation and similar
+ * security-critical purposes.
  */
 void GetStrongRandBytes(unsigned char* buf, int num);
+
+/**
+ * Accumulate entropy from an external event (e.g. P2P message, GUI input).
+ * The precise timing of the call and the event_info value both contribute
+ * entropy.
+ */
+void RandAddEvent(const uint32_t event_info);
+
+/**
+ * Gather entropy from the environment and strengthen the RNG state.
+ * Should be called periodically (e.g. every 60 seconds via scheduler).
+ */
+void RandAddPeriodic();
 
 /**
  * Fast randomness source. This is seeded once with secure random data, but
