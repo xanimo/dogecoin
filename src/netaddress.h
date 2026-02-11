@@ -17,6 +17,9 @@
 #include <string>
 #include <vector>
 
+/// Size of Tor v3 onion address data (32-byte ed25519 pubkey + 2-byte checksum + 1-byte version)
+static const size_t ADDR_TORV3_SIZE = 35;
+
 enum Network
 {
     NET_UNROUTABLE = 0,
@@ -32,6 +35,8 @@ class CNetAddr
 {
     protected:
         unsigned char ip[16]; // in network byte order
+        unsigned char m_addr_torv3[ADDR_TORV3_SIZE]; // Tor v3 address data (ed25519 pubkey + checksum + version)
+        bool m_torv3{false}; // true if this is a Tor v3 address
         uint32_t scopeId{0}; // for scoped/link-local ipv6 addresses
 
     public:
@@ -63,6 +68,7 @@ class CNetAddr
         bool IsRFC6052() const; // IPv6 well-known prefix (64:FF9B::/96)
         bool IsRFC6145() const; // IPv6 IPv4-translated address (::FFFF:0:0:0/96)
         bool IsTor() const;
+        bool IsTorV3() const;
         bool IsLocal() const;
         bool IsRoutable() const;
         bool IsValid() const;

@@ -471,8 +471,15 @@ void TorController::auth_cb(TorControlConnection& _conn, const TorControlReply& 
         }
 
         // Finally - now create the service
-        if (private_key.empty()) // No private key, generate one
-            private_key = "NEW:RSA1024"; // Explicitly request RSA1024 - see issue #9214
+        if (private_key.empty()) {
+            // No private key, generate new v3 (ED25519-V3) key
+            private_key = "NEW:ED25519-V3";
+        } else if (private_key.substr(0, 8) == "RSA1024:") {
+            // Existing v2 (RSA1024) private key found. Tor v2 onion services
+            // are no longer supported by the Tor network. Generate a new v3 key.
+            LogPrintf("tor: Found obsolete v2 (RSA1024) private key, generating new v3 (ED25519-V3) key\n");
+            private_key = "NEW:ED25519-V3";
+        }
         // Request hidden service, redirect port.
         // Note that the 'virtual' port doesn't have to be the same as our internal port, but this is just a convenient
         // choice.  TODO; refactor the shutdown sequence some day.

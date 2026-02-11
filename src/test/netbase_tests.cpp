@@ -114,9 +114,66 @@ BOOST_AUTO_TEST_CASE(onioncat_test)
     CNetAddr addr2(ResolveIP("FD87:D87E:EB43:edb1:8e4:3588:e546:35ca"));
     BOOST_CHECK(addr1 == addr2);
     BOOST_CHECK(addr1.IsTor());
+    BOOST_CHECK(!addr1.IsTorV3());
     BOOST_CHECK(addr1.ToStringIP() == "5wyqrzbvrdsumnok.onion");
     BOOST_CHECK(addr1.IsRoutable());
 
+}
+
+BOOST_AUTO_TEST_CASE(torv3_test)
+{
+    // Construct v3 test addresses programmatically to avoid character counting errors
+    // Tor v3: 56-char base32 = 35 bytes: 32 pubkey + 2 checksum + 1 version (0x03)
+    // 55 'a's + 'd' → decodes to 34 zero bytes + 0x03 version byte
+    std::string v3_addr_str = std::string(55, 'a') + "d"; // 56 chars
+    BOOST_CHECK_EQUAL(v3_addr_str.size(), 56U);
+    std::string v3_onion = v3_addr_str + ".onion";
+
+    // Test SetSpecial directly
+    CNetAddr addrDirect;
+    BOOST_CHECK(addrDirect.SetSpecial(v3_onion));
+    BOOST_CHECK(addrDirect.IsTor());
+    BOOST_CHECK(addrDirect.IsTorV3());
+
+    // Test through ResolveIP (LookupHost → LookupIntern → SetSpecial)
+    CNetAddr addr1(ResolveIP(v3_onion));
+    BOOST_CHECK(addr1.IsTor());
+    BOOST_CHECK(addr1.IsTorV3());
+    BOOST_CHECK(addr1.IsValid());
+    BOOST_CHECK(addr1.IsRoutable());
+    BOOST_CHECK(addr1.GetNetwork() == NET_TOR);
+    BOOST_CHECK(addr1.ToStringIP() == v3_onion);
+
+    // Test that v3 address is not equal to a v2 address
+    CNetAddr addr2(ResolveIP("5wyqrzbvrdsumnok.onion"));
+    BOOST_CHECK(addr1 != addr2);
+
+    // Test that two identical v3 addresses are equal
+    CNetAddr addr3(ResolveIP(v3_onion));
+    BOOST_CHECK(addr1 == addr3);
+
+    // Test that v3 address is not IPv4, not IPv6
+    BOOST_CHECK(!addr1.IsIPv4());
+    BOOST_CHECK(!addr1.IsIPv6());
+
+    // Test that v3 address with wrong version byte (not 0x03) is rejected
+    // 56 'a' chars decodes to all zeros (version byte = 0x00, not 0x03)
+    std::string bad_version_str = std::string(56, 'a') + ".onion"; // 56 a's → version byte = 0x00
+    CNetAddr addr4(ResolveIP(bad_version_str));
+    BOOST_CHECK(!addr4.IsTor());
+    BOOST_CHECK(!addr4.IsTorV3());
+
+    // Test a different v3 address: 'b' + 54 'a's + 'd' → first byte differs
+    std::string v3_addr2_str = "b" + std::string(54, 'a') + "d"; // 56 chars
+    std::string v3_onion2 = v3_addr2_str + ".onion";
+    CNetAddr addr5(ResolveIP(v3_onion2));
+    BOOST_CHECK(addr5.IsTor());
+    BOOST_CHECK(addr5.IsTorV3());
+    BOOST_CHECK(addr1 != addr5);
+    BOOST_CHECK(addr1.GetHash() != addr5.GetHash());
+
+    // Test ordering (v2 < v3)
+    BOOST_CHECK(addr2 < addr1);
 }
 
 BOOST_AUTO_TEST_CASE(subnet_test)
