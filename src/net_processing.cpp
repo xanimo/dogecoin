@@ -31,6 +31,7 @@
 #include "utilmoneystr.h"
 #include "utilstrencodings.h"
 #include "validationinterface.h"
+#include "mweb/mweb_models.h"
 
 #include <array>
 #include <boost/thread.hpp>
@@ -224,6 +225,11 @@ struct CNodeState {
      */
     bool fSupportsDesiredCmpctVersion;
 
+    //! Whether this peer supports MWEB (advertised NODE_MWEB)
+    bool fHaveMWEB;
+    //! Whether this peer wants MWEB data in cmpctblocks/blocktxns
+    bool fWantsCmpctMWEB;
+
     CNodeState(CAddress addrIn, std::string addrNameIn) : address(addrIn), name(addrNameIn) {
         fCurrentlyConnected = false;
         nMisbehavior = 0;
@@ -246,6 +252,8 @@ struct CNodeState {
         fHaveWitness = false;
         fWantsCmpctWitness = false;
         fSupportsDesiredCmpctVersion = false;
+        fHaveMWEB = false;
+        fWantsCmpctMWEB = false;
     }
 
 };
@@ -1066,7 +1074,8 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
 
             it++;
 
-            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_CMPCT_BLOCK || inv.type == MSG_WITNESS_BLOCK)
+            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_CMPCT_BLOCK || inv.type == MSG_WITNESS_BLOCK ||
+                IsMsgMWEBBlk(inv.type) || IsMsgMWEBHeader(inv.type) || IsMsgMWEBLeafset(inv.type))
             {
                 bool send = false;
                 BlockMap::iterator mi = mapBlockIndex.find(inv.hash);
@@ -1122,9 +1131,28 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                     if (!ReadBlockFromDisk(block, (*mi).second, consensusParams, false))
                         assert(!"cannot load block from disk");
                     if (inv.type == MSG_BLOCK)
-                        connman.PushMessage(pfrom, msgMaker.Make(SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::BLOCK, block));
+                        connman.PushMessage(pfrom, msgMaker.Make(SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_NO_MWEB, NetMsgType::BLOCK, block));
                     else if (inv.type == MSG_WITNESS_BLOCK)
+                        connman.PushMessage(pfrom, msgMaker.Make(SERIALIZE_NO_MWEB, NetMsgType::BLOCK, block));
+                    else if (IsMsgMWEBBlk(inv.type))
                         connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::BLOCK, block));
+                    else if (IsMsgMWEBHeader(inv.type))
+                    {
+                        // Send merkle block with MWEB header
+                        std::set<uint256> empty_set;
+                        CMerkleBlock merkleBlock(block, empty_set);
+                        mw::Header::CPtr mweb_header = block.mweb_block.GetMWEBHeader();
+                        if (mweb_header) {
+                            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MWEBHEADER, merkleBlock, *mweb_header));
+                        } else {
+                            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MWEBHEADER, merkleBlock, mw::Header()));
+                        }
+                    }
+                    else if (IsMsgMWEBLeafset(inv.type))
+                    {
+                        // TODO: Send MWEB leafset bitmap for this block
+                        LogPrintf("MWEB leafset request for block %s - not yet implemented\n", inv.hash.ToString());
+                    }
                     else if (inv.type == MSG_FILTERED_BLOCK)
                     {
                         bool sendMerkleBlock = false;
@@ -1158,7 +1186,9 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                         // and we don't feel like constructing the object for them, so
                         // instead we respond with the full, non-compact block.
                         bool fPeerWantsWitness = State(pfrom->GetId())->fWantsCmpctWitness;
+                        bool fPeerWantsMWEB = State(pfrom->GetId())->fWantsCmpctMWEB;
                         int nSendFlags = fPeerWantsWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS;
+                        nSendFlags |= fPeerWantsMWEB ? 0 : SERIALIZE_NO_MWEB;
                         if (CanDirectFetch(consensusParams) && mi->second->nHeight >= chainActive.Height() - MAX_CMPCTBLOCK_DEPTH) {
                             CBlockHeaderAndShortTxIDs cmpctblock(block, fPeerWantsWitness);
                             connman.PushMessage(pfrom, msgMaker.Make(nSendFlags, NetMsgType::CMPCTBLOCK, cmpctblock));
@@ -1179,12 +1209,14 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                     }
                 }
             }
-            else if (inv.type == MSG_TX || inv.type == MSG_WITNESS_TX)
+            else if (inv.type == MSG_TX || inv.type == MSG_WITNESS_TX || IsMsgMWEBTx(inv.type))
             {
                 // Send stream from relay memory
                 bool push = false;
                 auto mi = mapRelay.find(inv.hash);
                 int nSendFlags = (inv.type == MSG_TX ? SERIALIZE_TRANSACTION_NO_WITNESS : 0);
+                if (!IsMsgMWEBTx(inv.type))
+                    nSendFlags |= SERIALIZE_NO_MWEB;
                 if (mi != mapRelay.end()) {
                     connman.PushMessage(pfrom, msgMaker.Make(nSendFlags, NetMsgType::TX, *mi->second));
                     push = true;
@@ -1202,7 +1234,8 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                 }
             }
 
-            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_CMPCT_BLOCK || inv.type == MSG_WITNESS_BLOCK)
+            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_CMPCT_BLOCK || inv.type == MSG_WITNESS_BLOCK ||
+                IsMsgMWEBBlk(inv.type) || IsMsgMWEBHeader(inv.type) || IsMsgMWEBLeafset(inv.type))
                 break;
         }
     }
@@ -1233,6 +1266,9 @@ uint32_t GetFetchFlags(CNode* pfrom, const CBlockIndex* pprev, const Consensus::
     if ((pfrom->GetLocalServices() & NODE_WITNESS) && State(pfrom->GetId())->fHaveWitness) {
         nFetchFlags |= MSG_WITNESS_FLAG;
     }
+    if ((pfrom->GetLocalServices() & NODE_MWEB) && State(pfrom->GetId())->fHaveMWEB) {
+        nFetchFlags |= MSG_MWEB_FLAG;
+    }
     return nFetchFlags;
 }
 
@@ -1250,6 +1286,7 @@ inline void static SendBlockTransactions(const CBlock& block, const BlockTransac
     LOCK(cs_main);
     const CNetMsgMaker msgMaker(pfrom->GetSendVersion());
     int nSendFlags = State(pfrom->GetId())->fWantsCmpctWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS;
+    nSendFlags |= State(pfrom->GetId())->fWantsCmpctMWEB ? 0 : SERIALIZE_NO_MWEB;
     connman.PushMessage(pfrom, msgMaker.Make(nSendFlags, NetMsgType::BLOCKTXN, resp));
 }
 
@@ -1478,6 +1515,12 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             State(pfrom->GetId())->fHaveWitness = true;
         }
 
+        if((nServices & NODE_MWEB))
+        {
+            LOCK(cs_main);
+            State(pfrom->GetId())->fHaveMWEB = true;
+        }
+
         // Potentially mark this peer as a preferred download peer.
         {
         LOCK(cs_main);
@@ -1572,7 +1615,11 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             // We send this to non-NODE NETWORK peers as well, because
             // they may wish to request compact blocks from us
             bool fAnnounceUsingCMPCTBLOCK = false;
-            uint64_t nCMPCTBLOCKVersion = 2;
+            uint64_t nCMPCTBLOCKVersion = 3;
+            // Send SENDCMPCT version 3 if we support MWEB
+            if (pfrom->GetLocalServices() & NODE_MWEB)
+                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion));
+            nCMPCTBLOCKVersion = 2;
             if (pfrom->GetLocalServices() & NODE_WITNESS)
                 connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::SENDCMPCT, fAnnounceUsingCMPCTBLOCK, nCMPCTBLOCKVersion));
             nCMPCTBLOCKVersion = 1;
@@ -1684,17 +1731,24 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         bool fAnnounceUsingCMPCTBLOCK = false;
         uint64_t nCMPCTBLOCKVersion = 0;
         vRecv >> fAnnounceUsingCMPCTBLOCK >> nCMPCTBLOCKVersion;
-        if (nCMPCTBLOCKVersion == 1 || ((pfrom->GetLocalServices() & NODE_WITNESS) && nCMPCTBLOCKVersion == 2)) {
+        if (nCMPCTBLOCKVersion == 1 || ((pfrom->GetLocalServices() & NODE_WITNESS) && nCMPCTBLOCKVersion == 2) ||
+            ((pfrom->GetLocalServices() & NODE_MWEB) && nCMPCTBLOCKVersion == 3)) {
             LOCK(cs_main);
+            // Handle MWEB compact block version 3
+            if (nCMPCTBLOCKVersion == 3) {
+                State(pfrom->GetId())->fWantsCmpctMWEB = true;
+            }
             // fProvidesHeaderAndIDs is used to "lock in" version of compact blocks we send (fWantsCmpctWitness)
             if (!State(pfrom->GetId())->fProvidesHeaderAndIDs) {
                 State(pfrom->GetId())->fProvidesHeaderAndIDs = true;
-                State(pfrom->GetId())->fWantsCmpctWitness = nCMPCTBLOCKVersion == 2;
+                State(pfrom->GetId())->fWantsCmpctWitness = (nCMPCTBLOCKVersion >= 2);
             }
-            if (State(pfrom->GetId())->fWantsCmpctWitness == (nCMPCTBLOCKVersion == 2)) // ignore later version announces
+            if (State(pfrom->GetId())->fWantsCmpctWitness == (nCMPCTBLOCKVersion >= 2)) // ignore later version announces
                 State(pfrom->GetId())->fPreferHeaderAndIDs = fAnnounceUsingCMPCTBLOCK;
             if (!State(pfrom->GetId())->fSupportsDesiredCmpctVersion) {
-                if (pfrom->GetLocalServices() & NODE_WITNESS)
+                if (pfrom->GetLocalServices() & NODE_MWEB)
+                    State(pfrom->GetId())->fSupportsDesiredCmpctVersion = (nCMPCTBLOCKVersion == 3);
+                else if (pfrom->GetLocalServices() & NODE_WITNESS)
                     State(pfrom->GetId())->fSupportsDesiredCmpctVersion = (nCMPCTBLOCKVersion == 2);
                 else
                     State(pfrom->GetId())->fSupportsDesiredCmpctVersion = (nCMPCTBLOCKVersion == 1);
@@ -1742,7 +1796,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 inv.type |= nFetchFlags;
             }
 
-            if (inv.type == MSG_BLOCK) {
+            if (inv.type == MSG_BLOCK || IsMsgMWEBBlk(inv.type)) {
                 UpdateBlockAvailability(pfrom->GetId(), inv.hash);
                 if (!fAlreadyHave && !fImporting && !fReindex && !mapBlocksInFlight.count(inv.hash)) {
                   // Headers-first is the primary method of announcement on
@@ -2203,6 +2257,12 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         if (IsWitnessEnabled(pindex->pprev, chainparams.GetConsensus(pindex->pprev->nHeight)) && !nodestate->fSupportsDesiredCmpctVersion) {
             // Don't bother trying to process compact blocks from v1 peers
             // after segwit activates.
+            return true;
+        }
+
+        if (IsMWEBEnabled(pindex->pprev, chainparams.GetConsensus(pindex->pprev->nHeight)) && !nodestate->fWantsCmpctMWEB) {
+            // Don't bother trying to process compact blocks from v1/v2 peers
+            // after MWEB activates.
             return true;
         }
 
@@ -2768,6 +2828,48 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             }
             LogPrint("net", "received: feefilter of %s from peer=%d\n", CFeeRate(newFeeFilter).ToString(), pfrom->id);
         }
+    }
+
+    else if (strCommand == NetMsgType::GETMWEBUTXOS)
+    {
+        // MWEB UTXO request - deserialize and respond
+        uint256 block_hash;
+        uint64_t start_index;
+        uint64_t num_requested;
+        vRecv >> block_hash >> start_index >> num_requested;
+
+        // Limit to reasonable size
+        if (num_requested > 10000) {
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return error("getmwebutxos: num_requested=%d too large", num_requested);
+        }
+
+        // TODO: Implement MWEB UTXO retrieval from the MWEB state
+        // For now, send an empty response
+        LogPrint("mweb", "Received getmwebutxos from peer=%d for block %s (start=%d, count=%d) - not yet implemented\n",
+                 pfrom->id, block_hash.ToString(), start_index, num_requested);
+    }
+
+    else if (strCommand == NetMsgType::MWEBUTXOS)
+    {
+        // MWEB UTXO response - process incoming MWEB UTXOs
+        // TODO: Implement processing of received MWEB UTXOs
+        LogPrint("mweb", "Received mwebutxos from peer=%d\n", pfrom->id);
+    }
+
+    else if (strCommand == NetMsgType::MWEBHEADER)
+    {
+        // MWEB header response - process incoming MWEB header with merkle proof
+        // TODO: Implement processing of received MWEB header
+        LogPrint("mweb", "Received mwebheader from peer=%d\n", pfrom->id);
+    }
+
+    else if (strCommand == NetMsgType::MWEBLEAFSET)
+    {
+        // MWEB leafset response - process incoming MWEB leafset bitmap
+        // TODO: Implement processing of received MWEB leafset
+        LogPrint("mweb", "Received mwebleafset from peer=%d\n", pfrom->id);
     }
 
     else if (strCommand == NetMsgType::NOTFOUND) {
