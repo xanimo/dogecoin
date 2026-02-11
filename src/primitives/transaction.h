@@ -11,8 +11,12 @@
 #include "script/script.h"
 #include "serialize.h"
 #include "uint256.h"
+#include "mweb/mweb_models.h"
 
 static const int SERIALIZE_TRANSACTION_NO_WITNESS = 0x40000000;
+
+/** MWEB: Serialization flag to exclude MWEB data */
+static const int SERIALIZE_NO_MWEB = 0x20000000;
 
 static const int WITNESS_SCALE_FACTOR = 4;
 
@@ -210,6 +214,7 @@ struct CMutableTransaction;
 template<typename Stream, typename TxType>
 inline void UnserializeTransaction(TxType& tx, Stream& s) {
     const bool fAllowWitness = !(s.GetVersion() & SERIALIZE_TRANSACTION_NO_WITNESS);
+    const bool fAllowMWEB = !(s.GetVersion() & SERIALIZE_NO_MWEB);
 
     s >> tx.nVersion;
     unsigned char flags = 0;
@@ -235,6 +240,20 @@ inline void UnserializeTransaction(TxType& tx, Stream& s) {
             s >> tx.vin[i].scriptWitness.stack;
         }
     }
+    if ((flags & 8) && fAllowMWEB) {
+        /* The MWEB flag is present, and we support MWEB. */
+        flags ^= 8;
+
+        s >> tx.mweb_tx;
+        if (tx.mweb_tx.IsNull()) {
+            if (tx.vout.empty()) {
+                /* It's illegal to include a HogEx with no outputs. */
+                throw std::ios_base::failure("Missing HogEx output");
+            }
+            /* If the MWEB flag is set, but there are no MWEB txs, assume HogEx txn. */
+            tx.m_hogEx = true;
+        }
+    }
     if (flags) {
         /* Unknown flag in the serialization */
         throw std::ios_base::failure("Unknown transaction optional data");
@@ -245,6 +264,7 @@ inline void UnserializeTransaction(TxType& tx, Stream& s) {
 template<typename Stream, typename TxType>
 inline void SerializeTransaction(const TxType& tx, Stream& s) {
     const bool fAllowWitness = !(s.GetVersion() & SERIALIZE_TRANSACTION_NO_WITNESS);
+    const bool fAllowMWEB = !(s.GetVersion() & SERIALIZE_NO_MWEB);
 
     s << tx.nVersion;
     unsigned char flags = 0;
@@ -253,6 +273,11 @@ inline void SerializeTransaction(const TxType& tx, Stream& s) {
         /* Check whether witnesses need to be serialized. */
         if (tx.HasWitness()) {
             flags |= 1;
+        }
+    }
+    if (fAllowMWEB) {
+        if (tx.m_hogEx || !tx.mweb_tx.IsNull()) {
+            flags |= 8;
         }
     }
     if (flags) {
@@ -267,6 +292,9 @@ inline void SerializeTransaction(const TxType& tx, Stream& s) {
         for (size_t i = 0; i < tx.vin.size(); i++) {
             s << tx.vin[i].scriptWitness.stack;
         }
+    }
+    if (flags & 8) {
+        s << tx.mweb_tx;
     }
     s << tx.nLockTime;
 }
@@ -297,6 +325,12 @@ public:
     const std::vector<CTxIn> vin;
     const std::vector<CTxOut> vout;
     const uint32_t nLockTime;
+
+    // MWEB transaction data
+    const MWEB::Tx mweb_tx;
+
+    /** Memory only. */
+    const bool m_hogEx{false};
 
 private:
     /** Memory only. */
@@ -377,6 +411,12 @@ public:
         }
         return false;
     }
+
+    bool HasMWEBTx() const noexcept { return !mweb_tx.IsNull(); }
+    bool IsHogEx() const noexcept { return m_hogEx; }
+
+    /// Determines whether the transaction is strictly MWEB-to-MWEB, with no canonical transaction data.
+    bool IsMWEBOnly() const noexcept { return HasMWEBTx() && vin.empty() && vout.empty(); }
 };
 
 /** A mutable version of CTransaction. */
@@ -386,6 +426,10 @@ struct CMutableTransaction
     std::vector<CTxIn> vin;
     std::vector<CTxOut> vout;
     uint32_t nLockTime;
+
+    // MWEB transaction data
+    MWEB::Tx mweb_tx;
+    bool m_hogEx{false};
 
     CMutableTransaction();
     CMutableTransaction(const CTransaction& tx);
@@ -425,6 +469,10 @@ struct CMutableTransaction
         }
         return false;
     }
+
+    bool HasMWEBTx() const noexcept { return !mweb_tx.IsNull(); }
+    bool IsHogEx() const noexcept { return m_hogEx; }
+    bool IsMWEBOnly() const noexcept { return HasMWEBTx() && vin.empty() && vout.empty(); }
 };
 
 typedef std::shared_ptr<const CTransaction> CTransactionRef;
