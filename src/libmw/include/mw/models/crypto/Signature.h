@@ -1,0 +1,51 @@
+// Copyright (c) 2021 The Litecoin Core developers
+// Copyright (c) 2026 The Dogecoin Core developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#ifndef MW_MODELS_CRYPTO_SIGNATURE_H
+#define MW_MODELS_CRYPTO_SIGNATURE_H
+
+#include <mw/common/Traits.h>
+#include <serialize.h>
+#include <vector>
+#include <cstring>
+#include <memory>
+
+MW_NAMESPACE
+
+/// 64-byte Schnorr signature
+class Signature {
+public:
+    static constexpr size_t SIZE = 64;
+    using CPtr = std::shared_ptr<const Signature>;
+
+    Signature() { memset(m_data, 0, SIZE); }
+    explicit Signature(const std::vector<uint8_t>& data) {
+        assert(data.size() == SIZE);
+        memcpy(m_data, data.data(), SIZE);
+    }
+
+    bool operator==(const Signature& rhs) const { return memcmp(m_data, rhs.m_data, SIZE) == 0; }
+    bool operator!=(const Signature& rhs) const { return !(*this == rhs); }
+
+    const uint8_t* data() const { return m_data; }
+    std::vector<uint8_t> vec() const { return std::vector<uint8_t>(m_data, m_data + SIZE); }
+
+    template<typename Stream>
+    void Serialize(Stream& s) const {
+        s.write((const char*)m_data, SIZE);
+    }
+
+    template<typename Stream>
+    void Unserialize(Stream& s) {
+        s.read((char*)m_data, SIZE);
+    }
+
+private:
+    uint8_t m_data[SIZE];
+};
+
+END_NAMESPACE
+
+#endif // MW_MODELS_CRYPTO_SIGNATURE_H
