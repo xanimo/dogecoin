@@ -10,6 +10,8 @@
 #include "primitives/transaction.h"
 #include "serialize.h"
 
+#include <mw/models/block/BlockUndo.h>
+
 /** Undo information for a CTxIn
  *
  *  Contains the prevout's CTxOut being spent, and if this was the
@@ -67,12 +69,14 @@ class CBlockUndo
 {
 public:
     std::vector<CTxUndo> vtxundo; // for all but the coinbase
+    mw::BlockUndo mweb_undo;      // MWEB undo data for reorgs
 
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(vtxundo);
+        READWRITE(mweb_undo);
     }
 };
 
