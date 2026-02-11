@@ -40,6 +40,10 @@ const char *SENDCMPCT="sendcmpct";
 const char *CMPCTBLOCK="cmpctblock";
 const char *GETBLOCKTXN="getblocktxn";
 const char *BLOCKTXN="blocktxn";
+const char *MWEBHEADER="mwebheader";
+const char *MWEBLEAFSET="mwebleafset";
+const char *GETMWEBUTXOS="getmwebutxos";
+const char *MWEBUTXOS="mwebutxos";
 };
 
 /** All known message types. Keep this in the same order as the list of
@@ -72,6 +76,10 @@ const static std::string allNetMessageTypes[] = {
     NetMsgType::CMPCTBLOCK,
     NetMsgType::GETBLOCKTXN,
     NetMsgType::BLOCKTXN,
+    NetMsgType::MWEBHEADER,
+    NetMsgType::MWEBLEAFSET,
+    NetMsgType::GETMWEBUTXOS,
+    NetMsgType::MWEBUTXOS,
 };
 const static std::vector<std::string> allNetMessageTypesVec(allNetMessageTypes, allNetMessageTypes+ARRAYLEN(allNetMessageTypes));
 
@@ -171,6 +179,8 @@ bool operator<(const CInv& a, const CInv& b)
 std::string CInv::GetCommand() const
 {
     std::string cmd;
+    if (type & MSG_MWEB_FLAG)
+        cmd.append("mweb-");
     if (type & MSG_WITNESS_FLAG)
         cmd.append("witness-");
     int masked = type & MSG_TYPE_MASK;
@@ -180,6 +190,8 @@ std::string CInv::GetCommand() const
     case MSG_BLOCK:          return cmd.append(NetMsgType::BLOCK);
     case MSG_FILTERED_BLOCK: return cmd.append(NetMsgType::MERKLEBLOCK);
     case MSG_CMPCT_BLOCK:    return cmd.append(NetMsgType::CMPCTBLOCK);
+    case 8:                  return cmd.append("mwebheader");
+    case 9:                  return cmd.append("mwebleafset");
     default:
         throw std::out_of_range(strprintf("CInv::GetCommand(): type=%d unknown type", type));
     }

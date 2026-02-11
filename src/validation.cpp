@@ -18,6 +18,7 @@
 #include "fs.h"
 #include "hash.h"
 #include "init.h"
+#include "mweb/mweb_node.h"
 #include "policy/fees.h"
 #include "policy/policy.h"
 #include "pow.h"
@@ -526,6 +527,12 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
 bool CheckTransaction(const CTransaction& tx, CValidationState &state, bool fCheckDuplicateInputs)
 {
     // Basic checks that don't depend on any context
+
+    // MWEB-only transactions have no vin/vout - they are valid as long as the MWEB data validates
+    if (tx.IsMWEBOnly()) {
+        return MWEB::Node::CheckTransaction(tx, state);
+    }
+
     if (tx.vin.empty())
         return state.DoS(10, false, REJECT_INVALID, "bad-txns-vin-empty");
     if (tx.vout.empty())
@@ -568,6 +575,10 @@ bool CheckTransaction(const CTransaction& tx, CValidationState &state, bool fChe
             if (txin.prevout.IsNull())
                 return state.DoS(10, false, REJECT_INVALID, "bad-txns-prevout-null");
     }
+
+    // MWEB: Validate any MWEB transaction data attached
+    if (!MWEB::Node::CheckTransaction(tx, state))
+        return false;
 
     return true;
 }
@@ -2026,6 +2037,34 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         setDirtyBlockIndex.insert(pindex);
     }
 
+    // MWEB: Update block index with MWEB data
+    if (!block.mweb_block.IsNull()) {
+        pindex->mweb_header = block.mweb_block.m_block->GetHeader();
+        pindex->hogex_hash = block.vtx.back()->GetHash();
+
+        // Calculate the MWEB amount: previous amount + pegins - pegouts - fees
+        CAmount mweb_amount = pindex->pprev ? pindex->pprev->mweb_amount : 0;
+        // Add pegin amounts
+        for (size_t i = 1; i < block.vtx.size() - 1; i++) {
+            for (const CTxOut& out : block.vtx[i]->vout) {
+                if (out.scriptPubKey.IsMWEBPegin()) {
+                    mweb_amount += out.nValue;
+                }
+            }
+        }
+        // Subtract pegout amounts (skip first output which is the HogAddr)
+        const CTransactionRef& pHogEx = block.vtx.back();
+        for (size_t i = 1; i < pHogEx->vout.size(); i++) {
+            mweb_amount -= pHogEx->vout[i].nValue;
+        }
+        // Subtract MWEB fees
+        mweb_amount -= block.mweb_block.m_block->GetTotalFee();
+        pindex->mweb_amount = mweb_amount;
+
+        pindex->nStatus |= BLOCK_HAVE_MWEB;
+        setDirtyBlockIndex.insert(pindex);
+    }
+
     if (fTxIndex)
         if (!pblocktree->WriteTxIndex(vPos))
             return AbortNode(state, "Failed to write transaction index");
@@ -2992,6 +3031,10 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     if (nSigOps * WITNESS_SCALE_FACTOR > MAX_BLOCK_SIGOPS_COST)
         return state.DoS(100, false, REJECT_INVALID, "bad-blk-sigops", false, "out-of-bounds SigOpCount");
 
+    // MWEB: Context-independent validation of MWEB block rules
+    if (!MWEB::Node::CheckBlock(block, state))
+        return false;
+
     if (fCheckPOW && fCheckMerkleRoot)
         block.fChecked = true;
 
@@ -3062,6 +3105,12 @@ bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& pa
         return false;
     LOCK(cs_main);
     return IsSegwitLatched(pindexPrev, params);
+}
+
+bool IsMWEBEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+{
+    LOCK(cs_main);
+    return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_MWEB, versionbitscache) == THRESHOLD_ACTIVE);
 }
 
 // Compute at which vout of the block's coinbase transaction the witness
@@ -3259,6 +3308,10 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const CB
     if (GetBlockWeight(block) > MAX_BLOCK_WEIGHT) {
         return state.DoS(100, false, REJECT_INVALID, "bad-blk-weight", false, strprintf("%s : weight limit failed", __func__));
     }
+
+    // MWEB: Contextual validation of MWEB block rules
+    if (!MWEB::Node::ContextualCheckBlock(block, consensusParams, pindexPrev, state))
+        return false;
 
     return true;
 }

@@ -10,6 +10,7 @@
 #include "auxpow.h"
 #include "primitives/transaction.h"
 #include "primitives/pureheader.h"
+#include "mweb/mweb_models.h"
 #include "serialize.h"
 #include "uint256.h"
 
@@ -71,6 +72,9 @@ public:
     // memory only
     mutable bool fChecked;
 
+    // MWEB extension block data
+    MWEB::Block mweb_block;
+
     CBlock()
     {
         SetNull();
@@ -88,6 +92,11 @@ public:
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(*(CBlockHeader*)this);
         READWRITE(vtx);
+        if (!(s.GetVersion() & SERIALIZE_NO_MWEB)) {
+            if (vtx.size() >= 2 && vtx.back()->IsHogEx()) {
+                READWRITE(mweb_block);
+            }
+        }
     }
 
     void SetNull()
@@ -95,6 +104,16 @@ public:
         CBlockHeader::SetNull();
         vtx.clear();
         fChecked = false;
+        mweb_block.SetNull();
+    }
+
+    /// Returns the HogEx (integrating) transaction, if it exists.
+    CTransactionRef GetHogEx() const noexcept
+    {
+        if (vtx.size() >= 2 && vtx.back()->IsHogEx()) {
+            return vtx.back();
+        }
+        return nullptr;
     }
 
     CBlockHeader GetBlockHeader() const

@@ -246,6 +246,22 @@ extern const char *GETBLOCKTXN;
  * @since protocol version 70014 as described by BIP 152
  */
 extern const char *BLOCKTXN;
+/**
+ * MWEB: Request for the MWEB header of a given block.
+ */
+extern const char *MWEBHEADER;
+/**
+ * MWEB: Request for the MWEB leafset of a given block.
+ */
+extern const char *MWEBLEAFSET;
+/**
+ * MWEB: Request MWEB UTXOs.
+ */
+extern const char *GETMWEBUTXOS;
+/**
+ * MWEB: Response containing MWEB UTXOs.
+ */
+extern const char *MWEBUTXOS;
 };
 
 /* Get a vector of all valid message types (see above) */
@@ -273,6 +289,9 @@ enum ServiceFlags : uint64_t {
     // NODE_XTHIN means the node supports Xtreme Thinblocks
     // If this is turned off then the node will not service nor make xthin requests
     NODE_XTHIN = (1 << 4),
+
+    // NODE_MWEB indicates that a node can be asked for MWEB blocks, headers, and UTXOs.
+    NODE_MWEB = (1 << 24),
 
     // Bits 24-31 are reserved for temporary experiments. Just pick a bit that
     // isn't getting used, or one not being used much, and notify the
@@ -321,7 +340,8 @@ public:
 
 /** getdata message type flags */
 const uint32_t MSG_WITNESS_FLAG = 1 << 30;
-const uint32_t MSG_TYPE_MASK    = 0xffffffff >> 2;
+const uint32_t MSG_MWEB_FLAG    = 1 << 29;
+const uint32_t MSG_TYPE_MASK    = 0xffffffff >> 3;
 
 /** getdata / inv message types.
  * These numbers are defined by the protocol. When adding a new value, be sure
@@ -338,7 +358,19 @@ enum GetDataMsg
     MSG_WITNESS_BLOCK = MSG_BLOCK | MSG_WITNESS_FLAG, //!< Defined in BIP144
     MSG_WITNESS_TX = MSG_TX | MSG_WITNESS_FLAG,       //!< Defined in BIP144
     MSG_FILTERED_WITNESS_BLOCK = MSG_FILTERED_BLOCK | MSG_WITNESS_FLAG,
+    // MWEB message types - use flag-based approach similar to witness flag
+    MSG_MWEB_BLOCK = MSG_WITNESS_BLOCK | MSG_MWEB_FLAG,
+    MSG_MWEB_TX = MSG_WITNESS_TX | MSG_MWEB_FLAG,
+    MSG_MWEB_HEADER = 8 | MSG_MWEB_FLAG,
+    MSG_MWEB_LEAFSET = 9 | MSG_MWEB_FLAG,
 };
+
+/** Helper functions for MWEB inv types */
+static inline bool IsInvTypeMWEB(int type) { return type & MSG_MWEB_FLAG; }
+static inline bool IsMsgMWEBBlk(int type) { return type == (int)MSG_MWEB_BLOCK; }
+static inline bool IsMsgMWEBTx(int type) { return type == (int)MSG_MWEB_TX; }
+static inline bool IsMsgMWEBHeader(int type) { return type == (int)MSG_MWEB_HEADER; }
+static inline bool IsMsgMWEBLeafset(int type) { return type == (int)MSG_MWEB_LEAFSET; }
 
 /** inv message data */
 class CInv
