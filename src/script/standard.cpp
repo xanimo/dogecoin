@@ -33,6 +33,8 @@ const char* GetTxnOutputType(txnouttype t)
     case TX_NULL_DATA: return "nulldata";
     case TX_WITNESS_V0_KEYHASH: return "witness_v0_keyhash";
     case TX_WITNESS_V0_SCRIPTHASH: return "witness_v0_scripthash";
+    case TX_MWEB_PEGIN: return "mweb_pegin";
+    case TX_MWEB_HOGADDR: return "mweb_hogaddr";
     }
     return NULL;
 }
@@ -78,6 +80,16 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
         }
         if (witnessversion == 0 && witnessprogram.size() == 32) {
             typeRet = TX_WITNESS_V0_SCRIPTHASH;
+            vSolutionsRet.push_back(witnessprogram);
+            return true;
+        }
+        if (witnessversion == MWEB_PEGIN_WITNESS_VERSION && witnessprogram.size() == WITNESS_MWEB_PEGIN_SIZE) {
+            typeRet = TX_MWEB_PEGIN;
+            vSolutionsRet.push_back(witnessprogram);
+            return true;
+        }
+        if (witnessversion == MWEB_HOG_ADDR_WITNESS_VERSION && witnessprogram.size() == WITNESS_MWEB_HEADERHASH_SIZE) {
+            typeRet = TX_MWEB_HOGADDR;
             vSolutionsRet.push_back(witnessprogram);
             return true;
         }
