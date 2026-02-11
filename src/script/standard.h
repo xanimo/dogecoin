@@ -53,6 +53,8 @@ enum txnouttype
     TX_NULL_DATA,
     TX_WITNESS_V0_SCRIPTHASH,
     TX_WITNESS_V0_KEYHASH,
+    TX_MWEB_PEGIN,     //!< MWEB peg-in witness program (version 9, 32-byte)
+    TX_MWEB_HOGADDR,   //!< MWEB HogAddr witness program (version 8, 32-byte)
 };
 
 class CNoDestination {
