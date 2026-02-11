@@ -54,6 +54,10 @@ bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, const bool w
     else if (!witnessEnabled && (whichType == TX_WITNESS_V0_KEYHASH || whichType == TX_WITNESS_V0_SCRIPTHASH))
         return false;
 
+    // MWEB pegin and hogaddr outputs are standard when MWEB/witness is enabled
+    else if (!witnessEnabled && (whichType == TX_MWEB_PEGIN || whichType == TX_MWEB_HOGADDR))
+        return false;
+
     return whichType != TX_NONSTANDARD;
 }
 
@@ -115,6 +119,12 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnes
     // only one OP_RETURN txout is permitted
     if (nDataOut > 1) {
         reason = "multi-op-return";
+        return false;
+    }
+
+    // MWEB: Check that MWEB kernels are standard (no extra data fields)
+    if (tx.HasMWEBTx() && !tx.mweb_tx.m_transaction->IsStandard()) {
+        reason = "mweb-nonstandard";
         return false;
     }
 
