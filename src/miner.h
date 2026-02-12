@@ -9,6 +9,7 @@
 
 #include "primitives/block.h"
 #include "txmempool.h"
+#include "mweb/mweb_miner.h"
 
 #include <stdint.h>
 #include <memory>
@@ -158,6 +159,9 @@ private:
     int nHeight;
     int64_t nLockTimeCutoff;
     const CChainParams& chainparams;
+
+    // MWEB miner for building extension blocks
+    MWEB::Miner mwebMiner;
 
     // Variables used for addPriorityTxs
     int lastFewTxs;

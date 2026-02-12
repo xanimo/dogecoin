@@ -8,6 +8,7 @@
 #include "chain.h"
 #include "consensus/consensus.h"
 #include "consensus/validation.h"
+#include "miner.h"
 #include "primitives/block.h"
 #include "script/script.h"
 #include "util.h"
@@ -15,7 +16,7 @@
 
 using namespace MWEB;
 
-void Miner::NewBlock(const uint64_t nHeight)
+void Miner::NewBlock(const uint64_t nHeight, const mw::Header::CPtr& prevHeader)
 {
     // Reset state for the new block
     mweb_amount_change = 0;
@@ -24,8 +25,8 @@ void Miner::NewBlock(const uint64_t nHeight)
     hogex_inputs.clear();
     hogex_outputs.clear();
 
-    // TODO: Initialize mweb_builder when libmw BlockBuilder is available
-    // mweb_builder = mw::BlockBuilder::Create(nHeight);
+    // Create the block builder
+    mweb_builder = mw::BlockBuilder::Create(static_cast<int32_t>(nHeight), prevHeader);
 }
 
 bool Miner::ValidatePegIns(const CTransactionRef& pTx,
@@ -86,11 +87,11 @@ bool Miner::AddMWEBTransaction(CTxMemPool::txiter iter)
         return false;
     }
 
-    // TODO: Add transaction to MWEB block builder when available
-    // if (!mweb_builder->AddTransaction(pTx->mweb_tx.m_transaction, pegins)) {
-    //     LogPrintf("Failed to add MWEB transaction\n");
-    //     return false;
-    // }
+    // Add to MWEB block builder
+    if (!mweb_builder->AddTransaction(pTx->mweb_tx.m_transaction, pegins)) {
+        LogPrintf("Failed to add MWEB transaction to block builder\n");
+        return false;
+    }
 
     // Collect HogEx inputs and outputs from this transaction
     for (const CTxIn& vin : pTx->vin) {
@@ -113,13 +114,67 @@ bool Miner::AddMWEBTransaction(CTxMemPool::txiter iter)
 void Miner::AddHogExTransaction(const CBlockIndex* pIndexPrev, CBlock* pblock,
                                  CBlockTemplate* pblocktemplate, CAmount& nFees)
 {
-    // TODO: Implement full HogEx transaction creation when libmw BlockBuilder is available
-    // This will:
-    // 1. Finalize the MWEB block via mweb_builder->Build()
-    // 2. Create the HogEx transaction with:
-    //    a. First output = HogAddr (OP_8 + mweb_header_hash)
-    //    b. Remaining outputs = pegout outputs from MWEB kernels
-    //    c. Inputs = previous HogAddr + pegin inputs
-    // 3. Set pblock->mweb_block
+    // If no MWEB transactions were added, nothing to do
+    if (!mweb_builder || !mweb_builder->HasTransactions()) {
+        return;
+    }
+
+    // 1. Finalize the MWEB block
+    mw::Block::Ptr mweb_block = mweb_builder->Build();
+    if (!mweb_block) {
+        LogPrintf("MWEB::Miner: Failed to build MWEB block\n");
+        return;
+    }
+
+    // 2. Create the HogEx transaction
+    CMutableTransaction hogex;
+    hogex.m_hogEx = true;
+
+    // Input: Previous HogAddr UTXO (if previous block had MWEB state)
+    CAmount prev_hogex_amount = 0;
+    if (pIndexPrev->mweb_header != nullptr) {
+        COutPoint prev_hogaddr(pIndexPrev->hogex_hash, 0);
+        hogex.vin.push_back(CTxIn(prev_hogaddr));
+        prev_hogex_amount = pIndexPrev->mweb_amount;
+    }
+
+    // Additional inputs: pegin inputs collected from MWEB transactions
+    for (const auto& vin : hogex_inputs) {
+        hogex.vin.push_back(vin);
+    }
+
+    // Output 0: HogAddr — witness v8 program committing to the MWEB header hash.
+    // This output holds the accumulated MWEB value (previous amount + net change).
+    const mw::Hash& header_hash = mweb_block->GetHeader()->GetHash();
+    CScript hogAddrScript;
+    hogAddrScript << OP_8;
+    hogAddrScript << std::vector<uint8_t>(header_hash.begin(), header_hash.end());
+    CAmount new_hogex_amount = prev_hogex_amount + mweb_amount_change;
+    hogex.vout.push_back(CTxOut(new_hogex_amount, hogAddrScript));
+
+    // Remaining outputs: pegout outputs from MWEB kernels
+    std::vector<mw::PegOutCoin> pegouts = mweb_block->GetPegOuts();
+    for (const auto& pegout : pegouts) {
+        hogex.vout.push_back(CTxOut(pegout.GetAmount(), pegout.GetScriptPubKey()));
+    }
+
+    // Also append any non-MWEB outputs collected from mixed transactions
+    for (const auto& vout : hogex_outputs) {
+        hogex.vout.push_back(vout);
+    }
+
+    // 3. Set the MWEB block on the CBlock
+    pblock->mweb_block.m_block = mweb_block;
+
     // 4. Append HogEx as the last transaction in the block
+    CTransactionRef hogex_ref = MakeTransactionRef(std::move(hogex));
+    pblock->vtx.push_back(hogex_ref);
+    pblocktemplate->vTxFees.push_back(hogex_fees);
+    pblocktemplate->vTxSigOpsCost.push_back(hogex_sigops);
+
+    // 5. Add collected MWEB fees to the block's total fees
+    nFees += hogex_fees;
+
+    LogPrintf("MWEB::Miner: Added HogEx transaction with %d inputs, %d outputs, fees=%d\n",
+              hogex_ref->vin.size(), hogex_ref->vout.size(), hogex_fees);
 }

@@ -6,6 +6,10 @@
 #include <mw/models/block/Block.h>
 #include <mw/models/tx/Transaction.h>
 #include <mw/consensus/Weight.h>
+#include <mw/node/BlockBuilder.h>
+
+#include <algorithm>
+#include <set>
 
 MW_NAMESPACE
 
@@ -152,4 +156,122 @@ void mw::Transaction::Validate() const
     // - All kernel signatures are valid
     // - All range proofs are valid
     // - Commitment sums balance (no inflation)
+}
+
+//
+// BlockBuilder implementation
+//
+
+mw::BlockBuilder::BlockBuilder(int32_t height, const mw::Header::CPtr& prevHeader)
+    : m_height(height), m_prevHeader(prevHeader) {}
+
+mw::BlockBuilder::Ptr mw::BlockBuilder::Create(int32_t height, const mw::Header::CPtr& prevHeader)
+{
+    return mw::BlockBuilder::Ptr(new mw::BlockBuilder(height, prevHeader));
+}
+
+bool mw::BlockBuilder::AddTransaction(const mw::Transaction::CPtr& pTransaction,
+                                       const std::vector<mw::PegInCoin>& pegins)
+{
+    if (!pTransaction) return false;
+    if (pTransaction->GetKernels().empty()) return false;
+
+    m_transactions.push_back(pTransaction);
+    return true;
+}
+
+mw::BlindingFactor mw::BlockBuilder::CombineOffsets(const mw::BlindingFactor& a, const mw::BlindingFactor& b)
+{
+    // Placeholder: XOR blinding factors as a stand-in for proper ECC addition.
+    // In a real implementation, this would use secp256k1 scalar addition.
+    std::vector<uint8_t> result(mw::BlindingFactor::SIZE);
+    for (size_t i = 0; i < mw::BlindingFactor::SIZE; i++) {
+        result[i] = a.data()[i] ^ b.data()[i];
+    }
+    return mw::BlindingFactor(result);
+}
+
+mw::Hash mw::BlockBuilder::AggregateHash(std::vector<mw::Hash> hashes)
+{
+    if (hashes.empty()) return mw::Hash();
+
+    std::sort(hashes.begin(), hashes.end());
+
+    CHashWriter hasher(SER_GETHASH, 0);
+    for (const auto& h : hashes) {
+        hasher << h;
+    }
+    return mw::Hash(hasher.GetHash());
+}
+
+mw::Block::Ptr mw::BlockBuilder::Build()
+{
+    if (m_transactions.empty()) return nullptr;
+
+    // Merge all transaction bodies
+    std::vector<mw::Input> allInputs;
+    std::vector<mw::Output> allOutputs;
+    std::vector<mw::Kernel> allKernels;
+    mw::BlindingFactor aggregateKernelOffset;
+    mw::BlindingFactor aggregateStealthOffset;
+
+    for (const auto& tx : m_transactions) {
+        // Merge inputs, outputs, kernels
+        for (const auto& input : tx->GetInputs())
+            allInputs.push_back(input);
+        for (const auto& output : tx->GetOutputs())
+            allOutputs.push_back(output);
+        for (const auto& kernel : tx->GetKernels())
+            allKernels.push_back(kernel);
+
+        // Combine offsets
+        aggregateKernelOffset = CombineOffsets(aggregateKernelOffset, tx->GetKernelOffset());
+        aggregateStealthOffset = CombineOffsets(aggregateStealthOffset, tx->GetStealthOffset());
+    }
+
+    // Sort all elements by hash (required by consensus)
+    std::sort(allInputs.begin(), allInputs.end(),
+              [](const mw::Input& a, const mw::Input& b) { return a.GetHash() < b.GetHash(); });
+    std::sort(allOutputs.begin(), allOutputs.end(),
+              [](const mw::Output& a, const mw::Output& b) { return a.GetHash() < b.GetHash(); });
+    std::sort(allKernels.begin(), allKernels.end(),
+              [](const mw::Kernel& a, const mw::Kernel& b) { return a.GetHash() < b.GetHash(); });
+
+    // Compute Merkle roots as aggregate hashes of the sorted element hashes
+    // (placeholder for real MMR/PMMR roots)
+    std::vector<mw::Hash> outputHashes, kernelHashes;
+    for (const auto& output : allOutputs)
+        outputHashes.push_back(output.GetHash());
+    for (const auto& kernel : allKernels)
+        kernelHashes.push_back(kernel.GetHash());
+
+    mw::Hash outputRoot = AggregateHash(outputHashes);
+    mw::Hash kernelRoot = AggregateHash(kernelHashes);
+
+    // Leafset root: hash of the output hashes (simplified)
+    mw::Hash leafsetRoot = outputRoot; // placeholder
+
+    // Compute TXO and kernel counts
+    uint64_t prevNumTXOs = m_prevHeader ? m_prevHeader->GetNumTXOs() : 0;
+    uint64_t prevNumKernels = m_prevHeader ? m_prevHeader->GetNumKernels() : 0;
+    uint64_t numTXOs = prevNumTXOs + allOutputs.size();
+    uint64_t numKernels = prevNumKernels + allKernels.size();
+
+    // Build the header
+    auto pHeader = std::make_shared<mw::Header>(
+        m_height,
+        std::move(outputRoot),
+        std::move(kernelRoot),
+        std::move(leafsetRoot),
+        aggregateKernelOffset,
+        aggregateStealthOffset,
+        numTXOs,
+        numKernels
+    );
+
+    // Build the body
+    mw::TxBody body(std::move(allInputs), std::move(allOutputs), std::move(allKernels));
+
+    // Build the block
+    return std::make_shared<mw::Block>(pHeader, std::move(body));
 }

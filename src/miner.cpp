@@ -176,10 +176,31 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     // transaction (which in most cases can be a no-op).
     fIncludeWitness = IsWitnessEnabled(pindexPrev, consensus) && fMineWitnessTx;
 
+    // Initialize MWEB miner if MWEB is active
+    bool fIncludeMWEB = IsMWEBEnabled(pindexPrev, consensus) && fIncludeWitness;
+    if (fIncludeMWEB) {
+        mwebMiner.NewBlock(nHeight, pindexPrev->mweb_header);
+    }
+
     addPriorityTxs();
     int nPackagesSelected = 0;
     int nDescendantsUpdated = 0;
     addPackageTxs(nPackagesSelected, nDescendantsUpdated);
+
+    // Process mempool MWEB transactions and create HogEx
+    if (fIncludeMWEB) {
+        // Iterate mempool for MWEB transactions not yet in the block
+        for (CTxMemPool::indexed_transaction_set::iterator mi = mempool.mapTx.begin();
+             mi != mempool.mapTx.end(); ++mi) {
+            if (mi->GetSharedTx()->HasMWEBTx()) {
+                CTxMemPool::txiter iter = mempool.mapTx.project<0>(mi);
+                mwebMiner.AddMWEBTransaction(iter);
+            }
+        }
+
+        // Finalize the MWEB block and add the HogEx transaction
+        mwebMiner.AddHogExTransaction(pindexPrev, pblock, pblocktemplate.get(), nFees);
+    }
 
     int64_t nTime1 = GetTimeMicros();
 

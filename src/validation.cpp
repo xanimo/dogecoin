@@ -19,6 +19,7 @@
 #include "hash.h"
 #include "init.h"
 #include "mweb/mweb_node.h"
+#include "mweb/mweb_db.h"
 #include "policy/fees.h"
 #include "policy/policy.h"
 #include "pow.h"
@@ -1725,6 +1726,13 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
         if (pindex->pprev) {
             pindex->pprev->mweb_header = blockUndo.mweb_undo.GetPreviousHeader();
         }
+
+        // Reverse the MWEB state DB changes (restore spent UTXOs, remove added outputs)
+        if (g_mweb_state) {
+            if (!g_mweb_state->DisconnectBlock(blockUndo.mweb_undo)) {
+                return error("DisconnectBlock(): Failed to disconnect MWEB state");
+            }
+        }
     }
 
     if (pfClean) {
@@ -2048,13 +2056,22 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     if (fJustCheck)
         return true;
 
-    // MWEB: Populate undo data with previous MWEB header for reorg support
+    // MWEB: Apply block to MWEB state DB and populate undo data
     if (!block.mweb_block.IsNull() && pindex->pprev) {
         mw::Header::CPtr prevHeader = pindex->pprev->mweb_header;
+        std::vector<UTXO> spentUTXOs;
+        std::vector<mw::Hash> addedOutputIDs;
+
+        if (g_mweb_state) {
+            if (!g_mweb_state->ConnectBlock(*block.mweb_block.m_block, prevHeader, spentUTXOs, addedOutputIDs)) {
+                return AbortNode(state, "Failed to update MWEB state DB");
+            }
+        }
+
         blockundo.mweb_undo = mw::BlockUndo(
             prevHeader,
-            std::vector<UTXO>(),      // TODO: populate spent UTXOs when MWEB state DB is available
-            std::vector<mw::Hash>()   // TODO: populate added outputs when MWEB state DB is available
+            std::move(spentUTXOs),
+            std::move(addedOutputIDs)
         );
     }
 
