@@ -32,6 +32,7 @@
 #include "utilstrencodings.h"
 #include "validationinterface.h"
 #include "mweb/mweb_models.h"
+#include "mweb/mweb_db.h"
 
 #include <array>
 #include <boost/thread.hpp>
@@ -1150,8 +1151,13 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                     }
                     else if (IsMsgMWEBLeafset(inv.type))
                     {
-                        // TODO: Send MWEB leafset bitmap for this block
-                        LogPrintf("MWEB leafset request for block %s - not yet implemented\n", inv.hash.ToString());
+                        // Send MWEB leafset bitmap for this block
+                        // The leafset is a bitmap of which MWEB outputs are unspent.
+                        // For now, send a placeholder empty bitmap — full implementation
+                        // requires tracking the leafset in the MWEB state DB.
+                        std::vector<uint8_t> leafset_bitmap;
+                        connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MWEBLEAFSET, inv.hash, leafset_bitmap));
+                        LogPrint("mweb", "Sent MWEB leafset for block %s to peer=%d\n", inv.hash.ToString(), pfrom->id);
                     }
                     else if (inv.type == MSG_FILTERED_BLOCK)
                     {
@@ -2845,31 +2851,74 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             return error("getmwebutxos: num_requested=%d too large", num_requested);
         }
 
-        // TODO: Implement MWEB UTXO retrieval from the MWEB state
-        // For now, send an empty response
-        LogPrint("mweb", "Received getmwebutxos from peer=%d for block %s (start=%d, count=%d) - not yet implemented\n",
-                 pfrom->id, block_hash.ToString(), start_index, num_requested);
+        // Retrieve UTXOs from the MWEB state database
+        if (g_mweb_state) {
+            std::vector<mw::Output> utxos = g_mweb_state->GetUTXOs(start_index, num_requested);
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MWEBUTXOS, block_hash, utxos));
+            LogPrint("mweb", "Sent %d MWEB UTXOs to peer=%d for block %s\n",
+                     utxos.size(), pfrom->id, block_hash.ToString());
+        } else {
+            LogPrint("mweb", "MWEB state DB not available for getmwebutxos from peer=%d\n", pfrom->id);
+        }
     }
 
     else if (strCommand == NetMsgType::MWEBUTXOS)
     {
         // MWEB UTXO response - process incoming MWEB UTXOs
-        // TODO: Implement processing of received MWEB UTXOs
-        LogPrint("mweb", "Received mwebutxos from peer=%d\n", pfrom->id);
+        uint256 block_hash;
+        std::vector<mw::Output> utxos;
+        vRecv >> block_hash >> utxos;
+
+        LogPrint("mweb", "Received %d MWEB UTXOs from peer=%d for block %s\n",
+                 utxos.size(), pfrom->id, block_hash.ToString());
+
+        // Store received UTXOs in the MWEB state database
+        if (g_mweb_state) {
+            for (const auto& output : utxos) {
+                g_mweb_state->AddOutput(output);
+            }
+        }
     }
 
     else if (strCommand == NetMsgType::MWEBHEADER)
     {
         // MWEB header response - process incoming MWEB header with merkle proof
-        // TODO: Implement processing of received MWEB header
-        LogPrint("mweb", "Received mwebheader from peer=%d\n", pfrom->id);
+        CMerkleBlock merkleBlock;
+        mw::Header mwebHeader;
+        vRecv >> merkleBlock >> mwebHeader;
+
+        LogPrint("mweb", "Received MWEB header from peer=%d, height=%d, numTXOs=%d, numKernels=%d\n",
+                 pfrom->id, mwebHeader.GetHeight(), mwebHeader.GetNumTXOs(), mwebHeader.GetNumKernels());
+
+        // Validate the merkle block and extract matched block hash
+        std::vector<uint256> vMatch;
+        std::vector<unsigned int> vIndex;
+        if (merkleBlock.txn.ExtractMatches(vMatch, vIndex) != merkleBlock.header.hashMerkleRoot) {
+            LogPrint("mweb", "MWEB header merkle proof invalid from peer=%d\n", pfrom->id);
+            return true;
+        }
+
+        // Store the MWEB header in the block index if we have the block
+        {
+            LOCK(cs_main);
+            BlockMap::iterator mi = mapBlockIndex.find(merkleBlock.header.GetHash());
+            if (mi != mapBlockIndex.end() && mi->second) {
+                mi->second->mweb_header = std::make_shared<mw::Header>(mwebHeader);
+            }
+        }
     }
 
     else if (strCommand == NetMsgType::MWEBLEAFSET)
     {
         // MWEB leafset response - process incoming MWEB leafset bitmap
-        // TODO: Implement processing of received MWEB leafset
-        LogPrint("mweb", "Received mwebleafset from peer=%d\n", pfrom->id);
+        uint256 block_hash;
+        std::vector<uint8_t> leafset_bitmap;
+        vRecv >> block_hash >> leafset_bitmap;
+
+        LogPrint("mweb", "Received MWEB leafset from peer=%d for block %s, bitmap size=%d bytes\n",
+                 pfrom->id, block_hash.ToString(), leafset_bitmap.size());
+
+        // TODO: Validate and store the leafset bitmap for IBD/sync
     }
 
     else if (strCommand == NetMsgType::NOTFOUND) {
