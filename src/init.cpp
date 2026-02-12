@@ -23,6 +23,7 @@
 #include "httprpc.h"
 #include "key.h"
 #include "validation.h"
+#include "mweb/mweb_db.h"
 #include "miner.h"
 #include "netbase.h"
 #include "net.h"
@@ -240,6 +241,7 @@ void Shutdown()
         pcoinscatcher = NULL;
         delete pcoinsdbview;
         pcoinsdbview = NULL;
+        g_mweb_state.reset();
         delete pblocktree;
         pblocktree = NULL;
     }
@@ -1495,6 +1497,9 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                 pcoinsdbview = new CCoinsViewDB(nCoinDBCache, false, fReindex || fReindexChainState);
                 pcoinscatcher = new CCoinsViewErrorCatcher(pcoinsdbview);
                 pcoinsTip = new CCoinsViewCache(pcoinscatcher);
+
+                // Initialize MWEB state database
+                g_mweb_state.reset(new CMWEBStateDB(nCoinDBCache / 4, false, fReindex || fReindexChainState));
 
                 if (fReindex) {
                     pblocktree->WriteReindexing(true);
