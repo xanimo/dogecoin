@@ -9,6 +9,7 @@
 #include "mweb/mweb_models.h"
 #include "primitives/transaction.h"
 #include "txmempool.h"
+#include <mw/node/BlockBuilder.h>
 
 // Forward Declarations
 class CBlock;
@@ -21,7 +22,7 @@ class Miner
 {
 public:
     /// Called when starting to build a new block.
-    void NewBlock(const uint64_t nHeight);
+    void NewBlock(const uint64_t nHeight, const mw::Header::CPtr& prevHeader);
 
     /// Attempts to add an MWEB transaction from the mempool to the
     /// in-progress MWEB block being built.
@@ -39,8 +40,8 @@ private:
     bool ValidatePegIns(const CTransactionRef& pTx,
                         const std::vector<mw::PegInCoin>& pegins) const;
 
-    // MWEB block builder state
-    // mw::BlockBuilder::Ptr mweb_builder;  // TODO: Implement when libmw BlockBuilder is available
+    // MWEB block builder
+    mw::BlockBuilder::Ptr mweb_builder;
     CAmount mweb_amount_change{0};
     CAmount hogex_fees{0};
     int64_t hogex_sigops{0};
