@@ -6,6 +6,7 @@
 #define BITCOIN_INDEX_TXINDEX_H
 
 #include <primitives/block.h>
+#include <thread>
 #include <txdb.h>
 #include <uint256.h>
 #include <validationinterface.h>
