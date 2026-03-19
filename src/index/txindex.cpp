@@ -71,8 +71,6 @@ void TxIndex::ThreadSync()
 {
     const CBlockIndex* pindex = m_best_block_index.load();
     if (!m_synced) {
-        auto& consensus_params = Params().GetConsensus();
-
         int64_t last_log_time = 0;
         int64_t last_locator_write_time = 0;
         while (true) {
@@ -100,6 +98,7 @@ void TxIndex::ThreadSync()
             }
 
             CBlock block;
+            const auto& consensus_params = Params().GetConsensus(pindex->nHeight);
             if (!ReadBlockFromDisk(block, pindex, consensus_params)) {
                 FatalError("%s: Failed to read block %s from disk",
                            __func__, pindex->GetBlockHash().ToString());
