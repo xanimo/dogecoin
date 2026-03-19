@@ -20,12 +20,12 @@ static bool ComputeFilter(BlockFilterType filter_type, const CBlockIndex* block_
                           BlockFilter& filter)
 {
     CBlock block;
-    if (!ReadBlockFromDisk(block, block_index->GetBlockPos(), Params().GetConsensus())) {
+    if (!ReadBlockFromDisk(block, block_index->GetBlockPos(), Params().GetConsensus(block_index->nHeight))) {
         return false;
     }
 
     CBlockUndo block_undo;
-    if (block_index->nHeight > 0 && !UndoReadFromDisk(block_undo, block_index)) {
+    if (block_index->nHeight > 0 && !UndoReadFromDisk(block_undo, block_index->GetUndoPos(), block_index->pprev->GetBlockHash())) {
         return false;
     }
 
@@ -36,13 +36,13 @@ static bool ComputeFilter(BlockFilterType filter_type, const CBlockIndex* block_
 static bool CheckFilterLookups(BlockFilterIndex& filter_index, const CBlockIndex* block_index,
                                uint256& last_header)
 {
-    BlockFilter expected_filter;
+    BlockFilter expected_filter(filter_index.GetFilterType(), uint256(), {});
     if (!ComputeFilter(filter_index.GetFilterType(), block_index, expected_filter)) {
         BOOST_ERROR("ComputeFilter failed on block " << block_index->nHeight);
         return false;
     }
 
-    BlockFilter filter;
+    BlockFilter filter(filter_index.GetFilterType(), uint256(), {});
     uint256 filter_header;
     std::vector<BlockFilter> filters;
     std::vector<uint256> filter_hashes;
@@ -56,10 +56,10 @@ static bool CheckFilterLookups(BlockFilterIndex& filter_index, const CBlockIndex
     BOOST_CHECK_EQUAL(filters.size(), 1);
     BOOST_CHECK_EQUAL(filter_hashes.size(), 1);
 
-    BOOST_CHECK_EQUAL(filter.GetHash(), expected_filter.GetHash());
-    BOOST_CHECK_EQUAL(filter_header, expected_filter.ComputeHeader(last_header));
-    BOOST_CHECK_EQUAL(filters[0].GetHash(), expected_filter.GetHash());
-    BOOST_CHECK_EQUAL(filter_hashes[0], expected_filter.GetHash());
+    BOOST_CHECK(filter.GetHash() == expected_filter.GetHash());
+    BOOST_CHECK(filter_header == expected_filter.ComputeHeader(last_header));
+    BOOST_CHECK(filters[0].GetHash() == expected_filter.GetHash());
+    BOOST_CHECK(filter_hashes[0] == expected_filter.GetHash());
 
     filters.clear();
     filter_hashes.clear();
@@ -72,7 +72,7 @@ static CBlock CreateBlock(const CBlockIndex* prev,
                           const CScript& scriptPubKey)
 {
     const CChainParams& chainparams = Params();
-    std::unique_ptr<CBlockTemplate> pblocktemplate = BlockAssembler(chainparams).CreateNewBlock(scriptPubKey);
+    std::unique_ptr<CBlockTemplate> pblocktemplate = BlockAssembler(chainparams).CreateNewBlock(scriptPubKey, false);
     CBlock& block = pblocktemplate->block;
     block.hashPrevBlock = prev->GetBlockHash();
     block.nTime = prev->nTime + 1;
@@ -86,7 +86,7 @@ static CBlock CreateBlock(const CBlockIndex* prev,
     unsigned int extraNonce = 0;
     IncrementExtraNonce(&block, prev, extraNonce);
 
-    while (!CheckProofOfWork(block.GetHash(), block.nBits, chainparams.GetConsensus())) ++block.nNonce;
+    while (!CheckProofOfWork(block.GetHash(), block.nBits, chainparams.GetConsensus(prev->nHeight + 1))) ++block.nNonce;
 
     return block;
 }
@@ -102,7 +102,7 @@ static bool BuildChain(const CBlockIndex* pindex, const CScript& coinbase_script
         CBlockHeader header = block->GetBlockHeader();
 
         CValidationState state;
-        if (!ProcessNewBlockHeaders({header}, state, Params(), &pindex, nullptr)) {
+        if (!ProcessNewBlockHeaders({header}, state, Params(), &pindex)) {
             return false;
         }
     }
@@ -110,7 +110,7 @@ static bool BuildChain(const CBlockIndex* pindex, const CScript& coinbase_script
     return true;
 }
 
-BOOST_FIXTURE_TEST_CASE(blockfilter_index_initial_sync, TestChain100Setup)
+BOOST_FIXTURE_TEST_CASE(blockfilter_index_initial_sync, TestChain240Setup)
 {
     BlockFilterIndex filter_index(BlockFilterType::BASIC, 1 << 20, true);
 
@@ -120,7 +120,7 @@ BOOST_FIXTURE_TEST_CASE(blockfilter_index_initial_sync, TestChain100Setup)
     {
         LOCK(cs_main);
 
-        BlockFilter filter;
+        BlockFilter filter(BlockFilterType::BASIC, uint256(), {});
         uint256 filter_header;
         std::vector<BlockFilter> filters;
         std::vector<uint256> filter_hashes;
@@ -267,8 +267,6 @@ BOOST_FIXTURE_TEST_CASE(blockfilter_index_initial_sync, TestChain100Setup)
 
 BOOST_FIXTURE_TEST_CASE(blockfilter_index_init_destroy, BasicTestingSetup)
 {
-    SetDataDir("tempdir");
-
     BlockFilterIndex* filter_index;
 
     filter_index = GetBlockFilterIndex(BlockFilterType::BASIC);
