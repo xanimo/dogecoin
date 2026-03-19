@@ -8,6 +8,7 @@
 
 #include "crypto/common.h"
 #include "prevector.h"
+#include "serialize.h"
 
 #include <assert.h>
 #include <climits>
