@@ -6,7 +6,7 @@
 
 #include <dbwrapper.h>
 #include <index/blockfilterindex.h>
-#include <util/system.h>
+#include <util.h>
 #include <validation.h>
 
 /* The index database stores three items for each block: the disk location of the encoded filter,
@@ -43,7 +43,7 @@ namespace {
 struct DBVal {
     uint256 hash;
     uint256 header;
-    FlatFilePos pos;
+    CDiskBlockPos pos;
 
     ADD_SERIALIZE_METHODS;
 
@@ -137,7 +137,7 @@ bool BlockFilterIndex::Init()
 
 bool BlockFilterIndex::CommitInternal(CDBBatch& batch)
 {
-    const FlatFilePos& pos = m_next_filter_pos;
+    const CDiskBlockPos& pos = m_next_filter_pos;
 
     // Flush current filter file to disk.
     CAutoFile file(m_filter_fileseq->Open(pos), SER_DISK, CLIENT_VERSION);
@@ -152,7 +152,7 @@ bool BlockFilterIndex::CommitInternal(CDBBatch& batch)
     return BaseIndex::CommitInternal(batch);
 }
 
-bool BlockFilterIndex::ReadFilterFromDisk(const FlatFilePos& pos, BlockFilter& filter) const
+bool BlockFilterIndex::ReadFilterFromDisk(const CDiskBlockPos& pos, BlockFilter& filter) const
 {
     CAutoFile filein(m_filter_fileseq->Open(pos, true), SER_DISK, CLIENT_VERSION);
     if (filein.IsNull()) {
@@ -172,7 +172,7 @@ bool BlockFilterIndex::ReadFilterFromDisk(const FlatFilePos& pos, BlockFilter& f
     return true;
 }
 
-size_t BlockFilterIndex::WriteFilterToDisk(FlatFilePos& pos, const BlockFilter& filter)
+size_t BlockFilterIndex::WriteFilterToDisk(CDiskBlockPos& pos, const BlockFilter& filter)
 {
     assert(filter.GetFilterType() == GetFilterType());
 
@@ -224,7 +224,7 @@ bool BlockFilterIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex
     uint256 prev_header;
 
     if (pindex->nHeight > 0) {
-        if (!UndoReadFromDisk(block_undo, pindex)) {
+        if (!UndoReadFromDisk(block_undo, pindex->GetUndoPos(), pindex->pprev->GetBlockHash())) {
             return false;
         }
 
