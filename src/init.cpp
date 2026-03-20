@@ -265,7 +265,8 @@ void Shutdown()
 #endif
     UnregisterAllValidationInterfaces();
 #ifdef ENABLE_WALLET
-    delete pwalletMain;
+    // Take ownership for RAII cleanup; ensures no leak on early return.
+    std::unique_ptr<CWallet> wallet(pwalletMain);
     pwalletMain = NULL;
 #endif
     globalVerifyHandle.reset();
