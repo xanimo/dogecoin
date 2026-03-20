@@ -18,6 +18,7 @@
 #include <stdint.h>
 #include <string>
 #include <string.h>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -65,45 +66,45 @@ inline T* NCONST_PTR(const T* val)
  */
 template<typename Stream> inline void ser_writedata8(Stream &s, uint8_t obj)
 {
-    s.write((char*)&obj, 1);
+    s.write(reinterpret_cast<char*>(&obj), 1);
 }
 template<typename Stream> inline void ser_writedata16(Stream &s, uint16_t obj)
 {
     obj = htole16(obj);
-    s.write((char*)&obj, 2);
+    s.write(reinterpret_cast<char*>(&obj), 2);
 }
 template<typename Stream> inline void ser_writedata32(Stream &s, uint32_t obj)
 {
     obj = htole32(obj);
-    s.write((char*)&obj, 4);
+    s.write(reinterpret_cast<char*>(&obj), 4);
 }
 template<typename Stream> inline void ser_writedata64(Stream &s, uint64_t obj)
 {
     obj = htole64(obj);
-    s.write((char*)&obj, 8);
+    s.write(reinterpret_cast<char*>(&obj), 8);
 }
 template<typename Stream> inline uint8_t ser_readdata8(Stream &s)
 {
     uint8_t obj;
-    s.read((char*)&obj, 1);
+    s.read(reinterpret_cast<char*>(&obj), 1);
     return obj;
 }
 template<typename Stream> inline uint16_t ser_readdata16(Stream &s)
 {
     uint16_t obj;
-    s.read((char*)&obj, 2);
+    s.read(reinterpret_cast<char*>(&obj), 2);
     return le16toh(obj);
 }
 template<typename Stream> inline uint32_t ser_readdata32(Stream &s)
 {
     uint32_t obj;
-    s.read((char*)&obj, 4);
+    s.read(reinterpret_cast<char*>(&obj), 4);
     return le32toh(obj);
 }
 template<typename Stream> inline uint64_t ser_readdata64(Stream &s)
 {
     uint64_t obj;
-    s.read((char*)&obj, 8);
+    s.read(reinterpret_cast<char*>(&obj), 8);
     return le64toh(obj);
 }
 inline uint64_t ser_double_to_uint64(double x)
@@ -300,12 +301,14 @@ uint64_t ReadCompactSize(Stream& is)
 template<typename I>
 inline unsigned int GetSizeOfVarInt(I n)
 {
+    typedef typename std::make_unsigned<I>::type U;
+    U m = static_cast<U>(n);
     int nRet = 0;
     while(true) {
         nRet++;
-        if (n <= 0x7F)
+        if (m <= 0x7F)
             break;
-        n = (n >> 7) - 1;
+        m = (m >> 7) - 1;
     }
     return nRet;
 }
@@ -316,13 +319,15 @@ inline void WriteVarInt(CSizeComputer& os, I n);
 template<typename Stream, typename I>
 void WriteVarInt(Stream& os, I n)
 {
+    typedef typename std::make_unsigned<I>::type U;
+    U m = static_cast<U>(n);
     unsigned char tmp[(sizeof(n)*8+6)/7];
     int len=0;
     while(true) {
-        tmp[len] = (n & 0x7F) | (len ? 0x80 : 0x00);
-        if (n <= 0x7F)
+        tmp[len] = (m & 0x7F) | (len ? 0x80 : 0x00);
+        if (m <= 0x7F)
             break;
-        n = (n >> 7) - 1;
+        m = (m >> 7) - 1;
         len++;
     }
     do {
@@ -333,14 +338,15 @@ void WriteVarInt(Stream& os, I n)
 template<typename Stream, typename I>
 I ReadVarInt(Stream& is)
 {
-    I n = 0;
+    typedef typename std::make_unsigned<I>::type U;
+    U n = 0;
     while(true) {
         unsigned char chData = ser_readdata8(is);
         n = (n << 7) | (chData & 0x7F);
         if (chData & 0x80)
             n++;
         else
-            return n;
+            return static_cast<I>(n);
     }
 }
 
