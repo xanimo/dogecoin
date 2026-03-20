@@ -1421,6 +1421,8 @@ static bool PrepareBlockFilterRequest(CNode* pfrom, const CChainParams& chain_pa
         return false;
     }
 
+    filter_index->BlockUntilSyncedToCurrentChain();
+
     return true;
 }
 
