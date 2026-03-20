@@ -4035,15 +4035,20 @@ bool CWallet::BackupWallet(const std::string& strDest)
                         return false;
                     }
 
+                    fs::path pathTmp = pathDest.string() + ".tmp";
+
 #if BOOST_VERSION >= 107400
                     // Boost 1.74.0 and up implements std++17 like "copy_options", and this
                     // is the only remaining enum after 1.85.0
-                    fs::copy_file(pathSrc, pathDest, fs::copy_options::overwrite_existing);
+                    fs::copy_file(pathSrc, pathTmp, fs::copy_options::overwrite_existing);
 #elif BOOST_VERSION >= 104000
-                    fs::copy_file(pathSrc, pathDest, fs::copy_option::overwrite_if_exists);
+                    fs::copy_file(pathSrc, pathTmp, fs::copy_option::overwrite_if_exists);
 #else
-                    fs::copy_file(pathSrc, pathDest);
+                    fs::copy_file(pathSrc, pathTmp);
 #endif
+                    // Atomic rename: destination is either the old complete file
+                    // or the new complete file, never a partial write.
+                    fs::rename(pathTmp, pathDest);
                     LogPrintf("copied %s to %s\n", strWalletFile, pathDest.string());
                     return true;
                 } catch (const fs::filesystem_error& e) {
