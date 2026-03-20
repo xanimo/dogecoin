@@ -344,7 +344,7 @@ I ReadVarInt(Stream& is)
     }
 }
 
-#define FLATDATA(obj) REF(CFlatData((char*)&(obj), (char*)&(obj) + sizeof(obj)))
+#define FLATDATA(obj) REF(CFlatData(const_cast<char*>(reinterpret_cast<const char*>(&(obj))), const_cast<char*>(reinterpret_cast<const char*>(&(obj))) + sizeof(obj)))
 #define VARINT(obj) REF(WrapVarInt(REF(obj)))
 #define COMPACTSIZE(obj) REF(CCompactSize(REF(obj)))
 #define LIMITED_STRING(obj,n) REF(LimitedString< n >(REF(obj)))
@@ -358,18 +358,18 @@ protected:
     char* pbegin;
     char* pend;
 public:
-    CFlatData(void* pbeginIn, void* pendIn) : pbegin((char*)pbeginIn), pend((char*)pendIn) { }
+    CFlatData(void* pbeginIn, void* pendIn) : pbegin(reinterpret_cast<char*>(pbeginIn)), pend(reinterpret_cast<char*>(pendIn)) { }
     template <class T, class TAl>
     explicit CFlatData(std::vector<T,TAl> &v)
     {
-        pbegin = (char*)v.data();
-        pend = (char*)(v.data() + v.size());
+        pbegin = reinterpret_cast<char*>(v.data());
+        pend = reinterpret_cast<char*>(v.data() + v.size());
     }
     template <unsigned int N, typename T, typename S, typename D>
     explicit CFlatData(prevector<N, T, S, D> &v)
     {
-        pbegin = (char*)v.data();
-        pend = (char*)(v.data() + v.size());
+        pbegin = reinterpret_cast<char*>(v.data());
+        pend = reinterpret_cast<char*>(v.data() + v.size());
     }
     char* begin() { return pbegin; }
     const char* begin() const { return pbegin; }
