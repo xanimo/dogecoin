@@ -32,6 +32,8 @@
 
 #include <assert.h>
 
+#include <memory>
+
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/thread.hpp>
@@ -1451,7 +1453,7 @@ void CWalletTx::GetAmounts(list<COutputEntry>& listReceived,
         if (nDebit > 0)
         {
             // Don't report 'change' txouts
-            if (pwallet->IsChange(txout))
+            if (nChangePos >= 0 ? ((int)i == nChangePos) : pwallet->IsChange(txout))
                 continue;
         }
         else if (!(fIsMine & filter))
@@ -2788,6 +2790,9 @@ bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wt
         // Embed the constructed transaction data in wtxNew.
         wtxNew.SetTx(MakeTransactionRef(std::move(txNew)));
 
+        // Remember which output is change so IsChange() doesn't need heuristics.
+        wtxNew.nChangePos = nChangePosInOut;
+
         // Limit size
         if (GetTransactionWeight(wtxNew) >= MAX_STANDARD_TX_WEIGHT)
         {
@@ -3291,14 +3296,18 @@ set< set<CTxDestination> > CWallet::GetAddressGroupings()
             // group change with input addresses
             if (any_mine)
             {
-               BOOST_FOREACH(CTxOut txout, pcoin->tx->vout)
-                   if (IsChange(txout))
+               for (unsigned int i = 0; i < pcoin->tx->vout.size(); ++i)
+               {
+                   const CTxOut& txout = pcoin->tx->vout[i];
+                   bool fIsChange = pcoin->nChangePos >= 0 ? ((int)i == pcoin->nChangePos) : IsChange(txout);
+                   if (fIsChange)
                    {
                        CTxDestination txoutAddr;
                        if(!ExtractDestination(txout.scriptPubKey, txoutAddr))
                            continue;
                        grouping.insert(txoutAddr);
                    }
+               }
             }
             if (grouping.size() > 0)
             {
@@ -3874,11 +3883,13 @@ bool CWallet::InitLoadWallet()
 
     std::string walletFile = GetArg("-wallet", DEFAULT_WALLET_DAT);
 
-    CWallet * const pwallet = CreateWalletFromFile(walletFile);
+    // Use unique_ptr during creation for exception safety; release to global
+    // raw pointer only after construction succeeds.
+    std::unique_ptr<CWallet> pwallet(CreateWalletFromFile(walletFile));
     if (!pwallet) {
         return false;
     }
-    pwalletMain = pwallet;
+    pwalletMain = pwallet.release();
 
     return true;
 }

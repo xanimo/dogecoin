@@ -244,6 +244,7 @@ public:
     bool fFromMe;
     std::string strFromAccount;
     int64_t nOrderPos; //!< position in ordered transaction list
+    int nChangePos; //!< index of change output in vout, or -1 if unknown
 
     // memory only
     mutable bool fDebitCached;
@@ -304,6 +305,7 @@ public:
         nImmatureWatchCreditCached = 0;
         nChangeCached = 0;
         nOrderPos = -1;
+        nChangePos = -1;
     }
 
     ADD_SERIALIZE_METHODS;
@@ -322,6 +324,9 @@ public:
 
             if (nTimeSmart)
                 mapValue["timesmart"] = strprintf("%u", nTimeSmart);
+
+            if (nChangePos >= 0)
+                mapValue["change_pos"] = strprintf("%d", nChangePos);
         }
 
         READWRITE(*(CMerkleTx*)this);
@@ -341,6 +346,8 @@ public:
             ReadOrderPos(nOrderPos, mapValue);
 
             nTimeSmart = mapValue.count("timesmart") ? (unsigned int)atoi64(mapValue["timesmart"]) : 0;
+
+            nChangePos = mapValue.count("change_pos") ? atoi(mapValue["change_pos"]) : -1;
         }
 
         mapValue.erase("fromaccount");
@@ -348,6 +355,7 @@ public:
         mapValue.erase("spent");
         mapValue.erase("n");
         mapValue.erase("timesmart");
+        mapValue.erase("change_pos");
     }
 
     //! make sure balances are recalculated
