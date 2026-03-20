@@ -53,6 +53,7 @@ private:
 
     std::thread m_thread_sync;
     CThreadInterrupt m_interrupt;
+    bool m_interface_registered{false};
 
     /// Sync the index with the block index starting from the current best block.
     /// Intended to be run in its own thread, m_thread_sync, and can be
