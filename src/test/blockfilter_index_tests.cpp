@@ -36,13 +36,13 @@ static bool ComputeFilter(BlockFilterType filter_type, const CBlockIndex* block_
 static bool CheckFilterLookups(BlockFilterIndex& filter_index, const CBlockIndex* block_index,
                                uint256& last_header)
 {
-    BlockFilter expected_filter(filter_index.GetFilterType(), uint256(), {});
-    if (!ComputeFilter(filter_index.GetFilterType(), block_index, expected_filter)) {
+    BlockFilter expected_filter(BlockFilterType::BASIC, uint256(), {0x00});
+    if (!ComputeFilter(BlockFilterType::BASIC, block_index, expected_filter)) {
         BOOST_ERROR("ComputeFilter failed on block " << block_index->nHeight);
         return false;
     }
 
-    BlockFilter filter(filter_index.GetFilterType(), uint256(), {});
+    BlockFilter filter(BlockFilterType::BASIC, uint256(), {0x00});
     uint256 filter_header;
     std::vector<BlockFilter> filters;
     std::vector<uint256> filter_hashes;
@@ -75,7 +75,8 @@ static CBlock CreateBlock(const CBlockIndex* prev,
     std::unique_ptr<CBlockTemplate> pblocktemplate = BlockAssembler(chainparams).CreateNewBlock(scriptPubKey, false);
     CBlock& block = pblocktemplate->block;
     block.hashPrevBlock = prev->GetBlockHash();
-    block.nTime = prev->nTime + 1;
+    block.nTime = std::max<uint32_t>(prev->nTime + 1, static_cast<uint32_t>(prev->GetMedianTimePast() + 1));
+    block.nBits = GetNextWorkRequired(prev, &block, chainparams.GetConsensus(prev->nHeight + 1));
 
     // Replace mempool-selected txns with just coinbase plus passed-in txns:
     block.vtx.resize(1);
@@ -86,7 +87,7 @@ static CBlock CreateBlock(const CBlockIndex* prev,
     unsigned int extraNonce = 0;
     IncrementExtraNonce(&block, prev, extraNonce);
 
-    while (!CheckProofOfWork(block.GetHash(), block.nBits, chainparams.GetConsensus(prev->nHeight + 1))) ++block.nNonce;
+    while (!CheckProofOfWork(block.GetPoWHash(), block.nBits, chainparams.GetConsensus(prev->nHeight + 1))) ++block.nNonce;
 
     return block;
 }
@@ -103,6 +104,10 @@ static bool BuildChain(const CBlockIndex* pindex, const CScript& coinbase_script
 
         CValidationState state;
         if (!ProcessNewBlockHeaders({header}, state, Params(), &pindex)) {
+            BOOST_ERROR(strprintf("ProcessNewBlockHeaders failed: reject_reason=%s debug=%s block_hash=%s prev=%s height=%d",
+                                 state.GetRejectReason(), state.GetDebugMessage(),
+                                 block->GetHash().ToString(), block->hashPrevBlock.ToString(),
+                                 pindex ? pindex->nHeight + 1 : 0));
             return false;
         }
     }
@@ -112,7 +117,8 @@ static bool BuildChain(const CBlockIndex* pindex, const CScript& coinbase_script
 
 BOOST_FIXTURE_TEST_CASE(blockfilter_index_initial_sync, TestChain240Setup)
 {
-    BlockFilterIndex filter_index(BlockFilterType::BASIC, 1 << 20, true);
+    fs::remove_all(GetDataDir() / "indexes" / "blockfilter");
+    BlockFilterIndex filter_index(BlockFilterType::BASIC, 1 << 20, true, true);
 
     uint256 last_header;
 
@@ -120,7 +126,7 @@ BOOST_FIXTURE_TEST_CASE(blockfilter_index_initial_sync, TestChain240Setup)
     {
         LOCK(cs_main);
 
-        BlockFilter filter(BlockFilterType::BASIC, uint256(), {});
+        BlockFilter filter(BlockFilterType::BASIC, uint256(), {0x00});
         uint256 filter_header;
         std::vector<BlockFilter> filters;
         std::vector<uint256> filter_hashes;
@@ -267,12 +273,13 @@ BOOST_FIXTURE_TEST_CASE(blockfilter_index_initial_sync, TestChain240Setup)
 
 BOOST_FIXTURE_TEST_CASE(blockfilter_index_init_destroy, BasicTestingSetup)
 {
+    fs::remove_all(GetDataDir() / "indexes" / "blockfilter");
     BlockFilterIndex* filter_index;
 
     filter_index = GetBlockFilterIndex(BlockFilterType::BASIC);
     BOOST_CHECK(filter_index == nullptr);
 
-    BOOST_CHECK(InitBlockFilterIndex(BlockFilterType::BASIC, 1 << 20, true, false));
+    BOOST_CHECK(InitBlockFilterIndex(BlockFilterType::BASIC, 1 << 20, true, true));
 
     filter_index = GetBlockFilterIndex(BlockFilterType::BASIC);
     BOOST_CHECK(filter_index != nullptr);
@@ -294,7 +301,7 @@ BOOST_FIXTURE_TEST_CASE(blockfilter_index_init_destroy, BasicTestingSetup)
     BOOST_CHECK(filter_index == nullptr);
 
     // Reinitialize index.
-    BOOST_CHECK(InitBlockFilterIndex(BlockFilterType::BASIC, 1 << 20, true, false));
+    BOOST_CHECK(InitBlockFilterIndex(BlockFilterType::BASIC, 1 << 20, true, true));
 
     DestroyAllBlockFilterIndexes();
 
