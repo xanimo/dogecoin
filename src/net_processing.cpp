@@ -2260,8 +2260,13 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 // able to without any round trips.
                 PartiallyDownloadedBlock tempBlock(&mempool);
                 ReadStatus status = tempBlock.InitData(cmpctblock, vExtraTxnForCompact);
-                if (status != READ_STATUS_OK) {
-                    // TODO: don't ignore failures
+                if (status == READ_STATUS_INVALID) {
+                    Misbehaving(pfrom->GetId(), 100);
+                    LogPrintf("Peer %d sent us invalid compact block (optimistic)\n", pfrom->id);
+                    return true;
+                } else if (status != READ_STATUS_OK) {
+                    // Duplicate txindexes or other non-malicious failure;
+                    // fall through without reconstructing.
                     return true;
                 }
                 std::vector<CTransactionRef> dummy;
