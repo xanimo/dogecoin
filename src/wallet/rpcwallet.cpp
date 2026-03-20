@@ -10,6 +10,7 @@
 #include "consensus/validation.h"
 #include "core_io.h"
 #include "init.h"
+#include "support/cleanse.h"
 #include "validation.h"
 #include "net.h"
 #include "policy/policy.h"
@@ -2175,9 +2176,10 @@ UniValue walletpassphrase(const JSONRPCRequest& request)
     // Note that the walletpassphrase is stored in request.params[0] which is not mlock()ed
     SecureString strWalletPass;
     strWalletPass.reserve(100);
-    // TODO: get rid of this .c_str() by implementing SecureString::operator=(std::string)
-    // Alternately, find a way to make request.params[0] mlock()'d to begin with.
-    strWalletPass = request.params[0].get_str().c_str();
+    // Copy passphrase into mlock'd SecureString and cleanse the std::string copy
+    std::string strPass = request.params[0].get_str();
+    strWalletPass.assign(strPass.begin(), strPass.end());
+    memory_cleanse(&strPass[0], strPass.size());
 
     if (strWalletPass.length() > 0)
     {
@@ -2224,15 +2226,18 @@ UniValue walletpassphrasechange(const JSONRPCRequest& request)
     if (!pwalletMain->IsCrypted())
         throw JSONRPCError(RPC_WALLET_WRONG_ENC_STATE, "Error: running with an unencrypted wallet, but walletpassphrasechange was called.");
 
-    // TODO: get rid of these .c_str() calls by implementing SecureString::operator=(std::string)
-    // Alternately, find a way to make request.params[0] mlock()'d to begin with.
+    // Copy passphrases into mlock'd SecureStrings and cleanse the std::string copies
     SecureString strOldWalletPass;
     strOldWalletPass.reserve(100);
-    strOldWalletPass = request.params[0].get_str().c_str();
+    std::string strOldPass = request.params[0].get_str();
+    strOldWalletPass.assign(strOldPass.begin(), strOldPass.end());
+    memory_cleanse(&strOldPass[0], strOldPass.size());
 
     SecureString strNewWalletPass;
     strNewWalletPass.reserve(100);
-    strNewWalletPass = request.params[1].get_str().c_str();
+    std::string strNewPass = request.params[1].get_str();
+    strNewWalletPass.assign(strNewPass.begin(), strNewPass.end());
+    memory_cleanse(&strNewPass[0], strNewPass.size());
 
     if (strOldWalletPass.length() < 1 || strNewWalletPass.length() < 1)
         throw runtime_error(
@@ -2321,11 +2326,12 @@ UniValue encryptwallet(const JSONRPCRequest& request)
     if (pwalletMain->IsCrypted())
         throw JSONRPCError(RPC_WALLET_WRONG_ENC_STATE, "Error: running with an encrypted wallet, but encryptwallet was called.");
 
-    // TODO: get rid of this .c_str() by implementing SecureString::operator=(std::string)
-    // Alternately, find a way to make request.params[0] mlock()'d to begin with.
+    // Copy passphrase into mlock'd SecureString and cleanse the std::string copy
     SecureString strWalletPass;
     strWalletPass.reserve(100);
-    strWalletPass = request.params[0].get_str().c_str();
+    std::string strPass = request.params[0].get_str();
+    strWalletPass.assign(strPass.begin(), strPass.end());
+    memory_cleanse(&strPass[0], strPass.size());
 
     if (strWalletPass.length() < 1)
         throw runtime_error(
