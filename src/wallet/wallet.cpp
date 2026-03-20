@@ -155,6 +155,8 @@ void CWallet::DeriveNewChildKey(CKeyMetadata& metadata, CKey& secret)
 
     // derive child key at next index, skip keys already known to the wallet
     do {
+        if (hdChain.nExternalChainCounter >= 0x80000000)
+            throw std::runtime_error(std::string(__func__) + ": HD chain counter exhausted");
         // always derive hardened keys
         // childIndex | BIP32_HARDENED_KEY_LIMIT = derive childIndex in hardened child-index-range
         // example: 1 | BIP32_HARDENED_KEY_LIMIT == 0x80000001 == 2147483649
