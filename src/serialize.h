@@ -269,7 +269,7 @@ uint64_t ReadCompactSize(Stream& is)
         if (nSizeRet < 0x100000000ULL)
             throw std::ios_base::failure("non-canonical ReadCompactSize()");
     }
-    if (nSizeRet > (uint64_t)MAX_SIZE)
+    if (nSizeRet > static_cast<uint64_t>(MAX_SIZE))
         throw std::ios_base::failure("ReadCompactSize(): size too large");
     return nSizeRet;
 }
@@ -564,7 +564,7 @@ void Unserialize(Stream& is, std::basic_string<C>& str)
     unsigned int nSize = ReadCompactSize(is);
     str.resize(nSize);
     if (nSize != 0)
-        is.read((char*)&str[0], nSize * sizeof(str[0]));
+        is.read(reinterpret_cast<char*>(&str[0]), nSize * sizeof(str[0]));
 }
 
 
@@ -577,7 +577,7 @@ void Serialize_impl(Stream& os, const prevector<N, T>& v, const unsigned char&)
 {
     WriteCompactSize(os, v.size());
     if (!v.empty())
-        os.write((char*)&v[0], v.size() * sizeof(T));
+        os.write(reinterpret_cast<const char*>(&v[0]), v.size() * sizeof(T));
 }
 
 template<typename Stream, unsigned int N, typename T, typename V>
@@ -604,9 +604,9 @@ void Unserialize_impl(Stream& is, prevector<N, T>& v, const unsigned char&)
     unsigned int i = 0;
     while (i < nSize)
     {
-        unsigned int blk = std::min(nSize - i, (unsigned int)(1 + 4999999 / sizeof(T)));
+        unsigned int blk = std::min(nSize - i, static_cast<unsigned int>(1 + 4999999 / sizeof(T)));
         v.resize(i + blk);
-        is.read((char*)&v[i], blk * sizeof(T));
+        is.read(reinterpret_cast<char*>(&v[i]), blk * sizeof(T));
         i += blk;
     }
 }
@@ -645,7 +645,7 @@ void Serialize_impl(Stream& os, const std::vector<T, A>& v, const unsigned char&
 {
     WriteCompactSize(os, v.size());
     if (!v.empty())
-        os.write((char*)&v[0], v.size() * sizeof(T));
+        os.write(reinterpret_cast<const char*>(&v[0]), v.size() * sizeof(T));
 }
 
 template<typename Stream, typename T, typename A, typename V>
@@ -672,9 +672,9 @@ void Unserialize_impl(Stream& is, std::vector<T, A>& v, const unsigned char&)
     unsigned int i = 0;
     while (i < nSize)
     {
-        unsigned int blk = std::min(nSize - i, (unsigned int)(1 + 4999999 / sizeof(T)));
+        unsigned int blk = std::min(nSize - i, static_cast<unsigned int>(1 + 4999999 / sizeof(T)));
         v.resize(i + blk);
-        is.read((char*)&v[i], blk * sizeof(T));
+        is.read(reinterpret_cast<char*>(&v[i]), blk * sizeof(T));
         i += blk;
     }
 }
