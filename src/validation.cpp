@@ -3554,7 +3554,7 @@ FILE* OpenBlockFile(const CDiskBlockPos &pos, bool fReadOnly) {
 }
 
 /** Open an undo file (rev?????.dat) */
-static FILE* OpenUndoFile(const CDiskBlockPos &pos, bool fReadOnly) {
+FILE* OpenUndoFile(const CDiskBlockPos &pos, bool fReadOnly) {
     return UndoFileSeq().Open(pos, fReadOnly);
 }
 
