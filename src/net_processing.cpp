@@ -3497,7 +3497,10 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
             int64_t timeNow = GetTimeMicros();
             if (timeNow > pto->nextSendTimeFeeFilter) {
                 static CFeeRate default_feerate(DEFAULT_MIN_RELAY_TX_FEE);
-                static FeeFilterRounder filterRounder(default_feerate);
+                // Use a fresh rounder per invocation so each peer sees
+                // independently randomized bucket rounding, reducing
+                // the ability of spy nodes to fingerprint wallet state.
+                FeeFilterRounder filterRounder(default_feerate);
                 CAmount filterToSend = filterRounder.round(currentFilter);
                 // If we don't allow free transactions, then we always have a fee filter of at least minRelayTxFeeRate
                 if (GetArg("-limitfreerelay", DEFAULT_LIMITFREERELAY) <= 0)
