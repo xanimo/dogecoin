@@ -395,11 +395,12 @@ bool CWallet::SetMinVersion(enum WalletFeature nVersion, CWalletDB* pwalletdbIn,
 
     if (fFileBacked)
     {
-        CWalletDB* pwalletdb = pwalletdbIn ? pwalletdbIn : new CWalletDB(strWalletFile);
+        std::unique_ptr<CWalletDB> pwalletdbOwned;
+        if (!pwalletdbIn)
+            pwalletdbOwned.reset(new CWalletDB(strWalletFile));
+        CWalletDB* pwalletdb = pwalletdbIn ? pwalletdbIn : pwalletdbOwned.get();
         if (nWalletVersion > 40000)
             pwalletdb->WriteMinVersion(nWalletVersion);
-        if (!pwalletdbIn)
-            delete pwalletdb;
     }
 
     return true;
@@ -634,13 +635,12 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
         if (fFileBacked)
         {
             assert(!pwalletdbEncryption);
-            pwalletdbEncryption = new CWalletDB(strWalletFile);
-            if (!pwalletdbEncryption->TxnBegin()) {
-                delete pwalletdbEncryption;
-                pwalletdbEncryption = NULL;
+            std::unique_ptr<CWalletDB> pdbEncryption(new CWalletDB(strWalletFile));
+            if (!pdbEncryption->TxnBegin()) {
                 return false;
             }
-            pwalletdbEncryption->WriteMasterKey(nMasterKeyMaxID, kMasterKey);
+            pdbEncryption->WriteMasterKey(nMasterKeyMaxID, kMasterKey);
+            pwalletdbEncryption = pdbEncryption.release();
         }
 
         if (!EncryptKeys(vMasterKey))
