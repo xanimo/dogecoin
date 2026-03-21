@@ -1570,7 +1570,7 @@ void MapPort(bool fUseUPnP)
             upnp_thread->join();
             delete upnp_thread;
         }
-        upnp_thread = new boost::thread(boost::bind(&TraceThread<void (*)()>, "upnp", &ThreadMapPort));
+        upnp_thread = new boost::thread([]{ TraceThread<void (*)()>("upnp", &ThreadMapPort); });
     }
     else if (upnp_thread) {
         upnp_thread->interrupt();
@@ -2366,7 +2366,7 @@ bool CConnman::Start(CScheduler& scheduler, std::string& strNodeError, Options c
     threadMessageHandler = std::thread(&TraceThread<std::function<void()> >, "msghand", std::function<void()>(std::bind(&CConnman::ThreadMessageHandler, this)));
 
     // Dump network addresses
-    scheduler.scheduleEvery(boost::bind(&CConnman::DumpData, this), DUMP_ADDRESSES_INTERVAL);
+    scheduler.scheduleEvery([this]{ this->DumpData(); }, DUMP_ADDRESSES_INTERVAL);
 
     return true;
 }
