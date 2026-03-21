@@ -492,9 +492,9 @@ const CChainParams &Params() {
 }
 
 const Consensus::Params *Consensus::Params::GetConsensus(uint32_t nTargetHeight) const {
-    if (nTargetHeight < this -> nHeightEffective && this -> pLeft != NULL) {
+    if (nTargetHeight < this -> nHeightEffective && this -> pLeft != nullptr) {
         return this -> pLeft -> GetConsensus(nTargetHeight);
-    } else if (nTargetHeight > this -> nHeightEffective && this -> pRight != NULL) {
+    } else if (nTargetHeight > this -> nHeightEffective && this -> pRight != nullptr) {
         const Consensus::Params *pCandidate = this -> pRight -> GetConsensus(nTargetHeight);
         if (pCandidate->nHeightEffective <= nTargetHeight) {
             return pCandidate;

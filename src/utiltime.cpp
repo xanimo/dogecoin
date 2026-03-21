@@ -23,7 +23,7 @@ int64_t GetTime()
     int64_t mocktime = GetMockTime();
     if (mocktime) return mocktime;
 
-    time_t now = time(NULL);
+    time_t now = time(nullptr);
     assert(now > 0);
     return now;
 }

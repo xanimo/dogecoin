@@ -45,7 +45,7 @@ QString PeerTools::ManagePeer(QString type, QString peer)
     if (type == "onetry")
     {
         CAddress addr;
-        g_connman->OpenNetworkConnection(addr, false, NULL, peerAddress.c_str());
+        g_connman->OpenNetworkConnection(addr, false, nullptr, peerAddress.c_str());
         return tr("Attempted to one try node.");
     }
 

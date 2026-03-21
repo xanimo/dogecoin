@@ -479,7 +479,7 @@ public:
     {
         if (file) {
             ::fclose(file);
-            file = NULL;
+            file = nullptr;
         }
     }
 
@@ -487,7 +487,7 @@ public:
      * @note This will invalidate the CAutoFile object, and makes it the responsibility of the caller
      * of this function to clean up the returned FILE*.
      */
-    FILE* release()             { FILE* ret = file; file = NULL; return ret; }
+    FILE* release()             { FILE* ret = file; file = nullptr; return ret; }
 
     /** Get wrapped FILE* without transfer of ownership.
      * @note Ownership of the FILE* will remain with this class. Use this only if the scope of the
@@ -497,7 +497,7 @@ public:
 
     /** Return true if the wrapped FILE* is NULL, false otherwise.
      */
-    bool IsNull() const         { return (file == NULL); }
+    bool IsNull() const         { return (file == nullptr); }
 
     //
     // Stream subset
@@ -616,7 +616,7 @@ public:
     {
         if (src) {
             ::fclose(src);
-            src = NULL;
+            src = nullptr;
         }
     }
 

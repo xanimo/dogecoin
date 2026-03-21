@@ -30,7 +30,7 @@
 
 #include <algorithm>
 
-LockedPoolManager* LockedPoolManager::_instance = NULL;
+LockedPoolManager* LockedPoolManager::_instance = nullptr;
 std::once_flag LockedPoolManager::init_flag;
 
 /*******************************************************************************/
