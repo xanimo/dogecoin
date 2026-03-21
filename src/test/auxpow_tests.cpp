@@ -166,13 +166,13 @@ CAuxpowBuilder::buildCoinbaseData(bool header, const std::vector<unsigned char>&
     std::vector<unsigned char> res;
 
     if (header)
-        res.insert(res.end(), UBEGIN(pchMergedMiningHeader),
-            UEND(pchMergedMiningHeader));
+        res.insert(res.end(), pchMergedMiningHeader,
+            pchMergedMiningHeader + sizeof(pchMergedMiningHeader));
     res.insert(res.end(), auxRoot.begin(), auxRoot.end());
 
     const int size = (1 << h);
-    res.insert(res.end(), UBEGIN(size), UEND(size));
-    res.insert(res.end(), UBEGIN(nonce), UEND(nonce));
+    res.insert(res.end(), reinterpret_cast<const unsigned char*>(&size), reinterpret_cast<const unsigned char*>(&size + 1));
+    res.insert(res.end(), reinterpret_cast<const unsigned char*>(&nonce), reinterpret_cast<const unsigned char*>(&nonce + 1));
 
     return res;
 }

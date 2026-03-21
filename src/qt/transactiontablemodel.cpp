@@ -28,8 +28,6 @@
 #include <QList>
 
 #include <boost/bind/bind.hpp>
-#include <boost/foreach.hpp>
-
 // Amount column is right-aligned it contains numbers
 static int column_alignments[] = {
         Qt::AlignLeft|Qt::AlignVCenter, /* status */

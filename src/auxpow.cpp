@@ -111,7 +111,7 @@ CAuxPow::check(const uint256& hashAuxBlock, int nChainId,
     //
 
     CScript::const_iterator pcHead =
-        std::search(script.begin(), script.end(), UBEGIN(pchMergedMiningHeader), UEND(pchMergedMiningHeader));
+        std::search(script.begin(), script.end(), pchMergedMiningHeader, pchMergedMiningHeader + sizeof(pchMergedMiningHeader));
 
     CScript::const_iterator pc =
         std::search(script.begin(), script.end(), vchRootHash.begin(), vchRootHash.end());
@@ -123,7 +123,7 @@ CAuxPow::check(const uint256& hashAuxBlock, int nChainId,
     {
         // Enforce only one chain merkle root by checking that a single instance of the merged
         // mining header exists just before.
-        if (script.end() != std::search(pcHead + 1, script.end(), UBEGIN(pchMergedMiningHeader), UEND(pchMergedMiningHeader)))
+        if (script.end() != std::search(pcHead + 1, script.end(), pchMergedMiningHeader, pchMergedMiningHeader + sizeof(pchMergedMiningHeader)))
             return error("Multiple merged mining headers in coinbase");
         if (pcHead + sizeof(pchMergedMiningHeader) != pc)
             return error("Merged mining header is not just before chain merkle root");
