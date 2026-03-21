@@ -6,11 +6,7 @@
 #include "support/allocators/zeroafterfree.h"
 #include "test/test_bitcoin.h"
 
-#include <boost/assign/std/vector.hpp> // for 'operator+=()'
-#include <boost/assert.hpp>
 #include <boost/test/unit_test.hpp>
-
-using namespace boost::assign; // bring 'operator+=()' into scope
 
 BOOST_FIXTURE_TEST_SUITE(streams_tests, BasicTestingSetup)
 
@@ -81,14 +77,14 @@ BOOST_AUTO_TEST_CASE(streams_serializedata_xor)
 
     // Degenerate case
     
-    key += '\x00','\x00';
+    key = {0x00, 0x00};
     ds.Xor(key);
     BOOST_CHECK_EQUAL(
             std::string(expected_xor.begin(), expected_xor.end()), 
             std::string(ds.begin(), ds.end()));
 
-    in += '\x0f','\xf0';
-    expected_xor += '\xf0','\x0f';
+    in = {'\x0f', '\xf0'};
+    expected_xor = {'\xf0', '\x0f'};
     
     // Single character key
 
@@ -96,7 +92,7 @@ BOOST_AUTO_TEST_CASE(streams_serializedata_xor)
     ds.insert(ds.begin(), in.begin(), in.end());
     key.clear();
 
-    key += '\xff';
+    key = {0xff};
     ds.Xor(key);
     BOOST_CHECK_EQUAL(
             std::string(expected_xor.begin(), expected_xor.end()), 
@@ -104,16 +100,13 @@ BOOST_AUTO_TEST_CASE(streams_serializedata_xor)
     
     // Multi character key
 
-    in.clear();
-    expected_xor.clear();
-    in += '\xf0','\x0f';
-    expected_xor += '\x0f','\x00';
+    in = {'\xf0', '\x0f'};
+    expected_xor = {'\x0f', '\x00'};
                         
     ds.clear();
     ds.insert(ds.begin(), in.begin(), in.end());
 
-    key.clear();
-    key += '\xff','\x0f';
+    key = {0xff, 0x0f};
 
     ds.Xor(key);
     BOOST_CHECK_EQUAL(
