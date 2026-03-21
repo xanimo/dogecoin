@@ -84,6 +84,7 @@
 #include <boost/program_options/detail/config_file.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/thread.hpp>
+#include <mutex>
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
 #include <openssl/conf.h>
@@ -184,10 +185,10 @@ instance_of_cinit;
  * the mutex).
  */
 
-static boost::once_flag debugPrintInitFlag = BOOST_ONCE_INIT;
+static std::once_flag debugPrintInitFlag;
 
 /**
- * We use boost::call_once() to make sure mutexDebugLog and
+ * We use std::call_once() to make sure mutexDebugLog and
  * vMsgsBeforeOpenLog are initialized in a thread-safe manner.
  *
  * NOTE: fileout, mutexDebugLog and sometimes vMsgsBeforeOpenLog
@@ -196,7 +197,7 @@ static boost::once_flag debugPrintInitFlag = BOOST_ONCE_INIT;
  * tested, explicit destruction of these objects can be implemented.
  */
 static FILE* fileout = nullptr;
-static boost::mutex* mutexDebugLog = nullptr;
+static std::mutex* mutexDebugLog = nullptr;
 static list<string> *vMsgsBeforeOpenLog;
 
 static int FileWriteStr(const std::string &str, FILE *fp)
@@ -207,14 +208,14 @@ static int FileWriteStr(const std::string &str, FILE *fp)
 static void DebugPrintInit()
 {
     assert(mutexDebugLog == nullptr);
-    mutexDebugLog = new boost::mutex();
+    mutexDebugLog = new std::mutex();
     vMsgsBeforeOpenLog = new list<string>;
 }
 
 void OpenDebugLog()
 {
-    boost::call_once(&DebugPrintInit, debugPrintInitFlag);
-    boost::mutex::scoped_lock scoped_lock(*mutexDebugLog);
+    std::call_once(debugPrintInitFlag, &DebugPrintInit);
+    std::unique_lock<std::mutex> scoped_lock(*mutexDebugLog);
 
     assert(fileout == nullptr);
     assert(vMsgsBeforeOpenLog);
@@ -244,17 +245,16 @@ bool LogAcceptCategory(const char* category)
         // This helps prevent issues debugging global destructors,
         // where mapMultiArgs might be deleted before another
         // global destructor calls LogPrint()
-        static boost::thread_specific_ptr<set<string> > ptrCategory;
-        if (ptrCategory.get() == nullptr)
+        thread_local set<string>* ptrCategory = nullptr;
+        if (ptrCategory == nullptr)
         {
             if (mapMultiArgs.count("-debug")) {
                 const vector<string>& categories = mapMultiArgs.at("-debug");
-                ptrCategory.reset(new set<string>(categories.begin(), categories.end()));
-                // thread_specific_ptr automatically deletes the set when the thread ends.
+                ptrCategory = new set<string>(categories.begin(), categories.end());
             } else
-                ptrCategory.reset(new set<string>());
+                ptrCategory = new set<string>();
         }
-        const set<string>& setCategories = *ptrCategory.get();
+        const set<string>& setCategories = *ptrCategory;
 
         // if not debugging everything and not debugging specific category, LogPrint does nothing.
         if (setCategories.count(string("")) == 0 &&
@@ -309,8 +309,8 @@ int LogPrintStr(const std::string &str)
     }
     else if (fPrintToDebugLog)
     {
-        boost::call_once(&DebugPrintInit, debugPrintInitFlag);
-        boost::mutex::scoped_lock scoped_lock(*mutexDebugLog);
+        std::call_once(debugPrintInitFlag, &DebugPrintInit);
+        std::unique_lock<std::mutex> scoped_lock(*mutexDebugLog);
 
         // buffer if we haven't opened the log yet
         if (fileout == nullptr) {
