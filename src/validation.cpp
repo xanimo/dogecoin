@@ -1986,7 +1986,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         }
         UpdateCoins(tx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight);
 
-        vPos.push_back(std::make_pair(tx.GetHash(), pos));
+        vPos.emplace_back(tx.GetHash(), pos);
         pos.nTxOffset += ::GetSerializeSize(tx, SER_DISK, CLIENT_VERSION);
     }
     int64_t nTime3 = GetTimeMicros(); nTimeConnect += nTime3 - nTime2;
@@ -2116,7 +2116,7 @@ bool static FlushStateToDisk(CValidationState &state, FlushStateMode mode, int n
             std::vector<std::pair<int, const CBlockFileInfo*> > vFiles;
             vFiles.reserve(setDirtyFileInfo.size());
             for (std::set<int>::iterator it = setDirtyFileInfo.begin(); it != setDirtyFileInfo.end(); ) {
-                vFiles.push_back(std::make_pair(*it, &vinfoBlockFile[*it]));
+                vFiles.emplace_back(*it, &vinfoBlockFile[*it]);
                 setDirtyFileInfo.erase(it++);
             }
             std::vector<const CBlockIndex*> vBlocks;
@@ -3650,7 +3650,7 @@ bool static LoadBlockIndexDB(const CChainParams& chainparams)
     for (const std::pair<uint256, CBlockIndex*>& item : mapBlockIndex)
     {
         CBlockIndex* pindex = item.second;
-        vSortedByHeight.push_back(std::make_pair(pindex->nHeight, pindex));
+        vSortedByHeight.emplace_back(pindex->nHeight, pindex);
     }
     sort(vSortedByHeight.begin(), vSortedByHeight.end());
     for (const std::pair<int, CBlockIndex*>& item : vSortedByHeight)

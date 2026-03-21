@@ -186,7 +186,7 @@ bool RPCConsole::RPCParseCommandLine(std::string &strResult, const std::string &
         if (nDepthInsideSensitive) {
             if (!--nDepthInsideSensitive) {
                 assert(filter_begin_pos);
-                filter_ranges.push_back(std::make_pair(filter_begin_pos, chpos));
+                filter_ranges.emplace_back(filter_begin_pos, chpos);
                 filter_begin_pos = 0;
             }
         }

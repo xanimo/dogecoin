@@ -3362,7 +3362,7 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
 
                         auto ret = mapRelay.insert(std::make_pair(hash, std::move(txinfo.tx)));
                         if (ret.second) {
-                            vRelayExpiration.push_back(std::make_pair(current_time + 15 * 60 * 1000000, ret.first));
+                            vRelayExpiration.emplace_back(current_time + 15 * 60 * 1000000, ret.first);
                         }
                     }
                     if (vInv.size() == MAX_INV_SZ) {
