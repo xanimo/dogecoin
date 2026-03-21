@@ -391,7 +391,12 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             {
                 ssValue >> hash;
             }
-            catch (...) {}
+            catch (const std::exception& e) {
+                LogPrintf("WARNING: wallet key hash deserialization failed: %s\n", e.what());
+            }
+            catch (...) {
+                LogPrintf("WARNING: wallet key hash deserialization failed: unknown exception\n");
+            }
 
             bool fSkipCheck = false;
 
@@ -537,8 +542,14 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
                 return false;
             }
         }
-    } catch (...)
+    } catch (const std::exception& e)
     {
+        LogPrintf("ERROR: ReadKeyValue caught exception: %s\n", e.what());
+        return false;
+    }
+    catch (...)
+    {
+        LogPrintf("ERROR: ReadKeyValue caught unknown exception\n");
         return false;
     }
     return true;
@@ -614,7 +625,12 @@ DBErrors CWalletDB::LoadWallet(CWallet* pwallet)
     catch (const boost::thread_interrupted&) {
         throw;
     }
+    catch (const std::exception& e) {
+        LogPrintf("ERROR: LoadWallet caught exception: %s\n", e.what());
+        result = DB_CORRUPT;
+    }
     catch (...) {
+        LogPrintf("ERROR: LoadWallet caught unknown exception\n");
         result = DB_CORRUPT;
     }
 
@@ -713,7 +729,12 @@ DBErrors CWalletDB::FindWalletTx(CWallet* pwallet, vector<uint256>& vTxHash, vec
     catch (const boost::thread_interrupted&) {
         throw;
     }
+    catch (const std::exception& e) {
+        LogPrintf("ERROR: ZapWalletTx caught exception: %s\n", e.what());
+        result = DB_CORRUPT;
+    }
     catch (...) {
+        LogPrintf("ERROR: ZapWalletTx caught unknown exception\n");
         result = DB_CORRUPT;
     }
 
