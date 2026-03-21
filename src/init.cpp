@@ -58,7 +58,6 @@
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/interprocess/sync/file_lock.hpp>
-#include <boost/lexical_cast.hpp>
 #include <boost/thread.hpp>
 #include <openssl/crypto.h>
 
@@ -542,7 +541,7 @@ static void BlockNotifyCallback(bool initialSync, const CBlockIndex *pBlockIndex
     std::string strCmd = GetArg("-blocknotify", "");
 
     boost::replace_all(strCmd, "%s", pBlockIndex->GetBlockHash().GetHex());
-    boost::replace_all(strCmd, "%i", boost::lexical_cast<std::string>(pBlockIndex->nHeight));
+    boost::replace_all(strCmd, "%i", std::to_string(pBlockIndex->nHeight));
     boost::thread t(runCommand, strCmd); // thread runs free
 }
 

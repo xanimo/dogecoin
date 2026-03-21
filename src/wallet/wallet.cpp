@@ -35,7 +35,7 @@
 #include <memory>
 
 #include <boost/algorithm/string/replace.hpp>
-#include <boost/lexical_cast.hpp>
+
 #include <boost/thread.hpp>
 
 using namespace std;
@@ -1007,7 +1007,7 @@ bool CWallet::AddToWallet(const CWalletTx& wtxIn, bool fFlushOnClose)
     {
         int64_t nHeight = wtxIn.hashUnset() ? 0 : mapBlockIndex[wtxIn.hashBlock]->nHeight;
         boost::replace_all(strCmd, "%s", wtxIn.GetHash().GetHex());
-        boost::replace_all(strCmd, "%i", boost::lexical_cast<std::string>(nHeight));
+        boost::replace_all(strCmd, "%i", std::to_string(nHeight));
         boost::thread t(runCommand, strCmd); // thread runs free
     }
 
