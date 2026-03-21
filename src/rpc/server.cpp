@@ -528,7 +528,7 @@ UniValue CRPCTable::execute(const JSONRPCRequest &request) const
 std::vector<std::string> CRPCTable::listCommands() const
 {
     std::vector<std::string> commandList;
-    typedef std::map<std::string, const CRPCCommand*> commandMap;
+    using commandMap = std::map<std::string, const CRPCCommand*>;
 
     std::transform( mapCommands.begin(), mapCommands.end(),
                    std::back_inserter(commandList),

@@ -25,7 +25,7 @@ struct SeedSpec6 {
     uint16_t port;
 };
 
-typedef std::map<int, uint256> MapCheckpoints;
+using MapCheckpoints = std::map<int, uint256>;
 
 struct CCheckpointData {
     MapCheckpoints mapCheckpoints;

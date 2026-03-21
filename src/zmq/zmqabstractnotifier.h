@@ -10,7 +10,7 @@
 class CBlockIndex;
 class CZMQAbstractNotifier;
 
-typedef CZMQAbstractNotifier* (*CZMQNotifierFactory)();
+using CZMQNotifierFactory = CZMQAbstractNotifier*(*)();
 
 class CZMQAbstractNotifier
 {

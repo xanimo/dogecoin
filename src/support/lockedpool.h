@@ -130,7 +130,7 @@ public:
 
     /** Callback when allocation succeeds but locking fails.
      */
-    typedef bool (*LockingFailed_Callback)();
+    using LockingFailed_Callback = bool(*)();
 
     /** Memory statistics. */
     struct Stats

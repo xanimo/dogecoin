@@ -227,7 +227,7 @@ private:
 // extracts a TxMemPoolEntry's transaction hash
 struct mempoolentry_txid
 {
-    typedef uint256 result_type;
+    using result_type = uint256;
     result_type operator() (const CTxMemPoolEntry &entry) const
     {
         return entry.GetTx().GetHash();
@@ -495,7 +495,7 @@ public:
     mutable CCriticalSection cs;
     indexed_transaction_set mapTx;
 
-    typedef indexed_transaction_set::nth_index<0>::type::iterator txiter;
+    using txiter = indexed_transaction_set::nth_index<0>::type::iterator;
     std::vector<std::pair<uint256, txiter> > vTxHashes; //!< All tx witness hashes/entries in mapTx, in random order
 
     struct CompareIteratorByHash {
@@ -503,19 +503,19 @@ public:
             return a->GetTx().GetHash() < b->GetTx().GetHash();
         }
     };
-    typedef std::set<txiter, CompareIteratorByHash> setEntries;
+    using setEntries = std::set<txiter, CompareIteratorByHash>;
 
     const setEntries & GetMemPoolParents(txiter entry) const;
     const setEntries & GetMemPoolChildren(txiter entry) const;
 private:
-    typedef std::map<txiter, setEntries, CompareIteratorByHash> cacheMap;
+    using cacheMap = std::map<txiter, setEntries, CompareIteratorByHash>;
 
     struct TxLinks {
         setEntries parents;
         setEntries children;
     };
 
-    typedef std::map<txiter, TxLinks, CompareIteratorByHash> txlinksMap;
+    using txlinksMap = std::map<txiter, TxLinks, CompareIteratorByHash>;
     txlinksMap mapLinks;
 
     void UpdateParent(txiter entry, txiter parent, bool add);
@@ -733,7 +733,7 @@ public:
 };
 
 // We want to sort transactions by coin age priority
-typedef std::pair<double, CTxMemPool::txiter> TxCoinAgePriority;
+using TxCoinAgePriority = std::pair<double, CTxMemPool::txiter>;
 
 struct TxCoinAgePriorityCompare
 {

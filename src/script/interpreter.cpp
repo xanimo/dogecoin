@@ -15,7 +15,7 @@
 
 using namespace std;
 
-typedef vector<unsigned char> valtype;
+using valtype = vector<unsigned char>;
 
 namespace {
 

@@ -244,7 +244,7 @@ namespace GUIUtil
         }
     };
 #else
-    typedef ClickableProgressBar ProgressBar;
+    using ProgressBar = ClickableProgressBar;
 #endif
 
 } // namespace GUIUtil

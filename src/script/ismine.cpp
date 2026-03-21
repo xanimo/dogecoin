@@ -13,7 +13,7 @@
 
 using namespace std;
 
-typedef vector<unsigned char> valtype;
+using valtype = vector<unsigned char>;
 
 unsigned int HaveKeys(const vector<valtype>& pubkeys, const CKeyStore& keystore)
 {

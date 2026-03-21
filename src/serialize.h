@@ -301,7 +301,7 @@ uint64_t ReadCompactSize(Stream& is)
 template<typename I>
 inline unsigned int GetSizeOfVarInt(I n)
 {
-    typedef typename std::make_unsigned<I>::type U;
+    using U = typename std::make_unsigned<I>::type;
     U m = static_cast<U>(n);
     int nRet = 0;
     while(true) {
@@ -319,7 +319,7 @@ inline void WriteVarInt(CSizeComputer& os, I n);
 template<typename Stream, typename I>
 void WriteVarInt(Stream& os, I n)
 {
-    typedef typename std::make_unsigned<I>::type U;
+    using U = typename std::make_unsigned<I>::type;
     U m = static_cast<U>(n);
     unsigned char tmp[(sizeof(n)*8+6)/7];
     int len=0;
@@ -338,7 +338,7 @@ void WriteVarInt(Stream& os, I n)
 template<typename Stream, typename I>
 I ReadVarInt(Stream& is)
 {
-    typedef typename std::make_unsigned<I>::type U;
+    using U = typename std::make_unsigned<I>::type;
     U n = 0;
     while(true) {
         unsigned char chData = ser_readdata8(is);

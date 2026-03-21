@@ -51,7 +51,7 @@
 #ifdef WIN32
 #define MSG_DONTWAIT        0
 #else
-typedef u_int SOCKET;
+using SOCKET = u_int;
 #include "errno.h"
 #define WSAGetLastError()   errno
 #define WSAEINVAL           EINVAL
@@ -78,7 +78,7 @@ typedef u_int SOCKET;
 // ssize_t is POSIX, and not present when using MSVC.
 #ifdef _MSC_VER
 #include <BaseTsd.h>
-typedef SSIZE_T ssize_t;
+using ssize_t = SSIZE_T;
 #endif
 
 // As Solaris does not have the MSG_NOSIGNAL flag for send(2) syscall, it is defined as 0

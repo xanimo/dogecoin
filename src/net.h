@@ -90,7 +90,7 @@ static const ServiceFlags REQUIRED_SERVICES = NODE_NETWORK;
 // NOTE: When adjusting this, update rpcnet:setban's help ("24h")
 static const unsigned int DEFAULT_MISBEHAVING_BANTIME = 60 * 60 * 24;  // Default 24-hour ban
 
-typedef int64_t NodeId;
+using NodeId = int64_t;
 
 struct AddedNodeInfo
 {
@@ -416,7 +416,7 @@ bool BindListenPort(const CService &bindAddr, std::string& strError, bool fWhite
 
 struct CombinerAll
 {
-    typedef bool result_type;
+    using result_type = bool;
 
     template<typename I>
     bool operator()(I first, I last) const
@@ -483,7 +483,7 @@ struct LocalServiceInfo {
 
 extern CCriticalSection cs_mapLocalHost;
 extern std::map<CNetAddr, LocalServiceInfo> mapLocalHost;
-typedef std::map<std::string, uint64_t> mapMsgCmdSize; //command, total bytes
+using mapMsgCmdSize = std::map<std::string, uint64_t>; //command, total bytes
 
 class CNodeStats
 {

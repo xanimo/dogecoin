@@ -60,13 +60,13 @@ private:
     int sourceLine;
 };
 
-typedef std::pair<void*, CLockLocation> LockStackItem;
-typedef std::vector<LockStackItem> LockStack;
-typedef std::unordered_map<std::thread::id, LockStack> LockStacks;
+using LockStackItem = std::pair<void*, CLockLocation>;
+using LockStack = std::vector<LockStackItem>;
+using LockStacks = std::unordered_map<std::thread::id, LockStack>;
 
-typedef std::pair<void*, void*> LockPair;
-typedef std::map<LockPair, LockStack> LockOrders;
-typedef std::set<LockPair> InvLockOrders;
+using LockPair = std::pair<void*, void*>;
+using LockOrders = std::map<LockPair, LockStack>;
+using InvLockOrders = std::set<LockPair>;
 
 struct LockData {
     LockStacks m_lock_stacks;

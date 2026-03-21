@@ -26,7 +26,7 @@ enum isminetype
     ISMINE_ALL = ISMINE_WATCH_ONLY | ISMINE_SPENDABLE
 };
 /** used for bitflags of isminetype */
-typedef uint8_t isminefilter;
+using isminefilter = uint8_t;
 
 /* isInvalid becomes true when the script is found invalid by consensus or policy. This will terminate the recursion
  * and return a ISMINE_NO immediately, as an invalid script should never be considered as "mine". This is needed as

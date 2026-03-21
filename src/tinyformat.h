@@ -311,7 +311,7 @@ inline void formatValue(std::ostream& out, const char* /*fmtBegin*/,
 #ifndef TINYFORMAT_ALLOW_WCHAR_STRINGS
     // Since we don't support printing of wchar_t using "%ls", make it fail at
     // compile time in preference to printing as a void* at runtime.
-    typedef typename detail::is_wchar<T>::tinyformat_wchar_is_not_supported DummyType;
+    using DummyType = typename detail::is_wchar<T>::tinyformat_wchar_is_not_supported;
     (void) DummyType(); // avoid unused type warning with gcc-4.8
 #endif
     // The mess here is to support the %c and %p conversions: if these
@@ -852,7 +852,7 @@ class FormatList
 };
 
 /// Reference to type-opaque format list for passing to vformat()
-typedef const FormatList& FormatListRef;
+using FormatListRef = const FormatList&;
 
 
 namespace detail {

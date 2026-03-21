@@ -135,7 +135,7 @@ void RPCUnsetTimerInterface(RPCTimerInterface *iface);
  */
 void RPCRunLater(const std::string& name, std::function<void(void)> func, int64_t nSeconds);
 
-typedef UniValue(*rpcfn_type)(const JSONRPCRequest& jsonRequest);
+using rpcfn_type = UniValue(*)(const JSONRPCRequest& jsonRequest);
 
 class CRPCCommand
 {

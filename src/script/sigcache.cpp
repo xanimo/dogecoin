@@ -47,7 +47,7 @@ class CSignatureCache
 private:
      //! Entries are SHA256(nonce || signature hash || public key || signature):
     uint256 nonce;
-    typedef CuckooCache::cache<uint256, SignatureCacheHasher> map_type;
+    using map_type = CuckooCache::cache<uint256, SignatureCacheHasher>;
     map_type setValid;
     boost::shared_mutex cs_sigcache;
 

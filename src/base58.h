@@ -75,7 +75,7 @@ protected:
     std::vector<unsigned char> vchVersion;
 
     //! the actually encoded data
-    typedef std::vector<unsigned char, zero_after_free_allocator<unsigned char> > vector_uchar;
+    using vector_uchar = std::vector<unsigned char, zero_after_free_allocator<unsigned char> >;
     vector_uchar vchData;
 
     CBase58Data();
@@ -164,7 +164,7 @@ public:
     CBitcoinExtKeyBase() {}
 };
 
-typedef CBitcoinExtKeyBase<CExtKey, BIP32_EXTKEY_SIZE, CChainParams::EXT_SECRET_KEY> CBitcoinExtKey;
-typedef CBitcoinExtKeyBase<CExtPubKey, BIP32_EXTKEY_SIZE, CChainParams::EXT_PUBLIC_KEY> CBitcoinExtPubKey;
+using CBitcoinExtKey = CBitcoinExtKeyBase<CExtKey, BIP32_EXTKEY_SIZE, CChainParams::EXT_SECRET_KEY>;
+using CBitcoinExtPubKey = CBitcoinExtKeyBase<CExtPubKey, BIP32_EXTKEY_SIZE, CChainParams::EXT_PUBLIC_KEY>;
 
 #endif // BITCOIN_BASE58_H

@@ -62,11 +62,11 @@ namespace benchmark {
         bool KeepRunning();
     };
 
-    typedef std::function<void(State&)> BenchFunction;
+    using BenchFunction = std::function<void(State&)>;
 
     class BenchRunner
     {
-        typedef std::map<std::string, BenchFunction> BenchmarkMap;
+        using BenchmarkMap = std::map<std::string, BenchFunction>;
         static BenchmarkMap &benchmarks();
 
     public:

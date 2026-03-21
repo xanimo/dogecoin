@@ -570,7 +570,7 @@ void BlockAssembler::addPriorityTxs()
     std::vector<TxCoinAgePriority> vecPriority;
     TxCoinAgePriorityCompare pricomparer;
     std::map<CTxMemPool::txiter, double, CTxMemPool::CompareIteratorByHash> waitPriMap;
-    typedef std::map<CTxMemPool::txiter, double, CTxMemPool::CompareIteratorByHash>::iterator waitPriIter;
+    using waitPriIter = std::map<CTxMemPool::txiter, double, CTxMemPool::CompareIteratorByHash>::iterator;
     double actualPriority = -1;
 
     vecPriority.reserve(mempool.mapTx.size());

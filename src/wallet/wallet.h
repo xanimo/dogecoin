@@ -182,7 +182,7 @@ public:
         purpose = "unknown";
     }
 
-    typedef std::map<std::string, std::string> StringMap;
+    using StringMap = std::map<std::string, std::string>;
     StringMap destdata;
 };
 
@@ -193,7 +193,7 @@ struct CRecipient
     bool fSubtractFeeFromAmount;
 };
 
-typedef std::map<std::string, std::string> mapValue_t;
+using mapValue_t = std::map<std::string, std::string>;
 
 
 static inline void ReadOrderPos(int64_t& nOrderPos, mapValue_t& mapValue)
@@ -577,7 +577,7 @@ private:
      * detect and report conflicts (double-spends or
      * mutated transactions where the mutant gets mined).
      */
-    typedef std::multimap<COutPoint, uint256> TxSpends;
+    using TxSpends = std::multimap<COutPoint, uint256>;
     TxSpends mapTxSpends;
     void AddToSpends(const COutPoint& outpoint, const uint256& wtxid);
     void AddToSpends(const uint256& wtxid);
@@ -635,7 +635,7 @@ public:
     // key metadata.
     std::map<CTxDestination, CKeyMetadata> mapKeyMetadata;
 
-    typedef std::map<unsigned int, CMasterKey> MasterKeyMap;
+    using MasterKeyMap = std::map<unsigned int, CMasterKey>;
     MasterKeyMap mapMasterKeys;
     unsigned int nMasterKeyMaxID;
 
@@ -673,8 +673,8 @@ public:
     std::map<uint256, CWalletTx> mapWallet;
     std::list<CAccountingEntry> laccentries;
 
-    typedef std::pair<CWalletTx*, CAccountingEntry*> TxPair;
-    typedef std::multimap<int64_t, TxPair > TxItems;
+    using TxPair = std::pair<CWalletTx*, CAccountingEntry*>;
+    using TxItems = std::multimap<int64_t, TxPair >;
     TxItems wtxOrdered;
 
     int64_t nOrderPosNext;
