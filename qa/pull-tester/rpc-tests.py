@@ -211,6 +211,7 @@ testScriptsExt = [
     'forknotify.py',
     'invalidateblock.py',
     'maxblocksinflight.py',
+    'p2p-ibd-download.py',
 ]
 
 

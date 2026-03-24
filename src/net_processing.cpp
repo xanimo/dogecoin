@@ -154,6 +154,10 @@ namespace {
 // Registration of network node signals.
 //
 
+// Forward declarations for IBD-adaptive download limit helpers (defined after this namespace).
+int GetMaxBlocksInTransitPerPeer();
+unsigned int GetBlockDownloadWindow();
+
 namespace {
 
 struct CBlockReject {
@@ -464,18 +468,6 @@ void MaybeSetPeerAsAnnouncingHeaderAndIDs(NodeId nodeid, CConnman& connman) {
     }
 }
 
-/** Return the per-peer in-flight block limit, higher during IBD for parallel download. */
-static int GetMaxBlocksInTransitPerPeer()
-{
-    return IsInitialBlockDownload() ? MAX_BLOCKS_IN_TRANSIT_PER_PEER_IBD : MAX_BLOCKS_IN_TRANSIT_PER_PEER;
-}
-
-/** Return the block download window size, larger during IBD for parallel download. */
-static unsigned int GetBlockDownloadWindow()
-{
-    return IsInitialBlockDownload() ? BLOCK_DOWNLOAD_WINDOW_IBD : BLOCK_DOWNLOAD_WINDOW;
-}
-
 // Requires cs_main
 bool CanDirectFetch(const Consensus::Params &consensusParams)
 {
@@ -601,6 +593,18 @@ void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vector<con
 }
 
 } // anon namespace
+
+/** Return the per-peer in-flight block limit, higher during IBD for parallel download. */
+int GetMaxBlocksInTransitPerPeer()
+{
+    return IsInitialBlockDownload() ? MAX_BLOCKS_IN_TRANSIT_PER_PEER_IBD : MAX_BLOCKS_IN_TRANSIT_PER_PEER;
+}
+
+/** Return the block download window size, larger during IBD for parallel download. */
+unsigned int GetBlockDownloadWindow()
+{
+    return IsInitialBlockDownload() ? BLOCK_DOWNLOAD_WINDOW_IBD : BLOCK_DOWNLOAD_WINDOW;
+}
 
 void AddTxAnnouncement(CNode* node, const uint256& txhash, int64_t current_time)
 {
