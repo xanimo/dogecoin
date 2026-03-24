@@ -464,6 +464,18 @@ void MaybeSetPeerAsAnnouncingHeaderAndIDs(NodeId nodeid, CConnman& connman) {
     }
 }
 
+/** Return the per-peer in-flight block limit, higher during IBD for parallel download. */
+static int GetMaxBlocksInTransitPerPeer()
+{
+    return IsInitialBlockDownload() ? MAX_BLOCKS_IN_TRANSIT_PER_PEER_IBD : MAX_BLOCKS_IN_TRANSIT_PER_PEER;
+}
+
+/** Return the block download window size, larger during IBD for parallel download. */
+static unsigned int GetBlockDownloadWindow()
+{
+    return IsInitialBlockDownload() ? BLOCK_DOWNLOAD_WINDOW_IBD : BLOCK_DOWNLOAD_WINDOW;
+}
+
 // Requires cs_main
 bool CanDirectFetch(const Consensus::Params &consensusParams)
 {
@@ -531,10 +543,11 @@ void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vector<con
 
     std::vector<const CBlockIndex*> vToFetch;
     const CBlockIndex *pindexWalk = state->pindexLastCommonBlock;
-    // Never fetch further than the best block we know the peer has, or more than BLOCK_DOWNLOAD_WINDOW + 1 beyond the last
-    // linked block we have in common with this peer. The +1 is so we can detect stalling, namely if we would be able to
-    // download that next block if the window were 1 larger.
-    int nWindowEnd = state->pindexLastCommonBlock->nHeight + BLOCK_DOWNLOAD_WINDOW;
+    // Never fetch further than the best block we know the peer has, or more than the download window + 1 beyond
+    // the last linked block we have in common with this peer. The +1 is so we can detect stalling, namely if we
+    // would be able to download that next block if the window were 1 larger.
+    // During IBD, use a larger window to allow more parallel block fetching from multiple peers.
+    int nWindowEnd = state->pindexLastCommonBlock->nHeight + GetBlockDownloadWindow();
     int nMaxHeight = std::min<int>(state->pindexBestKnownBlock->nHeight, nWindowEnd + 1);
     NodeId waitingfor = -1;
     while (pindexWalk->nHeight < nMaxHeight) {
@@ -2775,7 +2788,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         LOCK(cs_main);
         std::vector<CInv> vInv;
         vRecv >> vInv;
-        if (vInv.size() <= MAX_PEER_TX_IN_FLIGHT + MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
+        if (vInv.size() <= MAX_PEER_TX_IN_FLIGHT + MAX_BLOCKS_IN_TRANSIT_PER_PEER_IBD) {
             for (CInv &inv : vInv) {
                 if (inv.type == MSG_TX || inv.type == MSG_WITNESS_TX) {
                     // If we receive a NOTFOUND message for a txid we requested, we
@@ -3434,10 +3447,11 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
         // Message: getdata (blocks)
         //
         std::vector<CInv> vGetData;
-        if (!pto->fClient && (fFetch || !IsInitialBlockDownload()) && state.nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
+        int nMaxBlocksPerPeer = GetMaxBlocksInTransitPerPeer();
+        if (!pto->fClient && (fFetch || !IsInitialBlockDownload()) && state.nBlocksInFlight < nMaxBlocksPerPeer) {
             std::vector<const CBlockIndex*> vToDownload;
             NodeId staller = -1;
-            FindNextBlocksToDownload(pto->GetId(), MAX_BLOCKS_IN_TRANSIT_PER_PEER - state.nBlocksInFlight, vToDownload, staller, consensusParams);
+            FindNextBlocksToDownload(pto->GetId(), nMaxBlocksPerPeer - state.nBlocksInFlight, vToDownload, staller, consensusParams);
             BOOST_FOREACH(const CBlockIndex *pindex, vToDownload) {
                 uint32_t nFetchFlags = GetFetchFlags(pto, pindex->pprev, consensusParams);
                 vGetData.push_back(CInv(MSG_BLOCK | nFetchFlags, pindex->GetBlockHash()));
