@@ -5,6 +5,10 @@
 #include "aes.h"
 #include "crypto/common.h"
 
+#if defined(HAVE_CONFIG_H)
+#include "bitcoin-config.h"
+#endif
+
 #include <assert.h>
 #include <string.h>
 
@@ -12,63 +16,124 @@ extern "C" {
 #include "crypto/ctaes/ctaes.c"
 }
 
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+#include "crypto/aes_ni.h"
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
+#include <cpuid.h>
+#endif
+
+bool aes_ni_available()
+{
+    static int cached = -1;
+    if (cached >= 0) return cached;
+#if defined(_MSC_VER)
+    int cpuinfo[4];
+    __cpuid(cpuinfo, 1);
+    cached = ((unsigned int)cpuinfo[2] >> 25) & 1;
+#else
+    unsigned int eax, ebx, ecx, edx;
+    __get_cpuid(1, &eax, &ebx, &ecx, &edx);
+    cached = (ecx >> 25) & 1;
+#endif
+    return cached;
+}
+#endif
+
 AES128Encrypt::AES128Encrypt(const unsigned char key[16])
 {
     AES128_init(&ctx, key);
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    if (aes_ni_available()) aes128_expand_key_ni(key, ni_round_keys);
+#endif
 }
 
 AES128Encrypt::~AES128Encrypt()
 {
     memset(&ctx, 0, sizeof(ctx));
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    memset(ni_round_keys, 0, sizeof(ni_round_keys));
+#endif
 }
 
 void AES128Encrypt::Encrypt(unsigned char ciphertext[16], const unsigned char plaintext[16]) const
 {
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    if (aes_ni_available()) { aes128_encrypt_ni(ni_round_keys, plaintext, ciphertext); return; }
+#endif
     AES128_encrypt(&ctx, 1, ciphertext, plaintext);
 }
 
 AES128Decrypt::AES128Decrypt(const unsigned char key[16])
 {
     AES128_init(&ctx, key);
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    if (aes_ni_available()) aes128_expand_key_ni(key, ni_round_keys);
+#endif
 }
 
 AES128Decrypt::~AES128Decrypt()
 {
     memset(&ctx, 0, sizeof(ctx));
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    memset(ni_round_keys, 0, sizeof(ni_round_keys));
+#endif
 }
 
 void AES128Decrypt::Decrypt(unsigned char plaintext[16], const unsigned char ciphertext[16]) const
 {
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    if (aes_ni_available()) { aes128_decrypt_ni(ni_round_keys, ciphertext, plaintext); return; }
+#endif
     AES128_decrypt(&ctx, 1, plaintext, ciphertext);
 }
 
 AES256Encrypt::AES256Encrypt(const unsigned char key[32])
 {
     AES256_init(&ctx, key);
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    if (aes_ni_available()) aes256_expand_key_ni(key, ni_round_keys);
+#endif
 }
 
 AES256Encrypt::~AES256Encrypt()
 {
     memset(&ctx, 0, sizeof(ctx));
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    memset(ni_round_keys, 0, sizeof(ni_round_keys));
+#endif
 }
 
 void AES256Encrypt::Encrypt(unsigned char ciphertext[16], const unsigned char plaintext[16]) const
 {
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    if (aes_ni_available()) { aes256_encrypt_ni(ni_round_keys, plaintext, ciphertext); return; }
+#endif
     AES256_encrypt(&ctx, 1, ciphertext, plaintext);
 }
 
 AES256Decrypt::AES256Decrypt(const unsigned char key[32])
 {
     AES256_init(&ctx, key);
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    if (aes_ni_available()) aes256_expand_key_ni(key, ni_round_keys);
+#endif
 }
 
 AES256Decrypt::~AES256Decrypt()
 {
     memset(&ctx, 0, sizeof(ctx));
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    memset(ni_round_keys, 0, sizeof(ni_round_keys));
+#endif
 }
 
 void AES256Decrypt::Decrypt(unsigned char plaintext[16], const unsigned char ciphertext[16]) const
 {
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    if (aes_ni_available()) { aes256_decrypt_ni(ni_round_keys, ciphertext, plaintext); return; }
+#endif
     AES256_decrypt(&ctx, 1, plaintext, ciphertext);
 }
 

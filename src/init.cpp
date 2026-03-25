@@ -17,7 +17,8 @@
 #include "checkpoints.h"
 #include "compat/sanity.h"
 #include "consensus/validation.h"
-#include "crypto/scrypt.h" // for scrypt_detect_sse2
+#include "crypto/scrypt.h" // for scrypt_detect_best
+#include "crypto/sha256.h" // for CSHA256::AutoDetect
 #include "fs.h"
 #include "httpserver.h"
 #include "httprpc.h"
@@ -1258,13 +1259,21 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
 
     int64_t nStart;
 
-#if defined(USE_SSE2)
-    if (scrypt_detect_sse2()) {
-        LogPrintf("scrypt: using SSE2 implementation\n");
-    } else {
-        LogPrintf("scrypt: using generic implementation\n");
-    }
+#if defined(USE_SCRYPT_AVX2) || (defined(USE_SSE2) && !defined(USE_SSE2_ALWAYS))
+    scrypt_detect_best();
 #endif
+#if defined(USE_SCRYPT_AVX2)
+    LogPrintf("scrypt: AVX2 support compiled in\n");
+#endif
+#if defined(USE_SSE2)
+    LogPrintf("scrypt: SSE2 support compiled in\n");
+#endif
+#if defined(USE_SCRYPT_ARM_NEON)
+    LogPrintf("scrypt: ARM NEON support compiled in\n");
+#endif
+
+    std::string sha256_impl = CSHA256::AutoDetect();
+    LogPrintf("SHA-256: using %s implementation\n", sha256_impl);
 
     // ********************************************************* Step 5: verify wallet database integrity
 #ifdef ENABLE_WALLET

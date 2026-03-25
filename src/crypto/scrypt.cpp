@@ -33,12 +33,10 @@
 #include <stdint.h>
 #include <string.h>
 
-#if defined(USE_SSE2) && !defined(USE_SSE2_ALWAYS)
+#if defined(USE_SCRYPT_AVX2) || (defined(USE_SSE2) && !defined(USE_SSE2_ALWAYS))
 #ifdef _MSC_VER
-// MSVC 64bit is unable to use inline asm
 #include <intrin.h>
 #else
-// GCC Linux or i686-w64-mingw32
 #include <cpuid.h>
 #endif
 #endif
@@ -217,48 +215,54 @@ void scrypt_1024_1_1_256_sp_generic(const char *input, char *output, char *scrat
 	PBKDF2_SHA256((const uint8_t *)input, 80, B, 128, 1, (uint8_t *)output, 32);
 }
 
-#if defined(USE_SSE2)
-// By default, set to generic scrypt function. This will prevent crash in case when scrypt_detect_sse2() wasn't called
+#if !defined(BUILD_BITCOIN_INTERNAL) && (defined(USE_SCRYPT_AVX2) || (defined(USE_SSE2) && !defined(USE_SSE2_ALWAYS)))
+// By default, set to generic scrypt function. This will prevent crash in case when scrypt_detect_best() wasn't called
 void (*scrypt_1024_1_1_256_sp_detected)(const char *input, char *output, char *scratchpad) = &scrypt_1024_1_1_256_sp_generic;
 
-bool scrypt_detect_sse2()
+void scrypt_detect_best()
 {
-    bool fUsingSSE2;
-#if defined(USE_SSE2_ALWAYS)
-    fUsingSSE2 = true;
-#else // USE_SSE2_ALWAYS
-    // 32bit x86 Linux or Windows, detect cpuid features
-    unsigned int cpuid_edx=0;
+    unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
+
 #if defined(_MSC_VER)
-    // MSVC
-    int x86cpuid[4];
-    __cpuid(x86cpuid, 1);
-    cpuid_edx = (unsigned int)buffer[3];
-#else // _MSC_VER
-    // Linux or i686-w64-mingw32 (gcc-4.6.3)
-    unsigned int eax, ebx, ecx;
-    __get_cpuid(1, &eax, &ebx, &ecx, &cpuid_edx);
+    int cpuinfo[4];
+    __cpuid(cpuinfo, 1);
+    ecx = (unsigned int)cpuinfo[2];
+    edx = (unsigned int)cpuinfo[3];
+#if defined(USE_SCRYPT_AVX2)
+    // Check AVX2 via leaf 7
+    int cpuinfo7[4];
+    __cpuidex(cpuinfo7, 7, 0);
+    ebx = (unsigned int)cpuinfo7[1];
+#endif
+#else // GCC/Clang
+    __get_cpuid(1, &eax, &ebx, &ecx, &edx);
+#if defined(USE_SCRYPT_AVX2)
+    // Check AVX2: need leaf 7, sub-leaf 0
+    unsigned int eax7 = 0, ebx7 = 0, ecx7 = 0, edx7 = 0;
+    __get_cpuid_count(7, 0, &eax7, &ebx7, &ecx7, &edx7);
+    // AVX2 is bit 5 of EBX from leaf 7
+    // Also need OS XSAVE support (ECX bit 27 from leaf 1) and AVX (ECX bit 28 from leaf 1)
+    if ((ecx & (1 << 27)) && (ecx & (1 << 28)) && (ebx7 & (1 << 5))) {
+        scrypt_1024_1_1_256_sp_detected = &scrypt_1024_1_1_256_sp_avx2;
+        return;
+    }
+#endif
+    // SSE2 is bit 26 of EDX from leaf 1
+#if defined(USE_SSE2)
+    if (edx & (1 << 26)) {
+        scrypt_1024_1_1_256_sp_detected = &scrypt_1024_1_1_256_sp_sse2;
+        return;
+    }
+#endif
 #endif // _MSC_VER
 
-    if (cpuid_edx & 1<<26)
-    {
-        scrypt_1024_1_1_256_sp_detected = &scrypt_1024_1_1_256_sp_sse2;
-        fUsingSSE2 = true;
-    }
-    else
-    {
-        scrypt_1024_1_1_256_sp_detected = &scrypt_1024_1_1_256_sp_generic;
-        fUsingSSE2 = false;
-    }
-#endif // USE_SSE2_ALWAYS
-
-    return fUsingSSE2;
+    scrypt_1024_1_1_256_sp_detected = &scrypt_1024_1_1_256_sp_generic;
 }
 #endif
 
 void scrypt_1024_1_1_256(const char *input, char *output)
 {
-    thread_local char scratchpad[SCRYPT_SCRATCHPAD_SIZE];
+    alignas(64) thread_local char scratchpad[SCRYPT_SCRATCHPAD_SIZE];
     memset(scratchpad, 0, sizeof(scratchpad));
     scrypt_1024_1_1_256_sp(input, output, scratchpad);
 }

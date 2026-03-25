@@ -3,9 +3,14 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 //
 // C++ wrapper around ctaes, a constant-time AES implementation
+// With optional AES-NI acceleration
 
 #ifndef BITCOIN_CRYPTO_AES_H
 #define BITCOIN_CRYPTO_AES_H
+
+#if defined(HAVE_CONFIG_H)
+#include "bitcoin-config.h"
+#endif
 
 extern "C" {
 #include "crypto/ctaes/ctaes.h"
@@ -15,11 +20,19 @@ static const int AES_BLOCKSIZE = 16;
 static const int AES128_KEYSIZE = 16;
 static const int AES256_KEYSIZE = 32;
 
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+/** Returns true if the CPU supports AES-NI. Cached after first call. */
+bool aes_ni_available();
+#endif
+
 /** An encryption class for AES-128. */
 class AES128Encrypt
 {
 private:
     AES128_ctx ctx;
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    alignas(16) unsigned char ni_round_keys[176];
+#endif
 
 public:
     AES128Encrypt(const unsigned char key[16]);
@@ -32,6 +45,9 @@ class AES128Decrypt
 {
 private:
     AES128_ctx ctx;
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    alignas(16) unsigned char ni_round_keys[176];
+#endif
 
 public:
     AES128Decrypt(const unsigned char key[16]);
@@ -44,6 +60,9 @@ class AES256Encrypt
 {
 private:
     AES256_ctx ctx;
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    alignas(16) unsigned char ni_round_keys[240];
+#endif
 
 public:
     AES256Encrypt(const unsigned char key[32]);
@@ -56,6 +75,9 @@ class AES256Decrypt
 {
 private:
     AES256_ctx ctx;
+#if defined(USE_AES_NI) && !defined(BUILD_BITCOIN_INTERNAL)
+    alignas(16) unsigned char ni_round_keys[240];
+#endif
 
 public:
     AES256Decrypt(const unsigned char key[32]);

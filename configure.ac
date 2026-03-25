@@ -215,13 +215,37 @@ AC_ARG_ENABLE([experimental],
 
 AC_ARG_ENABLE([scrypt-sse2],
   [AS_HELP_STRING([--enable-scrypt-sse2],
-  [Build with scrypt sse2 implementation (default is no)])],
+  [Build with scrypt sse2 implementation (default is yes on x86_64)])],
   [use_scrypt_sse2=$enableval],
-  [use_scrypt_sse2=no])
+  [use_scrypt_sse2=auto])
+
+AC_ARG_ENABLE([scrypt-avx2],
+  [AS_HELP_STRING([--enable-scrypt-avx2],
+  [Build with scrypt avx2 implementation (default is auto)])],
+  [use_scrypt_avx2=$enableval],
+  [use_scrypt_avx2=auto])
+
+AC_ARG_ENABLE([scrypt-arm-neon],
+  [AS_HELP_STRING([--enable-scrypt-arm-neon],
+  [Build with scrypt ARM NEON implementation (default is auto)])],
+  [use_scrypt_arm_neon=$enableval],
+  [use_scrypt_arm_neon=auto])
+
+AC_ARG_ENABLE([sha256-runtime],
+  [AS_HELP_STRING([--enable-sha256-runtime],
+  [Build with SHA-256 runtime dispatch for SSE4.1/AVX2/SHA-NI (default is auto)])],
+  [use_sha256_runtime=$enableval],
+  [use_sha256_runtime=auto])
+
+AC_ARG_ENABLE([aes-ni],
+  [AS_HELP_STRING([--enable-aes-ni],
+  [Build with AES-NI hardware acceleration (default is auto)])],
+  [use_aes_ni=$enableval],
+  [use_aes_ni=auto])
 
 AC_ARG_WITH([intel-avx2],
   [AS_HELP_STRING([--with-intel-avx2],
-  [Build with intel avx2 (default is no)])],
+  [Build with intel avx2 via libIPSec_MB (default is no)])],
   [intel_avx2=$withval],
   [intel_avx2=no])
 
@@ -845,10 +869,148 @@ if test x$allow_experimental = xyes; then
   AC_DEFINE(ALLOW_DOGECOIN_EXPERIMENTAL, 1, [Define this symbol if experimental features are allowed])
 fi
 
-# Configure Scrypt SSE2
+# Configure Scrypt SSE2 (auto-enable on x86_64)
+if test x$use_scrypt_sse2 = xauto; then
+  case $host in
+    x86_64-*|amd64-*)
+      use_scrypt_sse2=yes
+      ;;
+    *)
+      use_scrypt_sse2=no
+      ;;
+  esac
+fi
 if test x$use_scrypt_sse2 = xyes; then
-  DOGECOIN_REQUIRE_EXPERIMENTAL
   AC_DEFINE(USE_SSE2, 1, [Define this symbol if SSE2 works])
+fi
+
+# Configure Scrypt AVX2 (auto-detect compiler support)
+if test x$use_scrypt_avx2 = xauto; then
+  case $host in
+    x86_64-*|amd64-*)
+      AC_MSG_CHECKING([whether compiler supports -mavx2])
+      saved_CXXFLAGS="$CXXFLAGS"
+      CXXFLAGS="$CXXFLAGS -mavx2"
+      AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <immintrin.h>]],
+        [[__m256i x = _mm256_setzero_si256(); (void)x;]])],
+        [use_scrypt_avx2=yes; AC_MSG_RESULT(yes)],
+        [use_scrypt_avx2=no; AC_MSG_RESULT(no)])
+      CXXFLAGS="$saved_CXXFLAGS"
+      ;;
+    *)
+      use_scrypt_avx2=no
+      ;;
+  esac
+fi
+if test x$use_scrypt_avx2 = xyes; then
+  AC_DEFINE(USE_SCRYPT_AVX2, 1, [Define this symbol if scrypt AVX2 works])
+fi
+
+# Configure Scrypt ARM NEON (auto-detect on ARM)
+ARM_NEON_CXXFLAGS=""
+if test x$use_scrypt_arm_neon = xauto; then
+  case $host in
+    aarch64-*|arm64-*)
+      AC_MSG_CHECKING([whether compiler supports ARM NEON])
+      AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <arm_neon.h>]],
+        [[uint32x4_t x = vdupq_n_u32(0); (void)x;]])],
+        [use_scrypt_arm_neon=yes; AC_MSG_RESULT(yes)],
+        [use_scrypt_arm_neon=no; AC_MSG_RESULT(no)])
+      ;;
+    arm-*|armv7*)
+      AC_MSG_CHECKING([whether compiler supports ARM NEON with -mfpu=neon])
+      saved_CXXFLAGS="$CXXFLAGS"
+      CXXFLAGS="$CXXFLAGS -mfpu=neon"
+      AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <arm_neon.h>]],
+        [[uint32x4_t x = vdupq_n_u32(0); (void)x;]])],
+        [use_scrypt_arm_neon=yes; ARM_NEON_CXXFLAGS="-mfpu=neon"; AC_MSG_RESULT(yes)],
+        [use_scrypt_arm_neon=no; AC_MSG_RESULT(no)])
+      CXXFLAGS="$saved_CXXFLAGS"
+      ;;
+    *)
+      use_scrypt_arm_neon=no
+      ;;
+  esac
+fi
+if test x$use_scrypt_arm_neon = xyes; then
+  AC_DEFINE(USE_SCRYPT_ARM_NEON, 1, [Define this symbol if scrypt ARM NEON works])
+fi
+AC_SUBST(ARM_NEON_CXXFLAGS)
+
+# Configure SHA-256 runtime dispatch (SSE4.1, AVX2, SHA-NI auto-detection)
+enable_sha256_sse41=no
+enable_sha256_avx2=no
+enable_sha256_shani=no
+if test x$use_sha256_runtime = xauto; then
+  case $host in
+    x86_64-*|amd64-*|i?86-*)
+      use_sha256_runtime=yes
+      ;;
+    *)
+      use_sha256_runtime=no
+      ;;
+  esac
+fi
+if test x$use_sha256_runtime = xyes; then
+  AC_MSG_CHECKING([whether compiler supports -msse4.1 for SHA-256])
+  saved_CXXFLAGS="$CXXFLAGS"
+  CXXFLAGS="$CXXFLAGS -msse4.1"
+  AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <smmintrin.h>]],
+    [[__m128i x = _mm_setzero_si128(); (void)_mm_blend_epi16(x, x, 0xff);]])],
+    [enable_sha256_sse41=yes; AC_MSG_RESULT(yes)],
+    [AC_MSG_RESULT(no)])
+  CXXFLAGS="$saved_CXXFLAGS"
+
+  AC_MSG_CHECKING([whether compiler supports -mavx2 for SHA-256])
+  saved_CXXFLAGS="$CXXFLAGS"
+  CXXFLAGS="$CXXFLAGS -mavx2"
+  AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <immintrin.h>]],
+    [[__m256i x = _mm256_setzero_si256(); (void)x;]])],
+    [enable_sha256_avx2=yes; AC_MSG_RESULT(yes)],
+    [AC_MSG_RESULT(no)])
+  CXXFLAGS="$saved_CXXFLAGS"
+
+  AC_MSG_CHECKING([whether compiler supports -msha for SHA-NI])
+  saved_CXXFLAGS="$CXXFLAGS"
+  CXXFLAGS="$CXXFLAGS -msse4.1 -msha"
+  AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <immintrin.h>]],
+    [[__m128i x = _mm_setzero_si128(); (void)_mm_sha256rnds2_epu32(x, x, x);]])],
+    [enable_sha256_shani=yes; AC_MSG_RESULT(yes)],
+    [AC_MSG_RESULT(no)])
+  CXXFLAGS="$saved_CXXFLAGS"
+
+  AC_DEFINE(USE_SHA256_RUNTIME, 1, [Define this symbol for SHA-256 runtime dispatch])
+fi
+if test x$enable_sha256_sse41 = xyes; then
+  AC_DEFINE(USE_SHA256_SSE41, 1, [Define this symbol if SHA-256 SSE4.1 works])
+fi
+if test x$enable_sha256_avx2 = xyes; then
+  AC_DEFINE(USE_SHA256_AVX2, 1, [Define this symbol if SHA-256 AVX2 works])
+fi
+if test x$enable_sha256_shani = xyes; then
+  AC_DEFINE(USE_SHA256_SHANI, 1, [Define this symbol if SHA-256 SHA-NI works])
+fi
+
+# Configure AES-NI (auto-detect compiler support)
+if test x$use_aes_ni = xauto; then
+  case $host in
+    x86_64-*|amd64-*|i?86-*)
+      AC_MSG_CHECKING([whether compiler supports -maes for AES-NI])
+      saved_CXXFLAGS="$CXXFLAGS"
+      CXXFLAGS="$CXXFLAGS -maes"
+      AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <wmmintrin.h>]],
+        [[__m128i x = _mm_setzero_si128(); (void)_mm_aesenc_si128(x, x);]])],
+        [use_aes_ni=yes; AC_MSG_RESULT(yes)],
+        [use_aes_ni=no; AC_MSG_RESULT(no)])
+      CXXFLAGS="$saved_CXXFLAGS"
+      ;;
+    *)
+      use_aes_ni=no
+      ;;
+  esac
+fi
+if test x$use_aes_ni = xyes; then
+  AC_DEFINE(USE_AES_NI, 1, [Define this symbol if AES-NI works])
 fi
 
 if test x$armv8_crypto = xyes; then
@@ -1186,6 +1348,14 @@ AM_CONDITIONAL([GLIBC_BACK_COMPAT],[test x$use_glibc_compat = xyes])
 AM_CONDITIONAL([HARDEN],[test x$use_hardening = xyes])
 AM_CONDITIONAL([WORDS_BIGENDIAN],[test x$ac_cv_c_bigendian = xyes])
 AM_CONDITIONAL([USE_SCRYPT_SSE2], [test x$use_scrypt_sse2 = xyes])
+AM_CONDITIONAL([USE_SCRYPT_AVX2], [test x$use_scrypt_avx2 = xyes])
+AM_CONDITIONAL([USE_SCRYPT_ARM_NEON], [test x$use_scrypt_arm_neon = xyes])
+AM_CONDITIONAL([USE_SHA256_SSE41], [test x$enable_sha256_sse41 = xyes])
+AM_CONDITIONAL([USE_SHA256_AVX2], [test x$enable_sha256_avx2 = xyes])
+AM_CONDITIONAL([USE_SHA256_SHANI], [test x$enable_sha256_shani = xyes])
+AM_CONDITIONAL([USE_SHA256_RUNTIME], [test x$use_sha256_runtime = xyes])
+AM_CONDITIONAL([USE_AES_NI], [test x$use_aes_ni = xyes])
+AM_CONDITIONAL([USE_ARMV8], [test x$armv8_crypto = xyes])
 
 AC_DEFINE(CLIENT_VERSION_MAJOR, _CLIENT_VERSION_MAJOR, [Major version])
 AC_DEFINE(CLIENT_VERSION_MINOR, _CLIENT_VERSION_MINOR, [Minor version])

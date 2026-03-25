@@ -30,6 +30,10 @@ LIBDOGECOIN_CONSENSUS=libdogecoin_consensus.a
 LIBDOGECOIN_CLI=libdogecoin_cli.a
 LIBDOGECOIN_UTIL=libdogecoin_util.a
 LIBDOGECOIN_CRYPTO=crypto/libdogecoin_crypto.a
+LIBDOGECOIN_CRYPTO_SSE41=crypto/libdogecoin_crypto_sse41.a
+LIBDOGECOIN_CRYPTO_AVX2=crypto/libdogecoin_crypto_avx2.a
+LIBDOGECOIN_CRYPTO_SHANI=crypto/libdogecoin_crypto_shani.a
+LIBDOGECOIN_CRYPTO_AES_NI=crypto/libdogecoin_crypto_aes_ni.a
 LIBDOGECOINQT=qt/libdogecoinqt.a
 LIBSECP256K1=secp256k1/libsecp256k1.la
 
@@ -50,6 +54,10 @@ $(LIBSECP256K1): $(wildcard secp256k1/src/*) $(wildcard secp256k1/include/*)
 # But to build the less dependent modules first, we manually select their order here:
 EXTRA_LIBRARIES += \
   $(LIBDOGECOIN_CRYPTO) \
+  $(LIBDOGECOIN_CRYPTO_SSE41) \
+  $(LIBDOGECOIN_CRYPTO_AVX2) \
+  $(LIBDOGECOIN_CRYPTO_SHANI) \
+  $(LIBDOGECOIN_CRYPTO_AES_NI) \
   $(LIBDOGECOIN_UTIL) \
   $(LIBDOGECOIN_COMMON) \
   $(LIBDOGECOIN_CONSENSUS) \
@@ -280,9 +288,58 @@ crypto_libdogecoin_crypto_a_SOURCES = \
   crypto/sha512.cpp \
   crypto/sha512.h
 
-# only include SSE2 scrypt sources if USE_SCRYPT_SSE2 is defined
+# Scrypt SSE2 (x86/x86_64)
 if USE_SCRYPT_SSE2
 crypto_libdogecoin_crypto_a_SOURCES += crypto/scrypt-sse2.cpp
+endif
+
+# ARMv8 SHA-256 crypto extensions
+if USE_ARMV8
+crypto_libdogecoin_crypto_a_SOURCES += crypto/sha256_armv8.cpp
+endif
+
+# SHA-256 SSE4.1 convenience library
+crypto_libdogecoin_crypto_sse41_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_CONFIG_INCLUDES)
+crypto_libdogecoin_crypto_sse41_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS) -msse4.1
+crypto_libdogecoin_crypto_sse41_a_SOURCES =
+if USE_SHA256_SSE41
+crypto_libdogecoin_crypto_sse41_a_SOURCES += crypto/sha256_sse41.cpp
+endif
+
+# AVX2 convenience library (SHA-256 AVX2 + scrypt AVX2)
+crypto_libdogecoin_crypto_avx2_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_CONFIG_INCLUDES)
+crypto_libdogecoin_crypto_avx2_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS) -mavx2
+crypto_libdogecoin_crypto_avx2_a_SOURCES =
+if USE_SHA256_AVX2
+crypto_libdogecoin_crypto_avx2_a_SOURCES += crypto/sha256_avx2.cpp
+endif
+if USE_SCRYPT_AVX2
+crypto_libdogecoin_crypto_avx2_a_SOURCES += crypto/scrypt-avx2.cpp
+endif
+
+# SHA-256 SHA-NI convenience library
+crypto_libdogecoin_crypto_shani_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_CONFIG_INCLUDES)
+crypto_libdogecoin_crypto_shani_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS) -msse4.1 -msha
+crypto_libdogecoin_crypto_shani_a_SOURCES =
+if USE_SHA256_SHANI
+crypto_libdogecoin_crypto_shani_a_SOURCES += crypto/sha256_shani.cpp
+endif
+
+# AES-NI convenience library
+crypto_libdogecoin_crypto_aes_ni_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_CONFIG_INCLUDES)
+crypto_libdogecoin_crypto_aes_ni_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS) -maes -msse4.1
+crypto_libdogecoin_crypto_aes_ni_a_SOURCES =
+if USE_AES_NI
+crypto_libdogecoin_crypto_aes_ni_a_SOURCES += crypto/aes_ni.cpp crypto/aes_ni.h
+endif
+
+# ARM NEON convenience library (scrypt NEON; needs -mfpu=neon on armhf)
+if USE_SCRYPT_ARM_NEON
+LIBDOGECOIN_CRYPTO_ARM_NEON=crypto/libdogecoin_crypto_arm_neon.a
+EXTRA_LIBRARIES += $(LIBDOGECOIN_CRYPTO_ARM_NEON)
+crypto_libdogecoin_crypto_arm_neon_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_CONFIG_INCLUDES)
+crypto_libdogecoin_crypto_arm_neon_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS) $(ARM_NEON_CXXFLAGS)
+crypto_libdogecoin_crypto_arm_neon_a_SOURCES = crypto/scrypt-arm-neon.cpp
 endif
 
 # consensus: shared between all executables that validate any consensus rules.
@@ -409,6 +466,10 @@ dogecoind_LDADD = \
   $(LIBDOGECOIN_ZMQ) \
   $(LIBDOGECOIN_CONSENSUS) \
   $(LIBDOGECOIN_CRYPTO) \
+  $(LIBDOGECOIN_CRYPTO_SSE41) \
+  $(LIBDOGECOIN_CRYPTO_AVX2) \
+  $(LIBDOGECOIN_CRYPTO_SHANI) \
+  $(LIBDOGECOIN_CRYPTO_AES_NI) \
   $(LIBLEVELDB) \
   $(LIBMEMENV) \
   $(LIBSECP256K1)
@@ -429,7 +490,11 @@ dogecoin_cli_LDADD = \
   $(LIBDOGECOIN_CLI) \
   $(LIBUNIVALUE) \
   $(LIBDOGECOIN_UTIL) \
-  $(LIBDOGECOIN_CRYPTO)
+  $(LIBDOGECOIN_CRYPTO) \
+  $(LIBDOGECOIN_CRYPTO_SSE41) \
+  $(LIBDOGECOIN_CRYPTO_AVX2) \
+  $(LIBDOGECOIN_CRYPTO_SHANI) \
+  $(LIBDOGECOIN_CRYPTO_AES_NI)
 
 dogecoin_cli_LDADD += $(BOOST_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS)
 #
@@ -450,9 +515,19 @@ dogecoin_tx_LDADD = \
   $(LIBDOGECOIN_UTIL) \
   $(LIBDOGECOIN_CONSENSUS) \
   $(LIBDOGECOIN_CRYPTO) \
+  $(LIBDOGECOIN_CRYPTO_SSE41) \
+  $(LIBDOGECOIN_CRYPTO_AVX2) \
+  $(LIBDOGECOIN_CRYPTO_SHANI) \
+  $(LIBDOGECOIN_CRYPTO_AES_NI) \
   $(LIBSECP256K1)
 
 dogecoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
+
+if USE_SCRYPT_ARM_NEON
+dogecoind_LDADD += $(LIBDOGECOIN_CRYPTO_ARM_NEON)
+dogecoin_cli_LDADD += $(LIBDOGECOIN_CRYPTO_ARM_NEON)
+dogecoin_tx_LDADD += $(LIBDOGECOIN_CRYPTO_ARM_NEON)
+endif
 #
 
 # bitcoinconsensus library #

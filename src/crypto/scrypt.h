@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 #if defined(HAVE_CONFIG_H)
-#include "bitcoin-config.h" // for USE_SSE2
+#include "bitcoin-config.h" // for USE_SSE2, USE_SCRYPT_AVX2, USE_SCRYPT_ARM_NEON
 #endif
 
 static const int SCRYPT_SCRATCHPAD_SIZE = 131072 + 63;
@@ -17,18 +17,44 @@ static const int SCRYPT_SCRATCHPAD_SIZE = 131072 + 63;
 void scrypt_1024_1_1_256(const char *input, char *output);
 void scrypt_1024_1_1_256_sp_generic(const char *input, char *output, char *scratchpad);
 
+/* Backend declarations */
 #if defined(USE_SSE2)
-#if defined(_M_X64) || defined(__x86_64__) || defined(_M_AMD64) || (defined(MAC_OSX) && defined(__i386__))
-#define USE_SSE2_ALWAYS 1
-#define scrypt_1024_1_1_256_sp(input, output, scratchpad) scrypt_1024_1_1_256_sp_sse2((input), (output), (scratchpad))
-#else
-#define scrypt_1024_1_1_256_sp(input, output, scratchpad) scrypt_1024_1_1_256_sp_detected((input), (output), (scratchpad))
+void scrypt_1024_1_1_256_sp_sse2(const char *input, char *output, char *scratchpad);
 #endif
 
-bool scrypt_detect_sse2();
-void scrypt_1024_1_1_256_sp_sse2(const char *input, char *output, char *scratchpad);
+#if defined(USE_SCRYPT_AVX2)
+void scrypt_1024_1_1_256_sp_avx2(const char *input, char *output, char *scratchpad);
+#endif
+
+#if defined(USE_SCRYPT_ARM_NEON)
+void scrypt_1024_1_1_256_sp_neon(const char *input, char *output, char *scratchpad);
+#endif
+
+/*
+ * Runtime dispatch: on x86_64, AVX2 > SSE2 > generic.
+ * On ARM with NEON, use NEON directly. Otherwise, generic.
+ */
+#if defined(BUILD_BITCOIN_INTERNAL)
+/* Consensus library: always use generic implementation */
+#define scrypt_1024_1_1_256_sp(input, output, scratchpad) scrypt_1024_1_1_256_sp_generic((input), (output), (scratchpad))
+
+#elif defined(USE_SCRYPT_AVX2) || (defined(USE_SSE2) && !defined(USE_SSE2_ALWAYS))
+/* Runtime CPUID dispatch needed */
 extern void (*scrypt_1024_1_1_256_sp_detected)(const char *input, char *output, char *scratchpad);
+void scrypt_detect_best();
+#define scrypt_1024_1_1_256_sp(input, output, scratchpad) scrypt_1024_1_1_256_sp_detected((input), (output), (scratchpad))
+
+#elif defined(USE_SSE2) && (defined(_M_X64) || defined(__x86_64__) || defined(_M_AMD64) || (defined(MAC_OSX) && defined(__i386__)))
+/* x86_64 with SSE2 always available, but no AVX2 compiled in — use SSE2 directly */
+#define USE_SSE2_ALWAYS 1
+#define scrypt_1024_1_1_256_sp(input, output, scratchpad) scrypt_1024_1_1_256_sp_sse2((input), (output), (scratchpad))
+
+#elif defined(USE_SCRYPT_ARM_NEON)
+/* ARM with NEON — use NEON directly */
+#define scrypt_1024_1_1_256_sp(input, output, scratchpad) scrypt_1024_1_1_256_sp_neon((input), (output), (scratchpad))
+
 #else
+/* Fallback to generic */
 #define scrypt_1024_1_1_256_sp(input, output, scratchpad) scrypt_1024_1_1_256_sp_generic((input), (output), (scratchpad))
 #endif
 

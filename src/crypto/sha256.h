@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <string>
 
 /** A hasher class for SHA-256. */
 class CSHA256
@@ -24,6 +25,23 @@ public:
     CSHA256& Write(const unsigned char* data, size_t len);
     void Finalize(unsigned char hash[OUTPUT_SIZE]);
     CSHA256& Reset();
+
+    /** Detect the best available SHA-256 implementation. Returns a string
+     *  describing the selected backend (e.g. "sse4", "avx2", "shani", "armv8", "generic").
+     *  Must be called once at startup before any hashing. */
+    static std::string AutoDetect();
 };
+
+/** SHA-256 Transform function type. Processes one 64-byte block. */
+typedef void (*TransformType)(uint32_t* s, const unsigned char* chunk, size_t blocks);
+
+/** Implementations in separate translation units. */
+namespace sha256 {
+void TransformGeneric(uint32_t* s, const unsigned char* chunk, size_t blocks);
+void TransformSSE41(uint32_t* s, const unsigned char* chunk, size_t blocks);
+void TransformAVX2(uint32_t* s, const unsigned char* chunk, size_t blocks);
+void TransformSHANI(uint32_t* s, const unsigned char* chunk, size_t blocks);
+void TransformARMv8(uint32_t* s, const unsigned char* chunk, size_t blocks);
+}
 
 #endif // BITCOIN_CRYPTO_SHA256_H

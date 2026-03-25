@@ -15,9 +15,9 @@ static void Scrypt(benchmark::State& state)
     uint256 output;
     std::vector<char> in(BUFFER_SIZE, 0);
 
-#ifdef USE_SSE2
-    scrypt_detect_sse2();
-#endif // USE_SSE2
+#if defined(USE_SCRYPT_AVX2) || (defined(USE_SSE2) && !defined(USE_SSE2_ALWAYS))
+    scrypt_detect_best();
+#endif
 
     while (state.KeepRunning())
     {
