@@ -72,10 +72,10 @@ void* Arena::alloc(size_t size)
         return nullptr;
 
     // Create the used-chunk, taking its space from the end of the free-chunk
-    auto alloced = chunks_used.emplace(it->first + it->second - size, size).first;
+    auto allocated = chunks_used.emplace(it->first + it->second - size, size).first;
     if (!(it->second -= size))
         chunks_free.erase(it);
-    return reinterpret_cast<void*>(alloced->first);
+    return reinterpret_cast<void*>(allocated->first);
 }
 
 /* extend the Iterator if other begins at its end */
