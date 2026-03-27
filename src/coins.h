@@ -389,6 +389,11 @@ public:
     CCoinsViewCache(CCoinsView *baseIn);
     ~CCoinsViewCache();
 
+    /**
+     * By deleting the copy constructor, we prevent accidentally using it when one intends to create a cache on top of a base cache.
+     */
+    CCoinsViewCache(const CCoinsViewCache &) = delete;
+
     // Standard CCoinsView methods
     bool GetCoins(const uint256 &txid, CCoins &coins) const;
     bool HaveCoins(const uint256 &txid) const;
@@ -473,11 +478,6 @@ public:
 
 private:
     CCoinsMap::const_iterator FetchCoins(const uint256 &txid) const;
-
-    /**
-     * By making the copy constructor private, we prevent accidentally using it when one intends to create a cache on top of a base cache.
-     */
-    CCoinsViewCache(const CCoinsViewCache &);
 };
 
 #endif // BITCOIN_COINS_H
