@@ -22,8 +22,8 @@
 #include "threadinterrupt.h"
 
 #include <atomic>
+#include <cstdint>
 #include <deque>
-#include <stdint.h>
 #include <thread>
 #include <memory>
 #include <condition_variable>
@@ -412,7 +412,7 @@ private:
 extern std::unique_ptr<CConnman> g_connman;
 void Discover(boost::thread_group& threadGroup);
 void MapPort(bool fUseUPnP);
-unsigned short GetListenPort();
+uint16_t GetListenPort();
 bool BindListenPort(const CService &bindAddr, std::string& strError, bool fWhitelisted = false);
 
 struct CombinerAll
