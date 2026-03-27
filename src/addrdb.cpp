@@ -15,6 +15,8 @@
 #include "tinyformat.h"
 #include "util.h"
 
+#include <cstdint>
+
 CBanDB::CBanDB()
 {
     pathBanlist = GetDataDir() / "banlist.dat";
@@ -23,7 +25,7 @@ CBanDB::CBanDB()
 bool CBanDB::Write(const banmap_t& banSet)
 {
     // Generate random temporary filename
-    unsigned short randv = 0;
+    uint16_t randv = 0;
     GetRandBytes((unsigned char*)&randv, sizeof(randv));
     std::string tmpfn = strprintf("banlist.dat.%04x", randv);
 
@@ -120,7 +122,7 @@ CAddrDB::CAddrDB()
 bool CAddrDB::Write(const CAddrMan& addr)
 {
     // Generate random temporary filename
-    unsigned short randv = 0;
+    uint16_t randv = 0;
     GetRandBytes((unsigned char*)&randv, sizeof(randv));
     std::string tmpfn = strprintf("peers.dat.%04x", randv);
 
