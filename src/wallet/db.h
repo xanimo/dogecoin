@@ -100,13 +100,12 @@ protected:
     explicit CDB(const std::string& strFilename, const char* pszMode = "r+", bool fFlushOnCloseIn=true);
     ~CDB() { Close(); }
 
+    CDB(const CDB&) = delete;
+    CDB& operator=(const CDB&) = delete;
+
 public:
     void Flush();
     void Close();
-
-private:
-    CDB(const CDB&);
-    void operator=(const CDB&);
 
 protected:
     template <typename K, typename T>
