@@ -119,6 +119,8 @@ public:
     CWalletDB(const std::string& strFilename, const char* pszMode = "r+", bool _fFlushOnClose = true) : CDB(strFilename, pszMode, _fFlushOnClose)
     {
     }
+    CWalletDB(const CWalletDB&) = delete;
+    CWalletDB& operator=(const CWalletDB&) = delete;
 
     bool WriteName(const std::string& strAddress, const std::string& strName);
     bool EraseName(const std::string& strAddress);
@@ -178,9 +180,6 @@ public:
 
     static void IncrementUpdateCounter();
     static unsigned int GetUpdateCounter();
-private:
-    CWalletDB(const CWalletDB&);
-    void operator=(const CWalletDB&);
 };
 
 void ThreadFlushWalletDB();
