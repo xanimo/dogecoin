@@ -12,6 +12,7 @@
 
 #include "compat.h"
 #include "serialize.h"
+#include "span.h"
 
 #include <cstdint>
 #include <string>
@@ -163,7 +164,7 @@ class CService : public CNetAddr
         inline void SerializationOp(Stream& s, Operation ser_action) {
             READWRITE(ip);
             uint16_t portN = htons(port);
-            READWRITE(FLATDATA(portN));
+            READWRITE(Span<unsigned char>((unsigned char*)&portN, 2));
             if (ser_action.ForRead())
                  port = ntohs(portN);
         }
