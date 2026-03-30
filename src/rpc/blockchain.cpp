@@ -900,7 +900,7 @@ static bool GetUTXOStats(CCoinsView *view, CCoinsStats &stats)
                 }
             }
             stats.nSerializedSize += 32 + pcursor->GetValueSize();
-            ss << VARINT(0);
+            ss << VARINT(0u);
         } else {
             return error("%s: unable to read value", __func__);
         }
