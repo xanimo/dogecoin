@@ -507,7 +507,7 @@ static inline Wrapper<Formatter, T&> Using(T&& t) { return Wrapper<Formatter, T&
 #define VARINT_MODE(obj, mode) Using<VarIntFormatter<mode>>(obj)
 #define VARINT(obj) Using<VarIntFormatter<VarIntMode::DEFAULT>>(obj)
 #define COMPACTSIZE(obj) Using<CompactSizeFormatter>(obj)
-#define LIMITED_STRING(obj,n) LimitedString< n >(REF(obj))
+#define LIMITED_STRING(obj,n) Using<LimitedStringFormatter<n>>(obj)
 
 /** Serialization wrapper class for integers in VarInt format. */
 template<VarIntMode Mode>
@@ -592,31 +592,24 @@ struct CompactSizeFormatter
 };
 
 template<size_t Limit>
-class LimitedString
+struct LimitedStringFormatter
 {
-protected:
-    std::string& string;
-public:
-    LimitedString(std::string& _string) : string(_string) {}
 
     template<typename Stream>
-    void Unserialize(Stream& s)
+    void Unser(Stream& s, std::string& v)
     {
         size_t size = ReadCompactSize(s);
         if (size > Limit) {
             throw std::ios_base::failure("String length limit exceeded");
         }
-        string.resize(size);
-        if (size != 0)
-            s.read((char*)&string[0], size);
+        v.resize(size);
+        if (size != 0) s.read((char*)v.data(), size);
     }
 
     template<typename Stream>
-    void Serialize(Stream& s) const
+    void Ser(Stream& s, const std::string& v)
     {
-        WriteCompactSize(s, string.size());
-        if (!string.empty())
-            s.write((char*)&string[0], string.size());
+        s << v;
     }
 };
 
