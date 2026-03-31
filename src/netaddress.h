@@ -83,12 +83,7 @@ class CNetAddr
         friend bool operator!=(const CNetAddr& a, const CNetAddr& b);
         friend bool operator<(const CNetAddr& a, const CNetAddr& b);
 
-        ADD_SERIALIZE_METHODS;
-
-        template <typename Stream, typename Operation>
-        inline void SerializationOp(Stream& s, Operation ser_action) {
-            READWRITE(ip);
-        }
+        SERIALIZE_METHODS(CNetAddr, obj) { READWRITE(obj.ip); }
 
         friend class CSubNet;
 };
@@ -120,14 +115,7 @@ class CSubNet
         friend bool operator!=(const CSubNet& a, const CSubNet& b);
         friend bool operator<(const CSubNet& a, const CSubNet& b);
 
-        ADD_SERIALIZE_METHODS;
-
-        template <typename Stream, typename Operation>
-        inline void SerializationOp(Stream& s, Operation ser_action) {
-            READWRITE(network);
-            READWRITE(netmask);
-            READWRITE(valid);
-        }
+        SERIALIZE_METHODS(CSubNet, obj) { READWRITE(obj.network, obj.netmask, obj.valid); }
 };
 
 /** A combination of a network address (CNetAddr) and a (TCP) port */
@@ -157,13 +145,7 @@ class CService : public CNetAddr
         CService(const struct in6_addr& ipv6Addr, uint16_t port);
         CService(const struct sockaddr_in6& addr);
 
-        ADD_SERIALIZE_METHODS;
-
-        template <typename Stream, typename Operation>
-        inline void SerializationOp(Stream& s, Operation ser_action) {
-            READWRITE(ip);
-            READWRITE(Using<BigEndianFormatter<2>>(port));
-        }
+        SERIALIZE_METHODS(CService, obj) { READWRITE(obj.ip, Using<BigEndianFormatter<2>>(obj.port)); }
 };
 
 #endif // BITCOIN_NETADDRESS_H
