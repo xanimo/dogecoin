@@ -52,13 +52,10 @@ public:
     int nVersion;
 
     CHDChain() { SetNull(); }
-    ADD_SERIALIZE_METHODS;
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action)
+
+    SERIALIZE_METHODS(CHDChain, obj)
     {
-        READWRITE(this->nVersion);
-        READWRITE(nExternalChainCounter);
-        READWRITE(masterKeyID);
+        READWRITE(obj.nVersion, obj.nExternalChainCounter, obj.masterKeyID);
     }
 
     void SetNull()
@@ -90,16 +87,12 @@ public:
         nCreateTime = nCreateTime_;
     }
 
-    ADD_SERIALIZE_METHODS;
-
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action) {
-        READWRITE(this->nVersion);
-        READWRITE(nCreateTime);
-        if (this->nVersion >= VERSION_WITH_HDDATA)
+    SERIALIZE_METHODS(CKeyMetadata, obj)
+    {
+        READWRITE(obj.nVersion, obj.nCreateTime);
+        if (obj.nVersion >= VERSION_WITH_HDDATA)
         {
-            READWRITE(hdKeypath);
-            READWRITE(hdMasterKeyID);
+            READWRITE(obj.hdKeypath, obj.hdMasterKeyID);
         }
     }
 
