@@ -58,30 +58,21 @@ public:
     static const int CURRENT_VERSION = 1;
     int nVersion;
 
-    ADD_SERIALIZE_METHODS;
-
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action) {
-        std::string sAddress = address.toStdString();
-        std::string sLabel = label.toStdString();
-        std::string sMessage = message.toStdString();
-        std::string sPaymentRequest = "";
-        std::string sAuthenticatedMerchant = "";
-
-        READWRITE(this->nVersion);
-        READWRITE(sAddress);
-        READWRITE(sLabel);
-        READWRITE(amount);
-        READWRITE(sMessage);
-        READWRITE(sPaymentRequest);
-        READWRITE(sAuthenticatedMerchant);
-
-        if (ser_action.ForRead())
-        {
-            address = QString::fromStdString(sAddress);
-            label = QString::fromStdString(sLabel);
-            message = QString::fromStdString(sMessage);
-        }
+    SERIALIZE_METHODS(SendCoinsRecipient, obj)
+    {
+        std::string sAddress, sLabel, sMessage;
+        std::string sPaymentRequest, sAuthenticatedMerchant;
+        SER_WRITE(obj, {
+            sAddress = obj.address.toStdString();
+            sLabel = obj.label.toStdString();
+            sMessage = obj.message.toStdString();
+        });
+        READWRITE(obj.nVersion, sAddress, sLabel, obj.amount, sMessage, sPaymentRequest, sAuthenticatedMerchant);
+        SER_READ(obj, {
+            obj.address = QString::fromStdString(sAddress);
+            obj.label = QString::fromStdString(sLabel);
+            obj.message = QString::fromStdString(sMessage);
+        });
     }
 };
 
