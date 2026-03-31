@@ -45,14 +45,9 @@ struct CCoin {
     uint32_t nHeight;
     CTxOut out;
 
-    ADD_SERIALIZE_METHODS;
-
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action)
+    SERIALIZE_METHODS(CCoin, obj)
     {
-        READWRITE(nTxVer);
-        READWRITE(nHeight);
-        READWRITE(out);
+        READWRITE(obj.nTxVer, obj.nHeight, obj.out);
     }
 };
 
