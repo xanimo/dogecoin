@@ -7,6 +7,7 @@
 #include "coins.h"
 #include "consensus/merkle.h"
 #include "dogecoin.h"
+#include "pow.h"
 #include "primitives/block.h"
 #include "script/script.h"
 #include "uint256.h"
