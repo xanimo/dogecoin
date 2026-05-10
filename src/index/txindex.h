@@ -57,6 +57,14 @@ protected:
 
     virtual BaseIndexDB& GetDB() const = 0;
 
+    /// Initialize internal state from the database and block index.
+    virtual bool Init();
+
+    /// Write update index entries for a newly connected block.
+    virtual bool WriteBlock(const CBlock& block, const CBlockIndex* pindex) { return true; }
+
+    virtual BaseIndexDB& GetDB() const = 0;
+
 public:
     /// Destructor interrupts sync thread if running and blocks until it exits.
     virtual ~BaseIndex();
