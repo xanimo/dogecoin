@@ -27,6 +27,7 @@ static constexpr int64_t HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER = 1000; // 1ms/head
  * is set to 1 second.
  */
 static constexpr int64_t MIN_BLOCK_DOWNLOAD_MULTIPLIER = 10; // 10 seconds
+static const bool DEFAULT_PEERBLOCKFILTERS = false;
 
 /** The maximum rate of address records we're willing to process on average.
  * Is bypassed for whitelisted connections. */
