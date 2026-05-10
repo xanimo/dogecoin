@@ -221,11 +221,22 @@ UniValue getrawtransaction(const JSONRPCRequest& request)
 
     CTransactionRef tx;
     uint256 hashBlock;
+    bool f_txindex_ready = false;
+    if (g_txindex) {
+        f_txindex_ready = g_txindex->BlockUntilSyncedToCurrentChain();
+    }
     // Dogecoin: Is this the best value for consensus height?
-    if (!GetTransaction(hash, tx, Params().GetConsensus(0), hashBlock, true))
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, std::string(g_txindex ? "No such mempool or blockchain transaction"
-            : "No such mempool transaction. Use -txindex to enable blockchain transaction queries") +
-            ". Use gettransaction for wallet transactions.");
+    if (!GetTransaction(hash, tx, Params().GetConsensus(0), hashBlock, true)) {
+        std::string errmsg;
+        if (!g_txindex) {
+            errmsg = "No such mempool transaction. Use -txindex to enable blockchain transaction queries";
+        } else if (!f_txindex_ready) {
+            errmsg = "No such mempool transaction. Blockchain transactions are still in the process of being indexed";
+        } else {
+            errmsg = "No such mempool or blockchain transaction";
+        }
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, errmsg + ". Use gettransaction for wallet transactions.");
+    }
 
     string strHex = EncodeHexTx(*tx, RPCSerializationFlags());
 
@@ -293,6 +304,9 @@ UniValue gettxoutproof(const JSONRPCRequest& request)
     if (pblockindex == NULL)
     {
         CTransactionRef tx;
+        if (g_txindex) {
+            g_txindex->BlockUntilSyncedToCurrentChain();
+        }
         if (!GetTransaction(oneTxid, tx, Params().GetConsensus(0), hashBlock, false) || hashBlock.IsNull())
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Transaction not yet in block");
         if (!mapBlockIndex.count(hashBlock))
