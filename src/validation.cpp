@@ -4069,25 +4069,27 @@ bool LoadExternalBlockFile(const CChainParams& chainparams, FILE* fileIn, CDiskB
 
                 // detect out of order blocks, and store them for later
                 uint256 hash = block.GetHash();
-                if (hash != chainparams.GetConsensus(0).hashGenesisBlock && !LookupBlockIndex(block.hashPrevBlock)) {
-                    LogPrint("reindex", "%s: Out of order block %s, parent %s not known\n", __func__, hash.ToString(),
-                            block.hashPrevBlock.ToString());
-                    if (dbp)
-                        mapBlocksUnknownParent.insert(std::make_pair(block.hashPrevBlock, *dbp));
-                    continue;
-                }
-
-                // process in case the block isn't known yet
-                CBlockIndex* pindex = LookupBlockIndex(hash);
-                if (!pindex || (pindex->nStatus & BLOCK_HAVE_DATA) == 0) {
+                {
                     LOCK(cs_main);
-                    CValidationState state;
-                    if (AcceptBlock(pblock, state, chainparams, NULL, true, dbp, NULL))
-                        nLoaded++;
-                    if (state.IsError())
-                        break;
-                } else if (hash != chainparams.GetConsensus(0).hashGenesisBlock && pindex->nHeight % 1000 == 0) {
-                    LogPrint("reindex", "Block Import: already had block %s at height %d\n", hash.ToString(), pindex->nHeight);
+                    if (hash != chainparams.GetConsensus(0).hashGenesisBlock && !LookupBlockIndex(block.hashPrevBlock)) {
+                        LogPrint("reindex", "%s: Out of order block %s, parent %s not known\n", __func__, hash.ToString(),
+                                block.hashPrevBlock.ToString());
+                        if (dbp)
+                            mapBlocksUnknownParent.insert(std::make_pair(block.hashPrevBlock, *dbp));
+                        continue;
+                    }
+
+                    // process in case the block isn't known yet
+                    CBlockIndex* pindex = LookupBlockIndex(hash);
+                    if (!pindex || (pindex->nStatus & BLOCK_HAVE_DATA) == 0) {
+                        CValidationState state;
+                        if (AcceptBlock(pblock, state, chainparams, NULL, true, dbp, NULL))
+                            nLoaded++;
+                        if (state.IsError())
+                            break;
+                    } else if (hash != chainparams.GetConsensus(0).hashGenesisBlock && pindex->nHeight % 1000 == 0) {
+                        LogPrint("reindex", "Block Import: already had block %s at height %d\n", hash.ToString(), pindex->nHeight);
+                    }
                 }
 
                 // Activate the genesis block so normal node progress can continue
