@@ -71,8 +71,47 @@ static constexpr int64_t OVERLOADED_PEER_TX_DELAY = 2 * 1000000;
 static constexpr int64_t GETDATA_TX_INTERVAL = 30 * 1000000; // 30 seconds
 /** Limit to avoid sending big packets. Not used in processing incoming GETDATA for compatibility */
 static const unsigned int MAX_GETDATA_SZ = 1000;
-/** Interval between compact filter checkpoints. See BIP 157. */
-static constexpr int CFCHECKPT_INTERVAL = 1000;
+/** Number of blocks that can be requested at any given time from a single peer. */
+static const int MAX_BLOCKS_IN_TRANSIT_PER_PEER = 16;
+/** Timeout in seconds during which a peer must stall block download progress before being disconnected. */
+static const unsigned int BLOCK_STALLING_TIMEOUT = 2;
+/** Number of headers sent in one getheaders result. We rely on the assumption that if a peer sends
+ *  less than this number, we reached its tip. Changing this value is a protocol upgrade. */
+static const unsigned int MAX_HEADERS_RESULTS = 2000;
+/** Maximum depth of blocks we're willing to serve as compact blocks to peers
+ *  when requested. For older blocks, a regular BLOCK response will be sent. */
+static const int MAX_CMPCTBLOCK_DEPTH = 5;
+/** Maximum depth of blocks we're willing to respond to GETBLOCKTXN requests for. */
+static const int MAX_BLOCKTXN_DEPTH = 10;
+/** Size of the "block download window": how far ahead of our current height do we fetch?
+ *  Larger windows tolerate larger download speed differences between peer, but increase the potential
+ *  degree of disordering of blocks on disk (which make reindexing and pruning harder). We'll probably
+ *  want to make this a per-peer adaptive value at some point. */
+static const unsigned int BLOCK_DOWNLOAD_WINDOW = 1024;
+/** Block download timeout base, expressed in millionths of the block interval (i.e. 10 min) */
+static const int64_t BLOCK_DOWNLOAD_TIMEOUT_BASE = 1000000;
+/** Additional block download timeout per parallel downloading peer (i.e. 5 min) */
+static const int64_t BLOCK_DOWNLOAD_TIMEOUT_PER_PEER = 500000;
+/** Maximum number of headers to announce when relaying blocks with headers message.*/
+static const unsigned int MAX_BLOCKS_TO_ANNOUNCE = 8;
+/** Maximum number of unconnecting headers announcements before DoS score */
+static const int MAX_UNCONNECTING_HEADERS = 10;
+/** Minimum blocks required to signal NODE_NETWORK_LIMITED */
+static const unsigned int NODE_NETWORK_LIMITED_MIN_BLOCKS = 288;
+/** Average delay between local address broadcasts */
+static constexpr std::chrono::hours AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL{24};
+/** Average delay between peer address broadcasts */
+static constexpr std::chrono::seconds AVG_ADDRESS_BROADCAST_INTERVAL{30};
+/** Average delay between trickled inventory transmissions in seconds.
+ *  Blocks and whitelisted receivers bypass this, outbound peers get half this delay. */
+static const unsigned int INVENTORY_BROADCAST_INTERVAL = 5;
+/** Maximum number of inventory items to send per transmission.
+ *  Limits the impact of low-fee transaction floods. */
+static constexpr unsigned int INVENTORY_BROADCAST_MAX = 7 * INVENTORY_BROADCAST_INTERVAL;
+/** Average delay between feefilter broadcasts in seconds. */
+static constexpr unsigned int AVG_FEEFILTER_BROADCAST_INTERVAL = 10 * 60;
+/** Maximum feefilter broadcast delay after significant change. */
+static constexpr unsigned int MAX_FEEFILTER_CHANGE_DELAY = 5 * 60;
 
 struct COrphanTx {
     // When modifying, adapt the copy of this definition in tests/DoS_tests.
@@ -1337,7 +1376,7 @@ static bool PrepareBlockFilterRequest(CNode* pfrom, const CChainParams& chain_pa
                                       BlockFilterType filter_type,
                                       const uint256& stop_hash,
                                       const CBlockIndex*& stop_index,
-                                      const BlockFilterIndex*& filter_index)
+                                      BlockFilterIndex*& filter_index)
 {
     const bool supported_filter_type =
         (filter_type == BlockFilterType::BASIC &&
@@ -1393,7 +1432,7 @@ static void ProcessGetCFCheckPt(CNode* pfrom, CDataStream& vRecv, const CChainPa
     const BlockFilterType filter_type = static_cast<BlockFilterType>(filter_type_ser);
 
     const CBlockIndex* stop_index;
-    const BlockFilterIndex* filter_index;
+    BlockFilterIndex* filter_index;
     if (!PrepareBlockFilterRequest(pfrom, chain_params, filter_type, stop_hash,
                                    stop_index, filter_index)) {
         return;
