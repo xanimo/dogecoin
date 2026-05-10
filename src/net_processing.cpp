@@ -9,9 +9,11 @@
 #include "addrman.h"
 #include "arith_uint256.h"
 #include "blockencodings.h"
+#include "blockfilter.h"
 #include "chainparams.h"
 #include "consensus/validation.h"
 #include "hash.h"
+#include "index/blockfilterindex.h"
 #include "init.h"
 #include "validation.h"
 #include "merkleblock.h"
@@ -69,6 +71,8 @@ static constexpr int64_t OVERLOADED_PEER_TX_DELAY = 2 * 1000000;
 static constexpr int64_t GETDATA_TX_INTERVAL = 30 * 1000000; // 30 seconds
 /** Limit to avoid sending big packets. Not used in processing incoming GETDATA for compatibility */
 static const unsigned int MAX_GETDATA_SZ = 1000;
+/** Interval between compact filter checkpoints. See BIP 157. */
+static constexpr int CFCHECKPT_INTERVAL = 1000;
 
 struct COrphanTx {
     // When modifying, adapt the copy of this definition in tests/DoS_tests.
@@ -1322,6 +1326,100 @@ void static ProcessOrphanTx(CConnman* connman, std::set<uint256>& orphan_work_se
 
         mempool.check(pcoinsTip);
     }
+}
+
+/**
+ * Validation logic for compact filters request handling.
+ *
+ * May disconnect from the peer in the case of a bad request.
+ */
+static bool PrepareBlockFilterRequest(CNode* pfrom, const CChainParams& chain_params,
+                                      BlockFilterType filter_type,
+                                      const uint256& stop_hash,
+                                      const CBlockIndex*& stop_index,
+                                      const BlockFilterIndex*& filter_index)
+{
+    const bool supported_filter_type =
+        (filter_type == BlockFilterType::BASIC &&
+         GetBoolArg("-peerblockfilters", DEFAULT_PEERBLOCKFILTERS));
+    if (!supported_filter_type) {
+        LogPrint("net", "peer %d requested unsupported block filter type: %d\n",
+                 pfrom->id, static_cast<uint8_t>(filter_type));
+        pfrom->fDisconnect = true;
+        return false;
+    }
+
+    {
+        LOCK(cs_main);
+        BlockMap::iterator it = mapBlockIndex.find(stop_hash);
+        if (it == mapBlockIndex.end()) {
+            LogPrint("net", "peer %d requested invalid block hash: %s\n",
+                     pfrom->id, stop_hash.ToString());
+            pfrom->fDisconnect = true;
+            return false;
+        }
+        stop_index = it->second;
+
+        // Check that the peer would be allowed to fetch the stop block.
+        bool allowed = chainActive.Contains(stop_index);
+        if (!allowed) {
+            LogPrint("net", "peer %d requested invalid block hash: %s\n",
+                     pfrom->id, stop_hash.ToString());
+            pfrom->fDisconnect = true;
+            return false;
+        }
+    }
+
+    filter_index = GetBlockFilterIndex(filter_type);
+    if (!filter_index) {
+        LogPrint("net", "Filter index for supported type %s not found\n", BlockFilterTypeName(filter_type));
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Handle a getcfcheckpt request.
+ */
+static void ProcessGetCFCheckPt(CNode* pfrom, CDataStream& vRecv, const CChainParams& chain_params,
+                                CConnman& connman)
+{
+    uint8_t filter_type_ser;
+    uint256 stop_hash;
+
+    vRecv >> filter_type_ser >> stop_hash;
+
+    const BlockFilterType filter_type = static_cast<BlockFilterType>(filter_type_ser);
+
+    const CBlockIndex* stop_index;
+    const BlockFilterIndex* filter_index;
+    if (!PrepareBlockFilterRequest(pfrom, chain_params, filter_type, stop_hash,
+                                   stop_index, filter_index)) {
+        return;
+    }
+
+    std::vector<uint256> headers(stop_index->nHeight / CFCHECKPT_INTERVAL);
+
+    // Populate headers.
+    const CBlockIndex* block_index = stop_index;
+    for (int i = headers.size() - 1; i >= 0; i--) {
+        int height = (i + 1) * CFCHECKPT_INTERVAL;
+        block_index = block_index->GetAncestor(height);
+
+        if (!filter_index->LookupFilterHeader(block_index, headers[i])) {
+            LogPrint("net", "Failed to find block filter header in index: filter_type=%s, block_hash=%s\n",
+                         BlockFilterTypeName(filter_type), block_index->GetBlockHash().ToString());
+            return;
+        }
+    }
+
+    CSerializedNetMsg msg = CNetMsgMaker(pfrom->GetSendVersion())
+        .Make(NetMsgType::CFCHECKPT,
+              filter_type_ser,
+              stop_index->GetBlockHash(),
+              headers);
+    connman.PushMessage(pfrom, std::move(msg));
 }
 
 bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv, int64_t nTimeReceived, const CChainParams& chainparams, CConnman& connman, const std::atomic<bool>& interruptMsgProc)
@@ -2768,6 +2866,10 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             }
             LogPrint("net", "received: feefilter of %s from peer=%d\n", CFeeRate(newFeeFilter).ToString(), pfrom->id);
         }
+    }
+
+    else if (strCommand == NetMsgType::GETCFCHECKPT) {
+        ProcessGetCFCheckPt(pfrom, vRecv, chainparams, connman);
     }
 
     else if (strCommand == NetMsgType::NOTFOUND) {
