@@ -931,9 +931,6 @@ bool AppInitParameterInteraction()
     if (GetArg("-prune", 0)) {
         if (GetBoolArg("-txindex", DEFAULT_TXINDEX))
             return InitError(_("Prune mode is incompatible with -txindex."));
-        if (!g_enabled_filter_types.empty()) {
-            return InitError(_("Prune mode is incompatible with -blockfilterindex."));
-        }
     }
 
     // Make sure enough file descriptors are available
