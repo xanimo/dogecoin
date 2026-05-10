@@ -1394,7 +1394,7 @@ static bool PrepareBlockFilterRequest(CNode& peer, const CChainParams& chain_par
 {
     const bool supported_filter_type =
         (filter_type == BlockFilterType::BASIC &&
-         GetBoolArg("-peerblockfilters", DEFAULT_PEERBLOCKFILTERS));
+         (peer.GetLocalServices() & NODE_COMPACT_FILTERS));
     if (!supported_filter_type) {
         LogPrint("net", "peer %d requested unsupported block filter type: %d\n",
                  peer.id, static_cast<uint8_t>(filter_type));
