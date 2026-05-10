@@ -192,16 +192,9 @@ void AssertLockHeldInternal(const char* pszName, const char* pszFile, int nLine,
 
 void AssertLockNotHeldInternal(const char* pszName, const char* pszFile, int nLine, void* cs)
 {
-    LockData& lockdata = GetLockData();
-    std::lock_guard<std::mutex> lock(lockdata.dd_mutex);
-
-    const LockStack& lock_stack = lockdata.m_lock_stacks[std::this_thread::get_id()];
-    for (const LockStackItem& i : lock_stack) {
-        if (i.first == cs) {
-            fprintf(stderr, "Assertion failed: lock %s held in %s:%i; locks held:\n%s", pszName, pszFile, nLine, LocksHeld().c_str());
-            abort();
-        }
-    }
+    if (!LockHeld(cs)) return;
+    fprintf(stderr, "Assertion failed: lock %s held in %s:%i; locks held:\n%s", pszName, pszFile, nLine, LocksHeld().c_str());
+    abort();
 }
 
 void DeleteLock(void* cs)
