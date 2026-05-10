@@ -2,14 +2,14 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <chainparams.h>
-#include <index/txindex.h>
-#include <init.h>
-#include <tinyformat.h>
-#include <ui_interface.h>
-#include <util.h>
-#include <validation.h>
-#include <warnings.h>
+#include "chainparams.h"
+#include "index/txindex.h"
+#include "init.h"
+#include "tinyformat.h"
+#include "ui_interface.h"
+#include "util.h"
+#include "validation.h"
+#include "warnings.h"
 
 constexpr int64_t SYNC_LOG_INTERVAL = 30; // seconds
 constexpr int64_t SYNC_LOCATOR_WRITE_INTERVAL = 30; // seconds
@@ -28,11 +28,9 @@ static void FatalError(const char* fmt, const Args&... args)
     StartShutdown();
 }
 
-TxIndex::TxIndex(std::unique_ptr<TxIndexDB> db) :
-    m_db(std::move(db)), m_synced(false), m_best_block_index(nullptr)
-{}
+TxIndex::TxIndex(std::unique_ptr<TxIndexDB> db) : m_db(std::move(db)) {}
 
-TxIndex::~TxIndex()
+BaseIndex::~BaseIndex()
 {
     Interrupt();
     Stop();
@@ -49,11 +47,17 @@ bool TxIndex::Init()
         return false;
     }
 
+    return BaseIndex::Init();
+}
+
+bool BaseIndex::Init()
+{
     CBlockLocator locator;
-    if (!m_db->ReadBestBlock(locator)) {
+    if (!GetDB().ReadBestBlock(locator)) {
         locator.SetNull();
     }
 
+    LOCK(cs_main);
     m_best_block_index = FindForkInGlobalIndex(chainActive, locator);
     m_synced = m_best_block_index.load() == chainActive.Tip();
     return true;
@@ -75,7 +79,7 @@ static const CBlockIndex* NextSyncBlock(const CBlockIndex* pindex_prev)
     return chainActive.Next(chainActive.FindFork(pindex_prev));
 }
 
-void TxIndex::ThreadSync()
+void BaseIndex::ThreadSync()
 {
     const CBlockIndex* pindex = m_best_block_index.load();
     if (!m_synced) {
@@ -145,17 +149,19 @@ bool TxIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex)
     return m_db->WriteTxs(vPos);
 }
 
-bool TxIndex::WriteBestBlock(const CBlockIndex* block_index)
+BaseIndexDB& TxIndex::GetDB() const { return *m_db; }
+
+bool BaseIndex::WriteBestBlock(const CBlockIndex* block_index)
 {
     LOCK(cs_main);
-    if (!m_db->WriteBestBlock(chainActive.GetLocator(block_index))) {
+    if (!GetDB().WriteBestBlock(chainActive.GetLocator(block_index))) {
         return error("%s: Failed to write locator to disk", __func__);
     }
     return true;
 }
 
-void TxIndex::BlockConnected(const std::shared_ptr<const CBlock>& block, const CBlockIndex* pindex,
-                    const std::vector<CTransactionRef>& txn_conflicted)
+void BaseIndex::BlockConnected(const std::shared_ptr<const CBlock>& block, const CBlockIndex* pindex,
+                               const std::vector<CTransactionRef>& txn_conflicted)
 {
     if (!m_synced) {
         return;
@@ -170,7 +176,7 @@ void TxIndex::BlockConnected(const std::shared_ptr<const CBlock>& block, const C
         }
     } else {
         // Ensure block connects to an ancestor of the current best block. This should be the case
-        // most of the time, but may not be immediately after the the sync thread catches up and sets
+        // most of the time, but may not be immediately after the sync thread catches up and sets
         // m_synced. Consider the case where there is a reorg and the blocks on the stale branch are
         // in the ValidationInterface queue backlog even after the sync thread has caught up to the
         // new chain tip. In this unlikely event, log a warning and let the queue clear.
@@ -192,7 +198,7 @@ void TxIndex::BlockConnected(const std::shared_ptr<const CBlock>& block, const C
     }
 }
 
-void TxIndex::SetBestChain(const CBlockLocator& locator)
+void BaseIndex::ChainStateFlushed(const CBlockLocator& locator)
 {
     if (!m_synced) {
         return;
@@ -211,8 +217,8 @@ void TxIndex::SetBestChain(const CBlockLocator& locator)
         return;
     }
 
-    // This checks that SetBestChain callbacks are received after BlockConnected. The check may fail
-    // immediately after the the sync thread catches up and sets m_synced. Consider the case where
+    // This checks that ChainStateFlushed callbacks are received after BlockConnected. The check may fail
+    // immediately after the sync thread catches up and sets m_synced. Consider the case where
     // there is a reorg and the blocks on the stale branch are in the ValidationInterface queue
     // backlog even after the sync thread has caught up to the new chain tip. In this unlikely
     // event, log a warning and let the queue clear.
@@ -225,12 +231,12 @@ void TxIndex::SetBestChain(const CBlockLocator& locator)
         return;
     }
 
-    if (!m_db->WriteBestBlock(locator)) {
+    if (!GetDB().WriteBestBlock(locator)) {
         error("%s: Failed to write locator to disk", __func__);
     }
 }
 
-bool TxIndex::BlockUntilSyncedToCurrentChain()
+bool BaseIndex::BlockUntilSyncedToCurrentChain()
 {
     AssertLockNotHeld(cs_main);
 
@@ -268,7 +274,9 @@ bool TxIndex::FindTx(const uint256& tx_hash, uint256& block_hash, CTransactionRe
     CBlockHeader header;
     try {
         file >> header;
-        fseek(file.Get(), postx.nTxOffset, SEEK_CUR);
+        if (fseek(file.Get(), postx.nTxOffset, SEEK_CUR)) {
+            return error("%s: fseek(...) failed", __func__);
+        }
         file >> tx;
     } catch (const std::exception& e) {
         return error("%s: Deserialize or I/O error - %s", __func__, e.what());
@@ -280,12 +288,12 @@ bool TxIndex::FindTx(const uint256& tx_hash, uint256& block_hash, CTransactionRe
     return true;
 }
 
-void TxIndex::Interrupt()
+void BaseIndex::Interrupt()
 {
     m_interrupt();
 }
 
-void TxIndex::Start()
+void BaseIndex::Start()
 {
     // Need to register this ValidationInterface before running Init(), so that
     // callbacks are not missed if Init sets m_synced to true.
@@ -296,10 +304,10 @@ void TxIndex::Start()
     }
 
     m_thread_sync = std::thread(&TraceThread<std::function<void()>>, "txindex",
-                                std::bind(&TxIndex::ThreadSync, this));
+                                std::bind(&BaseIndex::ThreadSync, this));
 }
 
-void TxIndex::Stop()
+void BaseIndex::Stop()
 {
     UnregisterValidationInterface(this);
 
