@@ -1042,11 +1042,11 @@ bool CWallet::DummySignTx(CMutableTransaction &txNew, const ContainerType &coins
         const CScript& scriptPubKey = coin.first->tx->vout[coin.second].scriptPubKey;
         SignatureData sigdata;
 
-        if (!ProduceSignature(DummySignatureCreator(this), scriptPubKey, sigdata))
+        if (!ProduceSignature(*this, DUMMY_SIGNATURE_CREATOR, scriptPubKey, sigdata))
         {
             return false;
         } else {
-            UpdateTransaction(txNew, nIn, sigdata);
+            UpdateInput(txNew.vin[nIn], sigdata);
         }
 
         nIn++;

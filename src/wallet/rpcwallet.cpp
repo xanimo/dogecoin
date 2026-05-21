@@ -3154,7 +3154,6 @@ UniValue bumpfee(const JSONRPCRequest& request)
     }
 
     // sign the new tx
-    CTransaction txNewConst(tx);
     int nIn = 0;
     for (auto& input : tx.vin) {
         std::map<uint256, CWalletTx>::const_iterator mi = pwalletMain->mapWallet.find(input.prevout.hash);
@@ -3162,10 +3161,10 @@ UniValue bumpfee(const JSONRPCRequest& request)
         const CScript& scriptPubKey = mi->second.tx->vout[input.prevout.n].scriptPubKey;
         const CAmount& amount = mi->second.tx->vout[input.prevout.n].nValue;
         SignatureData sigdata;
-        if (!ProduceSignature(TransactionSignatureCreator(pwalletMain, &txNewConst, nIn, amount, SIGHASH_ALL), scriptPubKey, sigdata)) {
+        if (!ProduceSignature(*pwalletMain, MutableTransactionSignatureCreator(&tx, nIn, amount, SIGHASH_ALL), scriptPubKey, sigdata)) {
             throw JSONRPCError(RPC_WALLET_ERROR, "Can't sign transaction.");
         }
-        UpdateTransaction(tx, nIn, sigdata);
+        UpdateInput(tx.vin[nIn], sigdata);
         nIn++;
     }
 

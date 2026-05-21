@@ -44,6 +44,9 @@ public:
 
     static constexpr unsigned int SIZE                   = 65;
     static constexpr unsigned int COMPRESSED_SIZE        = 33;
+    // Aliases matching Bitcoin v0.17+ naming
+    static constexpr unsigned int PUBLIC_KEY_SIZE            = 65;
+    static constexpr unsigned int COMPRESSED_PUBLIC_KEY_SIZE = 33;
 
  bool static ValidSize(const std::vector<unsigned char> &vch) {
       return vch.size() > 0 && GetLen(vch[0]) == vch.size();
@@ -80,6 +83,7 @@ public:
 
     //! Simple read-only vector-like interface to the pubkey data.
     unsigned int size() const { return GetLen(vch[0]); }
+    const unsigned char* data() const { return vch; }
     const unsigned char* begin() const { return vch; }
     const unsigned char* end() const { return vch + size(); }
     const unsigned char& operator[](unsigned int pos) const { return vch[pos]; }
