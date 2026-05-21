@@ -252,7 +252,7 @@ static void http_request_cb(struct evhttp_request* req, void* arg)
 {
     std::unique_ptr<HTTPRequest> hreq(new HTTPRequest(req));
 
-    LogPrint("http", "Received a %s request for %s from %s\n",
+    LogPrint(BCLog::HTTP, "Received a %s request for %s from %s\n",
              RequestMethodString(hreq->GetRequestMethod()), hreq->GetURI(), hreq->GetPeer().ToString());
 
     // Early address-based allow check
@@ -302,7 +302,7 @@ static void http_request_cb(struct evhttp_request* req, void* arg)
 /** Callback to reject HTTP requests after shutdown. */
 static void http_reject_request_cb(struct evhttp_request* req, void*)
 {
-    LogPrint("http", "Rejecting request while shutting down\n");
+    LogPrint(BCLog::HTTP, "Rejecting request while shutting down\n");
     evhttp_send_error(req, HTTP_SERVUNAVAIL, NULL);
 }
 
@@ -310,10 +310,10 @@ static void http_reject_request_cb(struct evhttp_request* req, void*)
 static bool ThreadHTTP(struct event_base* base, struct evhttp* http)
 {
     RenameThread("dogecoin-http");
-    LogPrint("http", "Entering http event loop\n");
+    LogPrint(BCLog::HTTP, "Entering http event loop\n");
     event_base_dispatch(base);
     // Event loop will be interrupted by InterruptHTTPServer()
-    LogPrint("http", "Exited http event loop\n");
+    LogPrint(BCLog::HTTP, "Exited http event loop\n");
     return event_base_got_break(base) == 0;
 }
 
@@ -373,7 +373,7 @@ static void libevent_log_cb(int severity, const char *msg)
     if (severity >= EVENT_LOG_WARN) // Log warn messages and higher without debug category
         LogPrintf("libevent: %s\n", msg);
     else
-        LogPrint("libevent", "libevent: %s\n", msg);
+        LogPrint(BCLog::LIBEVENT, "libevent: %s\n", msg);
 }
 
 bool InitHTTPServer()
@@ -396,7 +396,7 @@ bool InitHTTPServer()
 #if LIBEVENT_VERSION_NUMBER >= 0x02010100
     // If -debug=libevent, set full libevent debugging.
     // Otherwise, disable all libevent debugging.
-    if (LogAcceptCategory("libevent"))
+    if (LogAcceptCategory(BCLog::LIBEVENT))
         event_enable_debug_logging(EVENT_DBG_ALL);
     else
         event_enable_debug_logging(EVENT_DBG_NONE);
@@ -433,7 +433,7 @@ bool InitHTTPServer()
         return false;
     }
 
-    LogPrint("http", "Initialized HTTP server\n");
+    LogPrint(BCLog::HTTP, "Initialized HTTP server\n");
     int workQueueDepth = std::max((long)GetArg("-rpcworkqueue", DEFAULT_HTTP_WORKQUEUE), 1L);
     LogPrintf("HTTP: creating work queue of depth %d\n", workQueueDepth);
 
@@ -448,7 +448,7 @@ std::future<bool> threadResult;
 
 bool StartHTTPServer()
 {
-    LogPrint("http", "Starting HTTP server\n");
+    LogPrint(BCLog::HTTP, "Starting HTTP server\n");
     int rpcThreads = std::max((long)GetArg("-rpcthreads", DEFAULT_HTTP_THREADS), 1L);
     LogPrintf("HTTP: starting %d worker threads\n", rpcThreads);
     std::packaged_task<bool(event_base*, evhttp*)> task(ThreadHTTP);
@@ -464,7 +464,7 @@ bool StartHTTPServer()
 
 void InterruptHTTPServer()
 {
-    LogPrint("http", "Interrupting HTTP server\n");
+    LogPrint(BCLog::HTTP, "Interrupting HTTP server\n");
     if (eventHTTP) {
         // Unlisten sockets
         for (evhttp_bound_socket *socket : boundSockets) {
@@ -479,14 +479,14 @@ void InterruptHTTPServer()
 
 void StopHTTPServer()
 {
-    LogPrint("http", "Stopping HTTP server\n");
+    LogPrint(BCLog::HTTP, "Stopping HTTP server\n");
     if (workQueue) {
-        LogPrint("http", "Waiting for HTTP worker threads to exit\n");
+        LogPrint(BCLog::HTTP, "Waiting for HTTP worker threads to exit\n");
         workQueue->WaitExit();
         delete workQueue;
     }
     if (eventBase) {
-        LogPrint("http", "Waiting for HTTP event thread to exit\n");
+        LogPrint(BCLog::HTTP, "Waiting for HTTP event thread to exit\n");
         // Give event loop a few seconds to exit (to send back last RPC responses), then break it
         // Before this was solved with event_base_loopexit, but that didn't work as expected in
         // at least libevent 2.0.21 and always introduced a delay. In libevent
@@ -507,7 +507,7 @@ void StopHTTPServer()
         event_base_free(eventBase);
         eventBase = 0;
     }
-    LogPrint("http", "Stopped HTTP server\n");
+    LogPrint(BCLog::HTTP, "Stopped HTTP server\n");
 }
 
 struct event_base* EventBase()
@@ -654,7 +654,7 @@ HTTPRequest::RequestMethod HTTPRequest::GetRequestMethod()
 
 void RegisterHTTPHandler(const std::string &prefix, bool exactMatch, const HTTPRequestHandler &handler)
 {
-    LogPrint("http", "Registering HTTP handler for %s (exactmatch %d)\n", prefix, exactMatch);
+    LogPrint(BCLog::HTTP, "Registering HTTP handler for %s (exactmatch %d)\n", prefix, exactMatch);
     pathHandlers.push_back(HTTPPathHandler(prefix, exactMatch, handler));
 }
 
@@ -667,7 +667,7 @@ void UnregisterHTTPHandler(const std::string &prefix, bool exactMatch)
             break;
     if (i != iend)
     {
-        LogPrint("http", "Unregistering HTTP handler for %s (exactmatch %d)\n", prefix, exactMatch);
+        LogPrint(BCLog::HTTP, "Unregistering HTTP handler for %s (exactmatch %d)\n", prefix, exactMatch);
         pathHandlers.erase(i);
     }
 }

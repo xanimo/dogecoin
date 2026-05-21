@@ -2251,11 +2251,11 @@ bool CWallet::SelectCoinsMinConf(const CAmount& nTargetValue, const int nConfMin
                 nValueRet += vValue[i].first;
             }
 
-        LogPrint("selectcoins", "SelectCoins() best subset: ");
+        LogPrint(BCLog::SELECTCOINS, "SelectCoins() best subset: ");
         for (unsigned int i = 0; i < vValue.size(); i++)
             if (vfBest[i])
-                LogPrint("selectcoins", "%s ", FormatMoney(vValue[i].first));
-        LogPrint("selectcoins", "total %s\n", FormatMoney(nBest));
+                LogPrint(BCLog::SELECTCOINS, "%s ", FormatMoney(vValue[i].first));
+        LogPrint(BCLog::SELECTCOINS, "total %s\n", FormatMoney(nBest));
     }
 
     return true;

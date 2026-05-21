@@ -447,7 +447,7 @@ public:
             }
         }
         if (nLost + nLostUnk > 0) {
-            LogPrint("addrman", "addrman lost %i new and %i tried addresses due to collisions\n", nLostUnk, nLost);
+            LogPrint(BCLog::ADDRMAN, "addrman lost %i new and %i tried addresses due to collisions\n", nLostUnk, nLost);
         }
 
         Check();
@@ -513,7 +513,7 @@ public:
         fRet |= Add_(addr, source, nTimePenalty);
         Check();
         if (fRet)
-            LogPrint("addrman", "Added %s from %s: %i tried, %i new\n", addr.ToStringIPPort(), source.ToString(), nTried, nNew);
+            LogPrint(BCLog::ADDRMAN, "Added %s from %s: %i tried, %i new\n", addr.ToStringIPPort(), source.ToString(), nTried, nNew);
         return fRet;
     }
 
@@ -527,7 +527,7 @@ public:
             nAdd += Add_(*it, source, nTimePenalty) ? 1 : 0;
         Check();
         if (nAdd)
-            LogPrint("addrman", "Added %i addresses from %s: %i tried, %i new\n", nAdd, source.ToString(), nTried, nNew);
+            LogPrint(BCLog::ADDRMAN, "Added %i addresses from %s: %i tried, %i new\n", nAdd, source.ToString(), nTried, nNew);
         return nAdd > 0;
     }
 

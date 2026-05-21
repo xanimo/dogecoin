@@ -3141,7 +3141,7 @@ UniValue bumpfee(const JSONRPCRequest& request)
     // If the output would become dust, discard it (converting the dust to fee)
     poutput->nValue -= nDelta;
     if (poutput->nValue <= CWallet::discardThreshold) {
-        LogPrint("rpc", "Bumping fee and discarding dust output\n");
+        LogPrint(BCLog::RPC, "Bumping fee and discarding dust output\n");
         nNewFee += poutput->nValue;
         tx.vout.erase(tx.vout.begin() + nOutput);
     }

@@ -160,6 +160,7 @@ BITCOIN_CORE_H = \
   ui_interface.h \
   undo.h \
   util.h \
+  logging.h \
   utilmemory.h \
   utilmoneystr.h \
   utiltime.h \
@@ -368,6 +369,7 @@ libdogecoin_util_a_SOURCES = \
   sync.cpp \
   threadinterrupt.cpp \
   util.cpp \
+  logging.cpp \
   utilmoneystr.cpp \
   utilstrencodings.cpp \
   utiltime.cpp \
