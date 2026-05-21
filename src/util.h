@@ -17,6 +17,7 @@
 
 #include "compat.h"
 #include "fs.h"
+#include "logging.h"
 #include "tinyformat.h"
 #include "utiltime.h"
 
@@ -33,10 +34,6 @@
 // Application startup time (used for uptime calculation)
 int64_t GetStartupTime();
 
-static const bool DEFAULT_LOGTIMEMICROS = false;
-static const bool DEFAULT_LOGIPS        = false;
-static const bool DEFAULT_LOGTIMESTAMPS = true;
-
 /** Signals for translation. */
 class CTranslationInterface
 {
@@ -46,14 +43,6 @@ public:
 };
 
 extern const std::map<std::string, std::vector<std::string> >& mapMultiArgs;
-extern bool fDebug;
-extern bool fPrintToConsole;
-extern bool fPrintToDebugLog;
-
-extern bool fLogTimestamps;
-extern bool fLogTimeMicros;
-extern bool fLogIPs;
-extern std::atomic<bool> fReopenDebugLog;
 extern CTranslationInterface translationInterface;
 
 extern const char * const BITCOIN_CONF_FILENAME;
@@ -72,25 +61,10 @@ inline std::string _(const char* psz)
 void SetupEnvironment();
 bool SetupNetworking();
 
-/** Return true if log accepts specified category */
-bool LogAcceptCategory(const char* category);
-/** Send a string to the log output */
-int LogPrintStr(const std::string &str);
-
-#define LogPrint(category, ...) do { \
-    if (LogAcceptCategory((category))) { \
-        LogPrintStr(tfm::format(__VA_ARGS__)); \
-    } \
-} while(0)
-
-#define LogPrintf(...) do { \
-    LogPrintStr(tfm::format(__VA_ARGS__)); \
-} while(0)
-
 template<typename... Args>
 bool error(const char* fmt, const Args&... args)
 {
-    LogPrintStr("ERROR: " + tfm::format(fmt, args...) + "\n");
+    LogPrintf("ERROR: %s\n", tfm::format(fmt, args...));
     return false;
 }
 
@@ -115,8 +89,6 @@ void ReadConfigFile(const std::string& confPath);
 #ifdef WIN32
 fs::path GetSpecialFolderPath(int nFolder, bool fCreate = true);
 #endif
-void OpenDebugLog();
-void ShrinkDebugFile();
 void runCommand(const std::string& strCommand);
 
 inline bool IsSwitchChar(char c)

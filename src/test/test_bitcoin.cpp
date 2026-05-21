@@ -35,7 +35,6 @@ std::unique_ptr<CConnman> g_connman;
 uint256 insecure_rand_seed = GetRandHash();
 FastRandomContext insecure_rand_ctx(insecure_rand_seed);
 
-extern bool fPrintToConsole;
 extern void noui_connect();
 
 /** Coinbase transaction outputs can only be spent after this number of new blocks (network rule) */
@@ -48,7 +47,7 @@ BasicTestingSetup::BasicTestingSetup(const std::string& chainName)
         SetupEnvironment();
         SetupNetworking();
         InitSignatureCache();
-        fPrintToDebugLog = false; // don't want to write to debug.log file
+        g_logger->m_print_to_file = false; // don't want to write to debug.log file
         fCheckBlockIndex = true;
         SelectParams(chainName);
         noui_connect();

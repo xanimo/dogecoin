@@ -283,7 +283,7 @@ void HandleSIGTERM(int)
 
 void HandleSIGHUP(int)
 {
-    fReopenDebugLog = true;
+    g_logger->m_reopen_file = true;
 }
 
 bool static Bind(CConnman& connman, const CService &addr, unsigned int flags) {
@@ -307,7 +307,7 @@ void OnRPCStopped()
     uiInterface.NotifyBlockTip.disconnect(&RPCNotifyBlockChange);
     RPCNotifyBlockChange(false, nullptr);
     cvBlockChange.notify_all();
-    LogPrint("rpc", "RPC stopped.\n");
+    LogPrint(BCLog::RPC, "RPC stopped.\n");
 }
 
 void OnRPCPreCommand(const CRPCCommand& cmd)
@@ -440,11 +440,8 @@ std::string HelpMessage(HelpMessageMode mode)
         strUsage += HelpMessageOpt("-limitdescendantsize=<n>", strprintf("Do not accept transactions if any ancestor would have more than <n> kilobytes of in-mempool descendants (default: %u).", DEFAULT_DESCENDANT_SIZE_LIMIT));
         strUsage += HelpMessageOpt("-bip9params=deployment:start:end", "Use given start/end times for specified BIP9 deployment (regtest-only)");
     }
-    std::string debugCategories = "addrman, alert, bench, cmpctblock, coindb, db, http, libevent, lock, mempool, mempoolrej, net, proxy, prune, rand, reindex, rpc, selectcoins, tor, zmq"; // Don't translate these and qt below
-    if (mode == HMM_BITCOIN_QT)
-        debugCategories += ", qt";
     strUsage += HelpMessageOpt("-debug=<category>", strprintf(_("Output debugging information (default: %u, supplying <category> is optional)"), 0) + ". " +
-        _("If <category> is not supplied or if <category> = 1, output all debugging information.") + _("<category> can be:") + " " + debugCategories + ".");
+        _("If <category> is not supplied or if <category> = 1, output all debugging information.") + _("<category> can be:") + " " + ListLogCategories() + ".");
     if (showDebug)
         strUsage += HelpMessageOpt("-nodebug", "Turn off debugging messages, same as -debug=0");
     strUsage += HelpMessageOpt("-help-debug", _("Show all debugging options (usage: --help -help-debug)"));
@@ -797,9 +794,11 @@ static std::string ResolveErrMsg(const char * const optname, const std::string& 
 
 void InitLogging()
 {
-    fPrintToConsole = GetBoolArg("-printtoconsole", false);
-    fLogTimestamps = GetBoolArg("-logtimestamps", DEFAULT_LOGTIMESTAMPS);
-    fLogTimeMicros = GetBoolArg("-logtimemicros", DEFAULT_LOGTIMEMICROS);
+    g_logger->m_print_to_file = true;
+    g_logger->m_file_path = GetDataDir() / DEFAULT_DEBUGLOGFILE;
+    g_logger->m_print_to_console = GetBoolArg("-printtoconsole", false);
+    g_logger->m_log_timestamps = GetBoolArg("-logtimestamps", DEFAULT_LOGTIMESTAMPS);
+    g_logger->m_log_time_micros = GetBoolArg("-logtimemicros", DEFAULT_LOGTIMEMICROS);
     fLogIPs = GetBoolArg("-logips", DEFAULT_LOGIPS);
 
     LogPrintf("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
@@ -921,12 +920,25 @@ bool AppInitParameterInteraction()
 
     // ********************************************************* Step 3: parameter-to-internal-flags
 
-    fDebug = mapMultiArgs.count("-debug");
-    // Special-case: if -debug=0/-nodebug is set, turn off debugging messages
-    if (fDebug) {
+    if (mapMultiArgs.count("-debug")) {
+        // Special-case: if -debug=0/-nodebug is set, turn off debugging messages
         const std::vector<std::string>& categories = mapMultiArgs.at("-debug");
-        if (GetBoolArg("-nodebug", false) || find(categories.begin(), categories.end(), std::string("0")) != categories.end())
-            fDebug = false;
+        if (!(GetBoolArg("-nodebug", false) || find(categories.begin(), categories.end(), std::string("0")) != categories.end())) {
+            for (const auto& cat : categories) {
+                if (!g_logger->EnableCategory(cat)) {
+                    InitWarning(strprintf(_("Unsupported logging category %s=%s."), "-debug", cat));
+                }
+            }
+        }
+    }
+
+    // Now remove the logging categories which were explicitly excluded
+    if (mapMultiArgs.count("-debugexclude")) {
+        for (const std::string& cat : mapMultiArgs.at("-debugexclude")) {
+            if (!g_logger->DisableCategory(cat)) {
+                InitWarning(strprintf(_("Unsupported logging category %s=%s."), "-debugexclude", cat));
+            }
+        }
     }
 
     // Check for -debugnet
@@ -1215,16 +1227,18 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
 #ifndef WIN32
     CreatePidFile(GetPidFile(), getpid());
 #endif
-    if (GetBoolArg("-shrinkdebugfile", !fDebug)) {
+    if (GetBoolArg("-shrinkdebugfile", g_logger->DefaultShrinkDebugFile())) {
         // Do this first since it both loads a bunch of debug.log into memory,
         // and because this needs to happen before any other debug.log printing
-        ShrinkDebugFile();
+        g_logger->ShrinkDebugFile();
     }
 
-    if (fPrintToDebugLog)
-        OpenDebugLog();
+    if (g_logger->m_print_to_file) {
+        if (!g_logger->OpenDebugLog())
+            return InitError(strprintf("Could not open debug log file %s", g_logger->m_file_path.string()));
+    }
 
-    if (!fLogTimestamps)
+    if (!g_logger->m_log_timestamps)
         LogPrintf("Startup time: %s\n", DateTimeStrFormat("%Y-%m-%d %H:%M:%S", GetTime()));
     LogPrintf("Default data directory %s\n", GetDefaultDataDir().string());
     LogPrintf("Using data directory %s\n", GetDataDir().string());
@@ -1564,7 +1578,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                     break;
                 }
             } catch (const std::exception& e) {
-                if (fDebug) LogPrintf("%s\n", e.what());
+                LogPrintf("%s\n", e.what());
                 strLoadError = _("Error opening block database");
                 break;
             }
