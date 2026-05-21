@@ -28,6 +28,7 @@ public:
     virtual bool AddKey(const CKey &key);
 
     //! Check whether a key corresponding to a given address is present in the store.
+    virtual bool HaveKey(const CKeyID &address) const =0;
     virtual bool GetKey(const CKeyID &address, CKey& keyOut) const =0;
     virtual void GetKeys(std::set<CKeyID> &setAddress) const =0;
     virtual bool GetPubKey(const CKeyID &address, CPubKey& vchPubKeyOut) const =0;

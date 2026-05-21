@@ -442,3 +442,19 @@ bool IsSolvable(const SigningProvider& provider, const CScript& script)
     }
     return false;
 }
+
+void SignatureData::MergeSignatureData(SignatureData sigdata)
+{
+    if (complete) return;
+    if (sigdata.complete) {
+        *this = std::move(sigdata);
+        return;
+    }
+    if (redeem_script.empty() && !sigdata.redeem_script.empty()) {
+        redeem_script = sigdata.redeem_script;
+    }
+    if (witness_script.empty() && !sigdata.witness_script.empty()) {
+        witness_script = sigdata.witness_script;
+    }
+    signatures.insert(std::make_move_iterator(sigdata.signatures.begin()), std::make_move_iterator(sigdata.signatures.end()));
+}
