@@ -7,6 +7,7 @@
 #include "base58.h"
 #include "clientversion.h"
 #include "init.h"
+#include "logging.h"
 #include "validation.h"
 #include "net.h"
 #include "netbase.h"
@@ -529,11 +530,58 @@ UniValue echo(const JSONRPCRequest& request)
     return request.params;
 }
 
+UniValue logging(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() > 2) {
+        throw runtime_error(
+            "logging ( <include> <exclude> )\n"
+            "Gets and sets the logging configuration.\n"
+            "When called without an argument, returns the list of categories that are currently being debug logged.\n"
+            "When called with arguments, adds or removes categories from debug logging.\n"
+            "The valid logging categories are: " + ListLogCategories() + "\n"
+            "In addition, the following are available as category names with special meanings:\n"
+            "  - \"all\",  \"1\" : represent all logging categories.\n"
+            "  - \"none\", \"0\" : even if other logging categories are specified, ignore all of them.\n"
+            "\nArguments:\n"
+            "1. \"include\" (array of strings, optional) add debug logging for these categories.\n"
+            "2. \"exclude\" (array of strings, optional) remove debug logging for these categories.\n"
+            "\nResult: <categories>  (string): a list of the logging categories that are active.\n"
+            "\nExamples:\n"
+            + HelpExampleCli("logging", "\"[\\\"all\\\"]\" \"[\\\"http\\\"]\"")
+            + HelpExampleRpc("logging", "[\"all\"], [\"libevent\"]")
+        );
+    }
+
+    uint32_t original_log_categories = g_logger->GetCategoryMask();
+    if (request.params.size() > 0 && request.params[0].isArray()) {
+        UniValue categories = request.params[0].get_array();
+        for (unsigned int i = 0; i < categories.size(); ++i) {
+            g_logger->EnableCategory(categories[i].get_str());
+        }
+    }
+    if (request.params.size() > 1 && request.params[1].isArray()) {
+        UniValue categories = request.params[1].get_array();
+        for (unsigned int i = 0; i < categories.size(); ++i) {
+            g_logger->DisableCategory(categories[i].get_str());
+        }
+    }
+    (void)original_log_categories;
+
+    UniValue result(UniValue::VOBJ);
+    std::vector<CLogCategoryActive> vLogCatActive = ListActiveLogCategories();
+    for (const auto& logCatActive : vLogCatActive) {
+        result.pushKV(logCatActive.category, logCatActive.active);
+    }
+
+    return result;
+}
+
 static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         okSafeMode
   //  --------------------- ------------------------  -----------------------  ----------
     { "control",            "getinfo",                &getinfo,                true,  {} }, /* uses wallet if enabled */
     { "control",            "getmemoryinfo",          &getmemoryinfo,          true,  {} },
+    { "control",            "logging",                &logging,                true,  {"include", "exclude"}},
     { "util",               "validateaddress",        &validateaddress,        true,  {"address"} }, /* uses wallet if enabled */
     { "util",               "createmultisig",         &createmultisig,         true,  {"nrequired","keys"} },
     { "util",               "verifymessage",          &verifymessage,          true,  {"address","signature","message"} },
