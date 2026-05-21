@@ -444,6 +444,7 @@ std::string HelpMessage(HelpMessageMode mode)
         _("If <category> is not supplied or if <category> = 1, output all debugging information.") + _("<category> can be:") + " " + ListLogCategories() + ".");
     if (showDebug)
         strUsage += HelpMessageOpt("-nodebug", "Turn off debugging messages, same as -debug=0");
+    strUsage += HelpMessageOpt("-debuglogfile=<file>", strprintf(_("Specify location of debug log file. Relative paths will be prefixed by a net-specific datadir location. (0 to disable; default: %s)"), DEFAULT_DEBUGLOGFILE));
     strUsage += HelpMessageOpt("-help-debug", _("Show all debugging options (usage: --help -help-debug)"));
     strUsage += HelpMessageOpt("-logips", strprintf(_("Include IP addresses in debug output (default: %u)"), DEFAULT_LOGIPS));
     strUsage += HelpMessageOpt("-logtimestamps", strprintf(_("Prepend debug output with timestamp (default: %u)"), DEFAULT_LOGTIMESTAMPS));
@@ -794,8 +795,17 @@ static std::string ResolveErrMsg(const char * const optname, const std::string& 
 
 void InitLogging()
 {
-    g_logger->m_print_to_file = true;
-    g_logger->m_file_path = GetDataDir() / DEFAULT_DEBUGLOGFILE;
+    fs::path log_file_path = GetArg("-debuglogfile", DEFAULT_DEBUGLOGFILE);
+    // -debuglogfile=0 disables debug file logging
+    if (log_file_path.empty() || log_file_path == fs::path("0")) {
+        g_logger->m_print_to_file = false;
+    } else {
+        g_logger->m_print_to_file = true;
+        if (!log_file_path.is_absolute()) {
+            log_file_path = GetDataDir() / log_file_path;
+        }
+        g_logger->m_file_path = log_file_path;
+    }
     g_logger->m_print_to_console = GetBoolArg("-printtoconsole", false);
     g_logger->m_log_timestamps = GetBoolArg("-logtimestamps", DEFAULT_LOGTIMESTAMPS);
     g_logger->m_log_time_micros = GetBoolArg("-logtimemicros", DEFAULT_LOGTIMEMICROS);
