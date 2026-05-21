@@ -151,11 +151,11 @@ public:
         pre_vector.assign(n, value);
     }
 
-    Size size() {
+    Size size() const {
         return real_vector.size();
     }
 
-    Size capacity() {
+    Size capacity() const {
         return pre_vector.capacity();
     }
 
@@ -180,6 +180,26 @@ public:
     void copy() {
         real_vector = real_vector_alt;
         pre_vector = pre_vector_alt;
+    }
+
+    void resize_uninitialized(realtype values) {
+        size_t r = values.size();
+        size_t s = real_vector.size() / 2;
+        if (real_vector.capacity() < s + r) {
+            real_vector.reserve(s + r);
+        }
+        real_vector.resize(s);
+        pre_vector.resize_uninitialized(s);
+        for (auto v : values) {
+            real_vector.push_back(v);
+        }
+        auto p = pre_vector.size();
+        pre_vector.resize_uninitialized(p + r);
+        for (auto v : values) {
+            pre_vector[p] = v;
+            ++p;
+        }
+        test();
     }
 
     ~prevector_tester() {
@@ -258,6 +278,14 @@ BOOST_AUTO_TEST_CASE(PrevectorTestInt)
             }
             if (InsecureRandBits(5) == 18) {
                 test.move();
+            }
+            if (InsecureRandBits(5) == 19) {
+                unsigned int num = 1 + (InsecureRandBits(4));
+                std::vector<int> values(num);
+                for (auto &v : values) {
+                    v = InsecureRand32();
+                }
+                test.resize_uninitialized(values);
             }
         }
     }

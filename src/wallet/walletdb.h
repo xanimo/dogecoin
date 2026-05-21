@@ -52,13 +52,10 @@ public:
     int nVersion;
 
     CHDChain() { SetNull(); }
-    ADD_SERIALIZE_METHODS;
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action)
+
+    SERIALIZE_METHODS(CHDChain, obj)
     {
-        READWRITE(this->nVersion);
-        READWRITE(nExternalChainCounter);
-        READWRITE(masterKeyID);
+        READWRITE(obj.nVersion, obj.nExternalChainCounter, obj.masterKeyID);
     }
 
     void SetNull()
@@ -90,16 +87,12 @@ public:
         nCreateTime = nCreateTime_;
     }
 
-    ADD_SERIALIZE_METHODS;
-
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action) {
-        READWRITE(this->nVersion);
-        READWRITE(nCreateTime);
-        if (this->nVersion >= VERSION_WITH_HDDATA)
+    SERIALIZE_METHODS(CKeyMetadata, obj)
+    {
+        READWRITE(obj.nVersion, obj.nCreateTime);
+        if (obj.nVersion >= VERSION_WITH_HDDATA)
         {
-            READWRITE(hdKeypath);
-            READWRITE(hdMasterKeyID);
+            READWRITE(obj.hdKeypath, obj.hdMasterKeyID);
         }
     }
 
@@ -116,9 +109,11 @@ public:
 class CWalletDB : public CDB
 {
 public:
-    CWalletDB(const std::string& strFilename, const char* pszMode = "r+", bool fFlushOnClose = true) : CDB(strFilename, pszMode, fFlushOnClose)
+    CWalletDB(const std::string& strFilename, const char* pszMode = "r+", bool _fFlushOnClose = true) : CDB(strFilename, pszMode, _fFlushOnClose)
     {
     }
+    CWalletDB(const CWalletDB&) = delete;
+    CWalletDB& operator=(const CWalletDB&) = delete;
 
     bool WriteName(const std::string& strAddress, const std::string& strName);
     bool EraseName(const std::string& strAddress);
@@ -178,9 +173,6 @@ public:
 
     static void IncrementUpdateCounter();
     static unsigned int GetUpdateCounter();
-private:
-    CWalletDB(const CWalletDB&);
-    void operator=(const CWalletDB&);
 };
 
 void ThreadFlushWalletDB();

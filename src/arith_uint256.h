@@ -8,6 +8,7 @@
 
 #include <assert.h>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <stdint.h>
 #include <string>
@@ -191,7 +192,7 @@ public:
     {
         // prefix operator
         int i = 0;
-        while (--pn[i] == (uint32_t)-1 && i < WIDTH-1)
+        while (--pn[i] == std::numeric_limits<uint32_t>::max() && i < WIDTH-1)
             i++;
         return *this;
     }

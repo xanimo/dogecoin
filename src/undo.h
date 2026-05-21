@@ -10,7 +10,7 @@
 #include "primitives/transaction.h"
 #include "serialize.h"
 
-/** Undo information for a CTxIn
+/** Formatter for undo information for a CTxIn
  *
  *  Contains the prevout's CTxOut being spent, and if this was the
  *  last output of the affected transaction, its metadata as well
@@ -31,8 +31,8 @@ public:
     void Serialize(Stream &s) const {
         ::Serialize(s, VARINT(nHeight*2+(fCoinBase ? 1 : 0)));
         if (nHeight > 0)
-            ::Serialize(s, VARINT(this->nVersion));
-        ::Serialize(s, CTxOutCompressor(REF(txout)));
+            ::Serialize(s, VARINT_MODE(this->nVersion, VarIntMode::NONNEGATIVE_SIGNED));
+        ::Serialize(s, Using<TxOutCompression>(REF(txout)));
     }
 
     template<typename Stream>
@@ -42,8 +42,8 @@ public:
         nHeight = nCode / 2;
         fCoinBase = nCode & 1;
         if (nHeight > 0)
-            ::Unserialize(s, VARINT(this->nVersion));
-        ::Unserialize(s, REF(CTxOutCompressor(REF(txout))));
+            ::Unserialize(s, VARINT_MODE(this->nVersion, VarIntMode::NONNEGATIVE_SIGNED));
+        ::Unserialize(s, Using<TxOutCompression>(REF(txout)));
     }
 };
 
@@ -54,12 +54,7 @@ public:
     // undo information for all txins
     std::vector<CTxInUndo> vprevout;
 
-    ADD_SERIALIZE_METHODS;
-
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action) {
-        READWRITE(vprevout);
-    }
+    SERIALIZE_METHODS(CTxUndo, obj) { READWRITE(obj.vprevout); }
 };
 
 /** Undo information for a CBlock */
@@ -68,12 +63,7 @@ class CBlockUndo
 public:
     std::vector<CTxUndo> vtxundo; // for all but the coinbase
 
-    ADD_SERIALIZE_METHODS;
-
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action) {
-        READWRITE(vtxundo);
-    }
+    SERIALIZE_METHODS(CBlockUndo, obj) { READWRITE(obj.vtxundo); }
 };
 
 #endif // BITCOIN_UNDO_H
