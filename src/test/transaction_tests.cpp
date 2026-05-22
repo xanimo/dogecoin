@@ -492,10 +492,23 @@ BOOST_AUTO_TEST_CASE(test_big_witness_transaction) {
     threadGroup.join_all();
 }
 
-#if 0 // TODO(psbt): CombineSignatures was removed in Bitcoin Core 0.17 (PR #13557). To revive test_witness:
-      //   replace each `UpdateTransaction(input1, 0, CombineSignatures(scriptPubKey, checker, DataFromTransaction(input1,0), DataFromTransaction(input2,0)))`
-      //   with a helper that merges the two SignatureData via MergeSignatureData then calls ProduceSignature(DUMMY_SIGNING_PROVIDER, MutableTransactionSignatureCreator(...), scriptPubKey, data)
-      //   and finally UpdateInput(input1.vin[0], data) (UpdateTransaction was renamed in 0.17).
+// Bitcoin Core 0.17 (PR #13557) removed CombineSignatures() and renamed
+// UpdateTransaction() to UpdateInput(). This local helper rebuilds the v0.16
+// CombineSignatures semantics on top of MergeSignatureData + ProduceSignature so
+// the original test cases below can be kept verbatim. DUMMY_SIGNING_PROVIDER is
+// used because no new signatures are needed -- only previously collected ones
+// are reassembled into a final scriptSig/scriptWitness.
+static SignatureData CombineSignatures(const CTxOut& txout, const CMutableTransaction& tx,
+                                       const SignatureData& sd1, const SignatureData& sd2)
+{
+    SignatureData data;
+    data.MergeSignatureData(sd1);
+    data.MergeSignatureData(sd2);
+    MutableTransactionSignatureCreator creator(&tx, 0, txout.nValue);
+    ProduceSignature(DUMMY_SIGNING_PROVIDER, creator, txout.scriptPubKey, data);
+    return data;
+}
+
 BOOST_AUTO_TEST_CASE(test_witness)
 {
     CBasicKeyStore keystore, keystore2;
@@ -631,7 +644,7 @@ BOOST_AUTO_TEST_CASE(test_witness)
     CreateCreditAndSpend(keystore2, scriptMulti, output2, input2, false);
     CheckWithFlag(output2, input2, 0, false);
     BOOST_CHECK(*output1 == *output2);
-    UpdateTransaction(input1, 0, CombineSignatures(output1->vout[0].scriptPubKey, MutableTransactionSignatureChecker(&input1, 0, output1->vout[0].nValue), DataFromTransaction(input1, 0), DataFromTransaction(input2, 0)));
+    UpdateInput(input1.vin[0], CombineSignatures(output1->vout[0], input1, DataFromTransaction(input1, 0, output1->vout[0]), DataFromTransaction(input2, 0, output1->vout[0])));
     CheckWithFlag(output1, input1, STANDARD_SCRIPT_VERIFY_FLAGS, true);
 
     // P2SH 2-of-2 multisig
@@ -642,7 +655,7 @@ BOOST_AUTO_TEST_CASE(test_witness)
     CheckWithFlag(output2, input2, 0, true);
     CheckWithFlag(output2, input2, SCRIPT_VERIFY_P2SH, false);
     BOOST_CHECK(*output1 == *output2);
-    UpdateTransaction(input1, 0, CombineSignatures(output1->vout[0].scriptPubKey, MutableTransactionSignatureChecker(&input1, 0, output1->vout[0].nValue), DataFromTransaction(input1, 0), DataFromTransaction(input2, 0)));
+    UpdateInput(input1.vin[0], CombineSignatures(output1->vout[0], input1, DataFromTransaction(input1, 0, output1->vout[0]), DataFromTransaction(input2, 0, output1->vout[0])));
     CheckWithFlag(output1, input1, SCRIPT_VERIFY_P2SH, true);
     CheckWithFlag(output1, input1, STANDARD_SCRIPT_VERIFY_FLAGS, true);
 
@@ -654,7 +667,7 @@ BOOST_AUTO_TEST_CASE(test_witness)
     CheckWithFlag(output2, input2, 0, true);
     CheckWithFlag(output2, input2, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, false);
     BOOST_CHECK(*output1 == *output2);
-    UpdateTransaction(input1, 0, CombineSignatures(output1->vout[0].scriptPubKey, MutableTransactionSignatureChecker(&input1, 0, output1->vout[0].nValue), DataFromTransaction(input1, 0), DataFromTransaction(input2, 0)));
+    UpdateInput(input1.vin[0], CombineSignatures(output1->vout[0], input1, DataFromTransaction(input1, 0, output1->vout[0]), DataFromTransaction(input2, 0, output1->vout[0])));
     CheckWithFlag(output1, input1, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, true);
     CheckWithFlag(output1, input1, STANDARD_SCRIPT_VERIFY_FLAGS, true);
 
@@ -666,12 +679,11 @@ BOOST_AUTO_TEST_CASE(test_witness)
     CheckWithFlag(output2, input2, SCRIPT_VERIFY_P2SH, true);
     CheckWithFlag(output2, input2, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, false);
     BOOST_CHECK(*output1 == *output2);
-    UpdateTransaction(input1, 0, CombineSignatures(output1->vout[0].scriptPubKey, MutableTransactionSignatureChecker(&input1, 0, output1->vout[0].nValue), DataFromTransaction(input1, 0), DataFromTransaction(input2, 0)));
+    UpdateInput(input1.vin[0], CombineSignatures(output1->vout[0], input1, DataFromTransaction(input1, 0, output1->vout[0]), DataFromTransaction(input2, 0, output1->vout[0])));
     CheckWithFlag(output1, input1, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, true);
     CheckWithFlag(output1, input1, STANDARD_SCRIPT_VERIFY_FLAGS, true);
 }
 
-#endif
 BOOST_AUTO_TEST_CASE(test_IsStandard)
 {
     LOCK(cs_main);

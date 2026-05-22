@@ -1154,11 +1154,35 @@ BOOST_AUTO_TEST_CASE(script_CHECKMULTISIG23)
     BOOST_CHECK_MESSAGE(err == SCRIPT_ERR_INVALID_STACK_OPERATION, ScriptErrorString(err));
 }
 
-#if 0 // TODO(psbt): CombineSignatures was removed in Bitcoin Core 0.17 (PR #13557). To revive:
-      //   1. Build a SignatureData via DataFromTransaction(txTo, 0, txFrom.vout[0]) instead of SignatureData(scriptSig)
-      //   2. Merge two SignatureData objects via SignatureData::MergeSignatureData()
-      //   3. Call ProduceSignature(DUMMY_SIGNING_PROVIDER, MutableTransactionSignatureCreator(...), scriptPubKey, data) to rebuild scriptSig
-      // Each existing CombineSignatures(scriptPubKey, checker, sd1, sd2) call should be replaced with a small helper using the pattern above.
+// Bitcoin Core 0.17 (PR #13557) removed CombineSignatures(). This local helper
+// reproduces the v0.16 semantics on top of the v0.17 SignatureData / MergeSignatureData
+// / ProduceSignature primitives so the original test cases below can be kept verbatim.
+// Inputs passed as SignatureData(scriptSig) are first run through DataFromTransaction
+// to extract the partial signatures into the signatures map, then merged, then a
+// fresh scriptSig is produced via ProduceSignature using DUMMY_SIGNING_PROVIDER
+// (no new sigs are created -- only previously collected ones are reassembled).
+static SignatureData CombineSignatures(const CScript& scriptPubKey, const CMutableTransaction& txTo, CAmount amount,
+                                       const SignatureData& in1, const SignatureData& in2)
+{
+    auto convert = [&](const SignatureData& in) -> SignatureData {
+        if (in.complete || !in.signatures.empty()) return in;
+        if (in.scriptSig.empty() && in.scriptWitness.IsNull()) return in;
+        CMutableTransaction tmp = txTo;
+        tmp.vin[0].scriptSig = in.scriptSig;
+        tmp.vin[0].scriptWitness = in.scriptWitness;
+        CTxOut txout(amount, scriptPubKey);
+        return DataFromTransaction(tmp, 0, txout);
+    };
+    SignatureData sd1 = convert(in1);
+    SignatureData sd2 = convert(in2);
+    SignatureData data;
+    data.MergeSignatureData(sd1);
+    data.MergeSignatureData(sd2);
+    MutableTransactionSignatureCreator creator(&txTo, 0, amount);
+    ProduceSignature(DUMMY_SIGNING_PROVIDER, creator, scriptPubKey, data);
+    return data;
+}
+
 BOOST_AUTO_TEST_CASE(script_combineSigs)
 {
     // Test the CombineSignatures function
@@ -1181,19 +1205,19 @@ BOOST_AUTO_TEST_CASE(script_combineSigs)
     CScript& scriptSig = txTo.vin[0].scriptSig;
 
     SignatureData empty;
-    SignatureData combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), empty, empty);
+    SignatureData combined = CombineSignatures(scriptPubKey, txTo, amount, empty, empty);
     BOOST_CHECK(combined.scriptSig.empty());
 
     // Single signature case:
     SignSignature(keystore, txFrom, txTo, 0, SIGHASH_ALL); // changes scriptSig
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(scriptSig), empty);
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(scriptSig), empty);
     BOOST_CHECK(combined.scriptSig == scriptSig);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), empty, SignatureData(scriptSig));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, empty, SignatureData(scriptSig));
     BOOST_CHECK(combined.scriptSig == scriptSig);
     CScript scriptSigCopy = scriptSig;
     // Signing again will give a different, valid signature:
     SignSignature(keystore, txFrom, txTo, 0, SIGHASH_ALL);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(scriptSigCopy), SignatureData(scriptSig));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(scriptSigCopy), SignatureData(scriptSig));
     BOOST_CHECK(combined.scriptSig == scriptSigCopy || combined.scriptSig == scriptSig);
 
     // P2SH, single-signature case:
@@ -1201,28 +1225,28 @@ BOOST_AUTO_TEST_CASE(script_combineSigs)
     keystore.AddCScript(pkSingle);
     scriptPubKey = GetScriptForDestination(CScriptID(pkSingle));
     SignSignature(keystore, txFrom, txTo, 0, SIGHASH_ALL);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(scriptSig), empty);
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(scriptSig), empty);
     BOOST_CHECK(combined.scriptSig == scriptSig);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), empty, SignatureData(scriptSig));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, empty, SignatureData(scriptSig));
     BOOST_CHECK(combined.scriptSig == scriptSig);
     scriptSigCopy = scriptSig;
     SignSignature(keystore, txFrom, txTo, 0, SIGHASH_ALL);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(scriptSigCopy), SignatureData(scriptSig));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(scriptSigCopy), SignatureData(scriptSig));
     BOOST_CHECK(combined.scriptSig == scriptSigCopy || combined.scriptSig == scriptSig);
     // dummy scriptSigCopy with placeholder, should always choose non-placeholder:
     scriptSigCopy = CScript() << OP_0 << std::vector<unsigned char>(pkSingle.begin(), pkSingle.end());
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(scriptSigCopy), SignatureData(scriptSig));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(scriptSigCopy), SignatureData(scriptSig));
     BOOST_CHECK(combined.scriptSig == scriptSig);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(scriptSig), SignatureData(scriptSigCopy));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(scriptSig), SignatureData(scriptSigCopy));
     BOOST_CHECK(combined.scriptSig == scriptSig);
 
     // Hardest case:  Multisig 2-of-3
     scriptPubKey = GetScriptForMultisig(2, pubkeys);
     keystore.AddCScript(scriptPubKey);
     SignSignature(keystore, txFrom, txTo, 0, SIGHASH_ALL);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(scriptSig), empty);
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(scriptSig), empty);
     BOOST_CHECK(combined.scriptSig == scriptSig);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), empty, SignatureData(scriptSig));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, empty, SignatureData(scriptSig));
     BOOST_CHECK(combined.scriptSig == scriptSig);
 
     // A couple of partially-signed versions:
@@ -1251,24 +1275,23 @@ BOOST_AUTO_TEST_CASE(script_combineSigs)
     CScript complete13 = CScript() << OP_0 << sig1 << sig3;
     CScript complete23 = CScript() << OP_0 << sig2 << sig3;
 
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(partial1a), SignatureData(partial1b));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(partial1a), SignatureData(partial1b));
     BOOST_CHECK(combined.scriptSig == partial1a);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(partial1a), SignatureData(partial2a));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(partial1a), SignatureData(partial2a));
     BOOST_CHECK(combined.scriptSig == complete12);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(partial2a), SignatureData(partial1a));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(partial2a), SignatureData(partial1a));
     BOOST_CHECK(combined.scriptSig == complete12);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(partial1b), SignatureData(partial2b));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(partial1b), SignatureData(partial2b));
     BOOST_CHECK(combined.scriptSig == complete12);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(partial3b), SignatureData(partial1b));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(partial3b), SignatureData(partial1b));
     BOOST_CHECK(combined.scriptSig == complete13);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(partial2a), SignatureData(partial3a));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(partial2a), SignatureData(partial3a));
     BOOST_CHECK(combined.scriptSig == complete23);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(partial3b), SignatureData(partial2b));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(partial3b), SignatureData(partial2b));
     BOOST_CHECK(combined.scriptSig == complete23);
-    combined = CombineSignatures(scriptPubKey, MutableTransactionSignatureChecker(&txTo, 0, amount), SignatureData(partial3b), SignatureData(partial3a));
+    combined = CombineSignatures(scriptPubKey, txTo, amount, SignatureData(partial3b), SignatureData(partial3a));
     BOOST_CHECK(combined.scriptSig == partial3c);
 }
-#endif
 
 BOOST_AUTO_TEST_CASE(script_standard_push)
 {
