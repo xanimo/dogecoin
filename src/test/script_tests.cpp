@@ -1154,7 +1154,11 @@ BOOST_AUTO_TEST_CASE(script_CHECKMULTISIG23)
     BOOST_CHECK_MESSAGE(err == SCRIPT_ERR_INVALID_STACK_OPERATION, ScriptErrorString(err));
 }
 
-#if 0 // TODO(psbt): CombineSignatures removed in v0.17; rewrite using MergeSignatureData+ProduceSignature
+#if 0 // TODO(psbt): CombineSignatures was removed in Bitcoin Core 0.17 (PR #13557). To revive:
+      //   1. Build a SignatureData via DataFromTransaction(txTo, 0, txFrom.vout[0]) instead of SignatureData(scriptSig)
+      //   2. Merge two SignatureData objects via SignatureData::MergeSignatureData()
+      //   3. Call ProduceSignature(DUMMY_SIGNING_PROVIDER, MutableTransactionSignatureCreator(...), scriptPubKey, data) to rebuild scriptSig
+      // Each existing CombineSignatures(scriptPubKey, checker, sd1, sd2) call should be replaced with a small helper using the pattern above.
 BOOST_AUTO_TEST_CASE(script_combineSigs)
 {
     // Test the CombineSignatures function

@@ -492,7 +492,10 @@ BOOST_AUTO_TEST_CASE(test_big_witness_transaction) {
     threadGroup.join_all();
 }
 
-#if 0 // TODO(psbt): CombineSignatures removed in v0.17; rewrite using MergeSignatureData+ProduceSignature
+#if 0 // TODO(psbt): CombineSignatures was removed in Bitcoin Core 0.17 (PR #13557). To revive test_witness:
+      //   replace each `UpdateTransaction(input1, 0, CombineSignatures(scriptPubKey, checker, DataFromTransaction(input1,0), DataFromTransaction(input2,0)))`
+      //   with a helper that merges the two SignatureData via MergeSignatureData then calls ProduceSignature(DUMMY_SIGNING_PROVIDER, MutableTransactionSignatureCreator(...), scriptPubKey, data)
+      //   and finally UpdateInput(input1.vin[0], data) (UpdateTransaction was renamed in 0.17).
 BOOST_AUTO_TEST_CASE(test_witness)
 {
     CBasicKeyStore keystore, keystore2;
