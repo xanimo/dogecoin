@@ -11,9 +11,8 @@
 #include <hash.h>
 #include <prevector.h>
 #include <tinyformat.h>
+#include <util/asmap.h>
 #include <utilstrencodings.h>
-// asmap support not backported yet; provide stub for Interpret
-static inline uint32_t Interpret(const std::vector<bool>& /*asmap*/, const std::vector<bool>& /*ip*/) { return 0; }
 
 #include <algorithm>
 #include <array>
