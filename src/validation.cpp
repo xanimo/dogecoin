@@ -60,8 +60,6 @@
 
 CCriticalSection cs_main;
 
-BlockMap mapBlockIndex;
-CChain chainActive;
 CBlockIndex *pindexBestHeader = NULL;
 CWaitableCriticalSection csBestBlock;
 CConditionVariable cvBlockChange;
@@ -100,8 +98,25 @@ CScript COINBASE_FLAGS;
 
 const std::string strMessageMagic = "Dogecoin Signed Message:\n";
 
-// Internal stuff
-namespace {
+/**
+ * CChainState stores and provides an API to update our local knowledge of the
+ * current best chain and header tree.
+ *
+ * It generally provides access to the current block tree, as well as functions
+ * to provide new data, which it will appropriately validate and incorporate in
+ * its state as necessary.
+ *
+ * Eventually, the API here is targeted at being exposed externally as a
+ * consumable libconsensus library, so any functions added must only call
+ * other class member functions, pure functions in other parts of the consensus
+ * library, callbacks via the validation interface, or read/write-to-disk
+ * functions (eventually this will also be via callbacks).
+ */
+class CChainState {
+public:
+    CChain chainActive;
+    BlockMap mapBlockIndex;
+    CBlockIndex *pindexBestInvalid;
 
     struct CBlockIndexWorkComparator
     {
@@ -124,8 +139,6 @@ namespace {
         }
     };
 
-    CBlockIndex *pindexBestInvalid;
-
     /**
      * The set of all CBlockIndex entries with BLOCK_VALID_TRANSACTIONS (for itself and all ancestors) and
      * as good as our current tip or better. Entries may be failed, though, and pruning nodes may be
@@ -136,7 +149,21 @@ namespace {
      * Pruned nodes may have entries where B is missing data.
      */
     std::multimap<CBlockIndex*, CBlockIndex*> mapBlocksUnlinked;
+};
 
+static CChainState g_chainstate;
+
+CChain& chainActive = g_chainstate.chainActive;
+BlockMap& mapBlockIndex = g_chainstate.mapBlockIndex;
+// File-scope aliases for symbols that were previously in the validation.cpp
+// anonymous namespace; now owned by g_chainstate. These keep existing
+// references throughout this translation unit unchanged.
+static CBlockIndex*& pindexBestInvalid = g_chainstate.pindexBestInvalid;
+static std::set<CBlockIndex*, CChainState::CBlockIndexWorkComparator>& setBlockIndexCandidates = g_chainstate.setBlockIndexCandidates;
+static std::multimap<CBlockIndex*, CBlockIndex*>& mapBlocksUnlinked = g_chainstate.mapBlocksUnlinked;
+
+// Internal stuff
+namespace {
     CCriticalSection cs_LastBlockFile;
     std::vector<CBlockFileInfo> vinfoBlockFile;
     int nLastBlockFile = 0;
@@ -2369,7 +2396,7 @@ static CBlockIndex* FindMostWorkChain() {
 
         // Find the best candidate header.
         {
-            std::set<CBlockIndex*, CBlockIndexWorkComparator>::reverse_iterator it = setBlockIndexCandidates.rbegin();
+            std::set<CBlockIndex*, CChainState::CBlockIndexWorkComparator>::reverse_iterator it = setBlockIndexCandidates.rbegin();
             if (it == setBlockIndexCandidates.rend())
                 return NULL;
             pindexNew = *it;
@@ -2421,7 +2448,7 @@ static CBlockIndex* FindMostWorkChain() {
 static void PruneBlockIndexCandidates() {
     // Note that we can't delete the current block itself, as we may need to return to it later in case a
     // reorganization to a better block fails.
-    std::set<CBlockIndex*, CBlockIndexWorkComparator>::iterator it = setBlockIndexCandidates.begin();
+    std::set<CBlockIndex*, CChainState::CBlockIndexWorkComparator>::iterator it = setBlockIndexCandidates.begin();
     while (it != setBlockIndexCandidates.end() && setBlockIndexCandidates.value_comp()(*it, chainActive.Tip())) {
         setBlockIndexCandidates.erase(it++);
     }
@@ -3682,7 +3709,7 @@ bool static LoadBlockIndexDB(const CChainParams& chainparams)
             pindexBestInvalid = pindex;
         if (pindex->pprev)
             pindex->BuildSkip();
-        if (pindex->IsValid(BLOCK_VALID_TREE) && (pindexBestHeader == NULL || CBlockIndexWorkComparator()(pindexBestHeader, pindex)))
+        if (pindex->IsValid(BLOCK_VALID_TREE) && (pindexBestHeader == NULL || CChainState::CBlockIndexWorkComparator()(pindexBestHeader, pindex)))
             pindexBestHeader = pindex;
     }
 
@@ -4216,7 +4243,7 @@ void static CheckBlockIndex(const Consensus::Params& consensusParams)
             // Checks for not-invalid blocks.
             assert((pindex->nStatus & BLOCK_FAILED_MASK) == 0); // The failed mask cannot be set for blocks without invalid parents.
         }
-        if (!CBlockIndexWorkComparator()(pindex, chainActive.Tip()) && pindexFirstNeverProcessed == NULL) {
+        if (!CChainState::CBlockIndexWorkComparator()(pindex, chainActive.Tip()) && pindexFirstNeverProcessed == NULL) {
             if (pindexFirstInvalid == NULL) {
                 // If this block sorts at least as good as the current tip and
                 // is valid and we have all data for its parents, it must be in
@@ -4260,7 +4287,7 @@ void static CheckBlockIndex(const Consensus::Params& consensusParams)
             //    tip.
             // So if this block is itself better than chainActive.Tip() and it wasn't in
             // setBlockIndexCandidates, then it must be in mapBlocksUnlinked.
-            if (!CBlockIndexWorkComparator()(pindex, chainActive.Tip()) && setBlockIndexCandidates.count(pindex) == 0) {
+            if (!CChainState::CBlockIndexWorkComparator()(pindex, chainActive.Tip()) && setBlockIndexCandidates.count(pindex) == 0) {
                 if (pindexFirstInvalid == NULL) {
                     assert(foundInUnlinked);
                 }
