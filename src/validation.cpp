@@ -551,7 +551,7 @@ std::string FormatStateMessage(const CValidationState &state)
 static bool IsCurrentForFeeEstimation()
 {
     AssertLockHeld(cs_main);
-    if (IsInitialBlockDownload())
+    if (ChainstateActive().IsInitialBlockDownload())
         return false;
     if (chainActive.Tip()->GetBlockTime() < (GetTime() - MAX_FEE_ESTIMATION_TIP_AGE))
         return false;
@@ -1219,18 +1219,21 @@ bool ReadBlockHeaderFromDisk(CBlockHeader& block, const CBlockIndex* pindex, con
     return ReadBlockOrHeader(block, pindex, consensusParams, fCheckPOW);
 }
 
-bool IsInitialBlockDownload()
+// Note that though this is marked const, we may end up modifying `m_cached_finished_ibd`, which
+// is a performance-related implementation detail. This function must be marked
+// `const` so that `CValidationInterface` clients (which are given a `const CChainState*`)
+// can call it.
+//
+bool CChainState::IsInitialBlockDownload() const
 {
     const CChainParams& chainParams = Params();
 
-    // Once this function has returned false, it must remain false.
-    static std::atomic<bool> latchToFalse{false};
     // Optimization: pre-test latch before taking the lock.
-    if (latchToFalse.load(std::memory_order_relaxed))
+    if (m_cached_finished_ibd.load(std::memory_order_relaxed))
         return false;
 
     LOCK(cs_main);
-    if (latchToFalse.load(std::memory_order_relaxed))
+    if (m_cached_finished_ibd.load(std::memory_order_relaxed))
         return false;
     if (fImporting || fReindex)
         return true;
@@ -1240,7 +1243,8 @@ bool IsInitialBlockDownload()
         return true;
     if (chainActive.Tip()->GetBlockTime() < (GetTime() - nMaxTipAge))
         return true;
-    latchToFalse.store(true, std::memory_order_relaxed);
+    LogPrintf("Leaving InitialBlockDownload (latching to false)\n");
+    m_cached_finished_ibd.store(true, std::memory_order_relaxed);
     return false;
 }
 
@@ -1273,7 +1277,7 @@ static void CheckForkWarningConditions()
     AssertLockHeld(cs_main);
     // Before we get past initial download, we cannot reliably alert about forks
     // (we assume we don't get stuck on a fork before finishing our initial sync)
-    if (IsInitialBlockDownload())
+    if (ChainstateActive().IsInitialBlockDownload())
         return;
 
     // If our best fork is no longer within 360 blocks (+/- 6 hours if no one mines it)
@@ -2190,7 +2194,7 @@ void static UpdateTip(CBlockIndex *pindexNew, const CChainParams& chainParams) {
 
     static bool fWarned = false;
     std::vector<std::string> warningMessages;
-    if (!IsInitialBlockDownload())
+    if (!ChainstateActive().IsInitialBlockDownload())
     {
         int nUpgraded = 0;
         const CBlockIndex* pindex = chainActive.Tip();
@@ -2519,7 +2523,7 @@ static void NotifyHeaderTip() {
 
         if (pindexHeader != pindexHeaderOld) {
             fNotify = true;
-            fInitialBlockDownload = IsInitialBlockDownload();
+            fInitialBlockDownload = ChainstateActive().IsInitialBlockDownload();
             pindexHeaderOld = pindexHeader;
         }
     }
@@ -2579,7 +2583,7 @@ bool CChainState::ActivateBestChain(CValidationState &state, const CChainParams&
             }
             pindexNewTip = chainActive.Tip();
             pindexFork = chainActive.FindFork(pindexOldTip);
-            fInitialDownload = IsInitialBlockDownload();
+            fInitialDownload = ChainstateActive().IsInitialBlockDownload();
 
             // throw all transactions though the signal-interface
 
@@ -2720,7 +2724,7 @@ bool CChainState::InvalidateBlock(CValidationState& state, const CChainParams& c
 
     InvalidChainFound(pindex);
     mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
-    uiInterface.NotifyBlockTip(IsInitialBlockDownload(), pindex->pprev);
+    uiInterface.NotifyBlockTip(ChainstateActive().IsInitialBlockDownload(), pindex->pprev);
     return true;
 }
 bool InvalidateBlock(CValidationState& state, const CChainParams& chainparams, CBlockIndex *pindex) {
@@ -3353,7 +3357,7 @@ bool CChainState::AcceptBlock(const std::shared_ptr<const CBlock>& pblock, CVali
 
     // Header is valid/has work, merkle tree and segwit merkle tree are good...RELAY NOW
     // (but if it does not build on our best tip, let the SendMessages loop relay it)
-    if (!IsInitialBlockDownload() && chainActive.Tip() == pindex->pprev)
+    if (!ChainstateActive().IsInitialBlockDownload() && chainActive.Tip() == pindex->pprev)
         GetMainSignals().NewPoWValidBlock(pindex, pblock);
 
     int nHeight = pindex->nHeight;

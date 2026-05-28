@@ -1241,7 +1241,7 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
     obj.pushKV("difficulty",            (double)GetDifficulty());
     obj.pushKV("mediantime",            (int64_t)chainActive.Tip()->GetMedianTimePast());
     obj.pushKV("verificationprogress",  GuessVerificationProgress(Params().TxData(), chainActive.Tip()));
-    obj.pushKV("initialblockdownload",  IsInitialBlockDownload());
+    obj.pushKV("initialblockdownload",  ChainstateActive().IsInitialBlockDownload());
     obj.pushKV("chainwork",             chainActive.Tip()->nChainWork.GetHex());
     obj.pushKV("size_on_disk",          CalculateCurrentUsage());
     obj.pushKV("pruned",                fPruneMode);
