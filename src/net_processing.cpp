@@ -953,7 +953,7 @@ void PeerLogicValidation::BlockChecked(const CBlock& block, const CValidationSta
     //    the tip yet so we have no way to check this directly here. Instead we
     //    just check that there are currently no other blocks in flight.
     else if (state.IsValid() &&
-             !IsInitialBlockDownload() &&
+             !ChainstateActive().IsInitialBlockDownload() &&
              mapBlocksInFlight.count(hash) == mapBlocksInFlight.size()) {
         if (it != mapBlockSource.end()) {
             MaybeSetPeerAsAnnouncingHeaderAndIDs(it->second.first, *connman);
@@ -1491,7 +1491,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         if (!pfrom->fInbound)
         {
             // Advertise our address
-            if (fListen && !IsInitialBlockDownload())
+            if (fListen && !ChainstateActive().IsInitialBlockDownload())
             {
                 CAddress addr = GetLocalAddress(&pfrom->addr, pfrom->GetLocalServices());
                 FastRandomContext insecure_rand;
@@ -1760,7 +1760,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 pfrom->AddInventoryKnown(inv);
                 if (fBlocksOnly)
                     LogPrint("net", "transaction (%s) inv sent in violation of protocol peer=%d\n", inv.hash.ToString(), pfrom->id);
-                else if (!fAlreadyHave && !fImporting && !fReindex && !IsInitialBlockDownload())
+                else if (!fAlreadyHave && !fImporting && !fReindex && !ChainstateActive().IsInitialBlockDownload())
                     AddTxAnnouncement(pfrom, inv.hash, current_time);
             }
 
@@ -1930,7 +1930,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         }
 
         LOCK(cs_main);
-        if (IsInitialBlockDownload() && !pfrom->fWhitelisted) {
+        if (ChainstateActive().IsInitialBlockDownload() && !pfrom->fWhitelisted) {
             LogPrint("net", "Ignoring getheaders from peer=%d because node is in initial block download\n", pfrom->id);
             return true;
         }
@@ -2135,7 +2135,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
 
         if (mapBlockIndex.find(cmpctblock.header.hashPrevBlock) == mapBlockIndex.end()) {
             // Doesn't connect (or is genesis), instead of DoSing in AcceptBlockHeader, request deeper headers
-            if (!IsInitialBlockDownload())
+            if (!ChainstateActive().IsInitialBlockDownload())
                 RequestHeadersFrom(pfrom, connman, pindexBestHeader, uint256(), true);
             return true;
         }
@@ -2576,7 +2576,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         // unless we're still syncing with the network.
         // Such an unrequested block may still be processed, subject to the
         // conditions in AcceptBlock().
-        bool forceProcessing = pfrom->fWhitelisted && !IsInitialBlockDownload();
+        bool forceProcessing = pfrom->fWhitelisted && !ChainstateActive().IsInitialBlockDownload();
         const uint256 hash(pblock->GetHash());
         {
             LOCK(cs_main);
@@ -3034,7 +3034,7 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
             }
         }
 
-        TRY_LOCK(cs_main, lockMain); // Acquire cs_main for IsInitialBlockDownload() and CNodeState()
+        TRY_LOCK(cs_main, lockMain); // Acquire cs_main for ChainstateActive().IsInitialBlockDownload() and CNodeState()
         if (!lockMain)
             return true;
 
@@ -3046,7 +3046,7 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
         int64_t nNow = GetTimeMicros();
         int64_t current_time = GetMockableTimeMicros(); // add a mockable time
 
-        if (!IsInitialBlockDownload() && pto->nNextLocalAddrSend < current_time) {
+        if (!ChainstateActive().IsInitialBlockDownload() && pto->nNextLocalAddrSend < current_time) {
             AdvertiseLocal(pto);
             pto->nNextLocalAddrSend = PoissonNextSend(current_time, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
         }
@@ -3122,7 +3122,7 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
         // Resend wallet transactions that haven't gotten in a block yet
         // Except during reindex, importing and IBD, when old wallet
         // transactions become unconfirmed and spams other nodes.
-        if (!fReindex && !fImporting && !IsInitialBlockDownload())
+        if (!fReindex && !fImporting && !ChainstateActive().IsInitialBlockDownload())
         {
             GetMainSignals().Broadcast(nTimeBestReceived, &connman);
         }
@@ -3466,7 +3466,7 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
         // Message: getdata (blocks)
         //
         std::vector<CInv> vGetData;
-        if (!pto->fClient && (fFetch || !IsInitialBlockDownload()) && state.nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
+        if (!pto->fClient && (fFetch || !ChainstateActive().IsInitialBlockDownload()) && state.nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
             std::vector<const CBlockIndex*> vToDownload;
             NodeId staller = -1;
             FindNextBlocksToDownload(pto->GetId(), MAX_BLOCKS_IN_TRANSIT_PER_PEER - state.nBlocksInFlight, vToDownload, staller, consensusParams);

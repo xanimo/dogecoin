@@ -277,8 +277,6 @@ void LoadChainTip(const CChainParams& chainparams);
 void UnloadBlockIndex();
 /** Run an instance of the script checking thread */
 void ThreadScriptCheck();
-/** Check whether we are doing an initial block download (synchronizing from disk or network) */
-bool IsInitialBlockDownload();
 /** Format a string that describes several potential problems detected by the core.
  * strFor can have three values:
  * - "rpc": get critical warnings, which should put the client in safe mode if non-empty
@@ -703,6 +701,9 @@ public:
     void PruneBlockIndexCandidates();
 
     void UnloadBlockIndex();
+
+    /** Check whether we are doing an initial block download (synchronizing from disk or network) */
+    bool IsInitialBlockDownload() const;
 
     /**
      * Make various assertions about the state of the block index.
