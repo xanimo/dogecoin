@@ -2325,9 +2325,8 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             // Note that if a peer tries to build on an invalid chain, that
             // will be detected and the peer will be banned.
             BlockValidationState frvState;
-            CBlockHeader frv_first_invalid;
             const CBlockIndex *pindexFrv = nullptr;
-            if (!ProcessNewBlockHeaders({cmpctblock.header}, frvState, chainparams, &pindexFrv, &frv_first_invalid)) {
+            if (!ProcessNewBlockHeaders({cmpctblock.header}, frvState, chainparams, &pindexFrv)) {
                 if (frvState.IsInvalid()) {
                     int nDoS = GetDoSForBlock(frvState);
                     if (nDoS > 0) {
@@ -2501,18 +2500,12 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         }
 
         BlockValidationState state;
-        CBlockHeader first_invalid_header;
-        if (!ProcessNewBlockHeaders(headers, state, chainparams, &pindexLast, &first_invalid_header)) {
+        if (!ProcessNewBlockHeaders(headers, state, chainparams, &pindexLast)) {
             if (state.IsInvalid()) {
                 int nDoS = GetDoSForBlock(state);
                 if (nDoS > 0) {
                     LOCK(cs_main);
                     Misbehaving(pfrom->GetId(), nDoS);
-                }
-                // Disconnect outbound peers relaying invalid headers
-                if (!pfrom->fInbound && !pfrom->fAddnode &&
-                        mapBlockIndex.find(first_invalid_header.GetHash()) != mapBlockIndex.end()) {
-                    pfrom->fDisconnect = true;
                 }
                 return error("invalid header received");
             }
