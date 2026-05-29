@@ -77,7 +77,7 @@ TestingSetup::TestingSetup(const std::string& chainName) : BasicTestingSetup(cha
         pcoinsTip = new CCoinsViewCache(pcoinsdbview);
         LoadGenesisBlock(chainparams);
         {
-            CValidationState state;
+            BlockValidationState state;
             bool ok = ActivateBestChain(state, chainparams);
             BOOST_CHECK(ok);
         }

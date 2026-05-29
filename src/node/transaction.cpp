@@ -5,6 +5,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <node/transaction.h>
+#include "consensus/validation.h"
 
 #include <coins.h>
 #include <consensus/validation.h>
@@ -29,11 +30,11 @@ uint256 BroadcastTransaction(CTransactionRef tx, bool fLimitFree, CAmount nMaxRa
     bool fHaveMempool = mempool.exists(hashTx);
     if (!fHaveMempool && !fHaveChain) {
         // push to local node and sync with wallets
-        CValidationState state;
+        TxValidationState state;
         bool fMissingInputs;
         if (!AcceptToMemoryPool(mempool, state, std::move(tx), fLimitFree, &fMissingInputs, NULL, false, nMaxRawTxFee)) {
             if (state.IsInvalid()) {
-                throw JSONRPCError(RPC_TRANSACTION_REJECTED, strprintf("%i: %s", state.GetRejectCode(), state.GetRejectReason()));
+                throw JSONRPCError(RPC_TRANSACTION_REJECTED, strprintf("%i: %s", GetRejectCodeForTx(state), state.GetRejectReason()));
             } else {
                 if (fMissingInputs) {
                     throw JSONRPCError(RPC_TRANSACTION_ERROR, "Missing inputs");

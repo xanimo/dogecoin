@@ -370,7 +370,7 @@ static void SendMoney(const CTxDestination &address, CAmount nValue, bool fSubtr
             strError = strprintf("Error: This transaction requires a transaction fee of at least %s", FormatMoney(nFeeRequired));
         throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
-    CValidationState state;
+    TxValidationState state;
     if (!pwalletMain->CommitTransaction(wtxNew, reservekey, g_connman.get(), state)) {
         strError = strprintf("Error: The transaction was rejected! Reason given: %s", state.GetRejectReason());
         throw JSONRPCError(RPC_WALLET_ERROR, strError);
@@ -1061,7 +1061,7 @@ UniValue sendmany(const JSONRPCRequest& request)
     bool fCreated = pwalletMain->CreateTransaction(vecSend, wtx, keyChange, nFeeRequired, nChangePosRet, strFailReason);
     if (!fCreated)
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, strFailReason);
-    CValidationState state;
+    TxValidationState state;
     if (!pwalletMain->CommitTransaction(wtx, keyChange, g_connman.get(), state)) {
         strFailReason = strprintf("Transaction commit failed:: %s", state.GetRejectReason());
         throw JSONRPCError(RPC_WALLET_ERROR, strFailReason);
@@ -3178,7 +3178,7 @@ UniValue bumpfee(const JSONRPCRequest& request)
     wtxBumped.strFromAccount = wtx.strFromAccount;
     wtxBumped.fTimeReceivedIsTxTime = true;
     wtxBumped.fFromMe = true;
-    CValidationState state;
+    TxValidationState state;
     if (!pwalletMain->CommitTransaction(wtxBumped, reservekey, g_connman.get(), state)) {
         // NOTE: CommitTransaction never returns false, so this should never happen.
         throw JSONRPCError(RPC_WALLET_ERROR, strprintf("Error: The transaction was rejected! Reason given: %s", state.GetRejectReason()));

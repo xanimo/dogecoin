@@ -8,6 +8,7 @@
 #define BITCOIN_NET_PROCESSING_H
 
 #include "net.h"
+#include "consensus/validation.h"
 #include "validationinterface.h"
 
 /** Default for -maxorphantx, maximum number of orphan transactions kept in memory */
@@ -51,7 +52,7 @@ public:
 
     virtual void SyncTransaction(const CTransaction& tx, const CBlockIndex* pindex, int nPosInBlock);
     virtual void UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload);
-    virtual void BlockChecked(const CBlock& block, const CValidationState& state);
+    virtual void BlockChecked(const CBlock& block, const BlockValidationState& state);
     virtual void NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock>& pblock);
 };
 
