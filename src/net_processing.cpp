@@ -2507,6 +2507,14 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                     LOCK(cs_main);
                     Misbehaving(pfrom->GetId(), nDoS);
                 }
+                // Disconnect outbound peers on chains incompatible with ours.
+                // (Adapted from Bitcoin Core 37886d5e2f: "Disconnect outbound
+                // peers relaying invalid headers". Simplified: we don't have
+                // first_invalid_header here, so we disconnect any non-inbound,
+                // non-addnode peer sending an invalid header.)
+                if (!pfrom->fInbound && !pfrom->fAddnode) {
+                    pfrom->fDisconnect = true;
+                }
                 return error("invalid header received");
             }
         }
