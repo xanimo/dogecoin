@@ -7,6 +7,7 @@
 #define BITCOIN_RPCMINING_H
 
 #include "arith_uint256.h"
+#include "consensus/validation.h"
 #include "primitives/block.h"
 #include "validation.h"
 #include "validationinterface.h"
@@ -18,12 +19,12 @@ class submitblock_StateCatcher : public CValidationInterface
 public:
     uint256 hash;
     bool found;
-    CValidationState state;
+    BlockValidationState state;
 
     submitblock_StateCatcher(const uint256 &hashIn) : hash(hashIn), found(false), state() {}
 
 protected:
-    virtual void BlockChecked(const CBlock& block, const CValidationState& stateIn) {
+    virtual void BlockChecked(const CBlock& block, const BlockValidationState& stateIn) {
         if (block.GetHash() != hash)
             return;
         found = true;
@@ -31,6 +32,6 @@ protected:
     }
 };
 
-UniValue BIP22ValidationResult(const CValidationState& state);
+UniValue BIP22ValidationResult(const BlockValidationState& state);
 
 #endif //BITCOIN_RPCMINING_H

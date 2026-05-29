@@ -35,6 +35,8 @@
 
 #include <boost/unordered_map.hpp>
 
+#include "consensus/validation.h"
+
 class CBlockIndex;
 class CBlockTreeDB;
 class CBloomFilter;
@@ -45,7 +47,6 @@ class CConnman;
 class CScriptCheck;
 class CTxMemPool;
 class CValidationInterface;
-class CValidationState;
 struct ChainTxData;
 
 struct DisconnectedBlockTransactions;
@@ -257,7 +258,7 @@ bool ProcessNewBlock(const CChainParams& chainparams, const std::shared_ptr<cons
  * @param[out] ppindex If set, the pointer will be set to point to the last new block index object for the given headers
  * @param[out] first_invalid First header that fails validation, if one exists
  */
-bool ProcessNewBlockHeaders(const std::vector<CBlockHeader>& block, CValidationState& state, const CChainParams& chainparams, const CBlockIndex** ppindex=NULL, CBlockHeader *first_invalid=nullptr);
+bool ProcessNewBlockHeaders(const std::vector<CBlockHeader>& block, BlockValidationState& state, const CChainParams& chainparams, const CBlockIndex** ppindex=NULL, CBlockHeader *first_invalid=nullptr);
 
 /** Check whether enough disk space is available for an incoming block */
 bool CheckDiskSpace(uint64_t nAdditionalBytes = 0);
@@ -288,7 +289,7 @@ std::string GetWarnings(const std::string& strFor);
 /** Retrieve a transaction (from memory pool, or from disk, if possible) */
 bool GetTransaction(const uint256 &hash, CTransactionRef &tx, const Consensus::Params& params, uint256 &hashBlock, bool fAllowSlow = false);
 /** Find the best known block, and make it the tip of the block chain */
-bool ActivateBestChain(CValidationState& state, const CChainParams& chainparams, std::shared_ptr<const CBlock> pblock = std::shared_ptr<const CBlock>());
+bool ActivateBestChain(BlockValidationState& state, const CChainParams& chainparams, std::shared_ptr<const CBlock> pblock = std::shared_ptr<const CBlock>());
 
 /** Guess verification progress (as a fraction between 0.0=genesis and 1.0=current tip). */
 double GuessVerificationProgress(const ChainTxData& data, CBlockIndex* pindex);
@@ -311,12 +312,13 @@ void PruneBlockFilesManual(int nPruneUpToHeight);
 
 /** (try to) add transaction to memory pool
  * plTxnReplaced will be appended to with all transactions replaced from mempool **/
-bool AcceptToMemoryPool(CTxMemPool& pool, CValidationState &state, const CTransactionRef &tx, bool fLimitFree,
+bool AcceptToMemoryPool(CTxMemPool& pool, TxValidationState &state, const CTransactionRef &tx, bool fLimitFree,
                         bool* pfMissingInputs, std::list<CTransactionRef>* plTxnReplaced = NULL,
                         bool fOverrideMempoolLimit=false, const CAmount nAbsurdFee=0);
 
-/** Convert CValidationState to a human-readable message for logging */
-std::string FormatStateMessage(const CValidationState &state);
+/** Format a ValidationState for human-readable logging */
+template<typename Result>
+std::string FormatStateMessage(const ValidationState<Result>& state) { return state.ToString(); }
 
 /** Get the BIP9 state for a given deployment at the current tip. */
 ThresholdState VersionBitsTipState(const Consensus::Params& params, Consensus::DeploymentPos pos);
@@ -355,7 +357,7 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, int nHeight);
 /** Transaction validation functions */
 
 /** Context-independent validity checks */
-bool CheckTransaction(const CTransaction& tx, CValidationState& state, bool fCheckDuplicateInputs=true);
+bool CheckTransaction(const CTransaction& tx, TxValidationState& state, bool fCheckDuplicateInputs=true);
 
 namespace Consensus {
 
@@ -364,7 +366,7 @@ namespace Consensus {
  * This does not modify the UTXO set. This does not check scripts and sigs.
  * Preconditions: tx.IsCoinBase() is false.
  */
-bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidationState& state, const CCoinsViewCache& inputs, int nSpendHeight);
+bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, TxValidationState& state, const CCoinsViewCache& inputs, int nSpendHeight);
 
 } // namespace Consensus
 
@@ -457,23 +459,23 @@ bool UndoReadFromDisk(CBlockUndo& blockundo, const CBlockIndex *pindex);
 /** Functions for validating blocks and updating the block tree */
 
 /** Context-independent validity checks */
-bool CheckBlockHeader(const CBlockHeader& block, CValidationState& state, bool fCheckPOW = true);
-bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW = true, bool fCheckMerkleRoot = true);
+bool CheckBlockHeader(const CBlockHeader& block, BlockValidationState& state, bool fCheckPOW = true);
+bool CheckBlock(const CBlock& block, BlockValidationState& state, bool fCheckPOW = true, bool fCheckMerkleRoot = true);
 
 /** Context-dependent validity checks.
  *  By "context", we mean only the previous block headers, but not the UTXO
  *  set; UTXO-related validity checks are done in ConnectBlock(). */
-bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& state, const CBlockIndex* pindexPrev, int64_t nAdjustedTime);
-bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const CBlockIndex* pindexPrev);
+bool ContextualCheckBlockHeader(const CBlockHeader& block, BlockValidationState& state, const CBlockIndex* pindexPrev, int64_t nAdjustedTime);
+bool ContextualCheckBlock(const CBlock& block, BlockValidationState& state, const CBlockIndex* pindexPrev);
 
 /** Apply the effects of this block (with given index) on the UTXO set represented by coins.
  *  Validity checks that depend on the UTXO set are also done; ConnectBlock()
  *  can fail if those validity checks fail (among other reasons). */
-bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pindex, CCoinsViewCache& coins,
+bool ConnectBlock(const CBlock& block, BlockValidationState& state, CBlockIndex* pindex, CCoinsViewCache& coins,
                   const CChainParams& chainparams, bool fJustCheck = false);
 
 /** Check a block is completely valid from start to finish (only works on top of our current best block, with cs_main held) */
-bool TestBlockValidity(CValidationState& state, const CChainParams& chainparams, const CBlock& block, CBlockIndex* pindexPrev, bool fCheckPOW = true, bool fCheckMerkleRoot = true);
+bool TestBlockValidity(BlockValidationState& state, const CChainParams& chainparams, const CBlock& block, CBlockIndex* pindexPrev, bool fCheckPOW = true, bool fCheckMerkleRoot = true);
 
 /** Check whether witness commitments are required for block. */
 bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params);
@@ -589,7 +591,7 @@ public:
      */
     bool AcceptBlockHeader(
         const CBlockHeader& block,
-        CValidationState& state,
+        BlockValidationState& state,
         const CChainParams& chainparams,
         CBlockIndex** ppindex) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 };
@@ -666,7 +668,7 @@ public:
      */
     bool FlushStateToDisk(
         const CChainParams& chainparams,
-        CValidationState &state,
+        BlockValidationState &state,
         FlushStateMode mode,
         int nManualPruneHeight = 0);
 
@@ -677,21 +679,21 @@ public:
     //! if we pruned.
     void PruneAndFlush();
 
-    bool ActivateBestChain(CValidationState &state, const CChainParams& chainparams, std::shared_ptr<const CBlock> pblock);
+    bool ActivateBestChain(BlockValidationState &state, const CChainParams& chainparams, std::shared_ptr<const CBlock> pblock);
 
-    bool AcceptBlock(const std::shared_ptr<const CBlock>& pblock, CValidationState& state, const CChainParams& chainparams, CBlockIndex** ppindex, bool fRequested, const CDiskBlockPos* dbp, bool* fNewBlock);
+    bool AcceptBlock(const std::shared_ptr<const CBlock>& pblock, BlockValidationState& state, const CChainParams& chainparams, CBlockIndex** ppindex, bool fRequested, const CDiskBlockPos* dbp, bool* fNewBlock);
 
     // Block (dis)connection on a given view:
     DisconnectResult DisconnectBlock(const CBlock& block, const CBlockIndex* pindex, CCoinsViewCache& view);
-    bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pindex,
+    bool ConnectBlock(const CBlock& block, BlockValidationState& state, CBlockIndex* pindex,
                     CCoinsViewCache& view, const CChainParams& chainparams, bool fJustCheck = false);
 
     // Block disconnection on our pcoinsTip:
-    bool DisconnectTip(CValidationState& state, const CChainParams& chainparams, DisconnectedBlockTransactions *disconnectpool);
+    bool DisconnectTip(BlockValidationState& state, const CChainParams& chainparams, DisconnectedBlockTransactions *disconnectpool);
 
     // Manual block validity manipulation:
-    bool PreciousBlock(CValidationState& state, const CChainParams& params, CBlockIndex *pindex);
-    bool InvalidateBlock(CValidationState& state, const CChainParams& chainparams, CBlockIndex *pindex);
+    bool PreciousBlock(BlockValidationState& state, const CChainParams& params, CBlockIndex *pindex);
+    bool InvalidateBlock(BlockValidationState& state, const CChainParams& chainparams, CBlockIndex *pindex);
     bool ResetBlockFailureFlags(CBlockIndex *pindex);
 
     bool ReplayBlocks(const CChainParams& params, CCoinsView* view);
@@ -713,21 +715,21 @@ public:
     void CheckBlockIndex(const Consensus::Params& consensusParams);
 
 private:
-    bool ActivateBestChainStep(CValidationState& state, const CChainParams& chainparams, CBlockIndex* pindexMostWork, const std::shared_ptr<const CBlock>& pblock, bool& fInvalidFound, ConnectTrace& connectTrace, DisconnectedBlockTransactions &disconnectpool);
-    bool ConnectTip(CValidationState& state, const CChainParams& chainparams, CBlockIndex* pindexNew, const std::shared_ptr<const CBlock>& pblock, ConnectTrace& connectTrace, DisconnectedBlockTransactions &disconnectpool);
+    bool ActivateBestChainStep(BlockValidationState& state, const CChainParams& chainparams, CBlockIndex* pindexMostWork, const std::shared_ptr<const CBlock>& pblock, bool& fInvalidFound, ConnectTrace& connectTrace, DisconnectedBlockTransactions &disconnectpool);
+    bool ConnectTip(BlockValidationState& state, const CChainParams& chainparams, CBlockIndex* pindexNew, const std::shared_ptr<const CBlock>& pblock, ConnectTrace& connectTrace, DisconnectedBlockTransactions &disconnectpool);
 
     void EraseBlockData(CBlockIndex* index);
-    void InvalidBlockFound(CBlockIndex *pindex, const CValidationState &state);
+    void InvalidBlockFound(CBlockIndex *pindex, const BlockValidationState &state);
     CBlockIndex* FindMostWorkChain();
-    bool ReceivedBlockTransactions(const CBlock &block, CValidationState& state, CBlockIndex *pindexNew, const CDiskBlockPos& pos, const Consensus::Params& consensusParams);
+    bool ReceivedBlockTransactions(const CBlock &block, BlockValidationState& state, CBlockIndex *pindexNew, const CDiskBlockPos& pos, const Consensus::Params& consensusParams);
 
     bool RollforwardBlock(const CBlockIndex* pindex, CCoinsViewCache& inputs, const CChainParams& params);
 };
 
 /** Mark a block as precious and reorganize. */
-bool PreciousBlock(CValidationState& state, const CChainParams& params, CBlockIndex *pindex);
+bool PreciousBlock(BlockValidationState& state, const CChainParams& params, CBlockIndex *pindex);
 /** Mark a block as invalid. */
-bool InvalidateBlock(CValidationState& state, const CChainParams& chainparams, CBlockIndex *pindex);
+bool InvalidateBlock(BlockValidationState& state, const CChainParams& chainparams, CBlockIndex *pindex);
 
 /** Remove invalidity status from a block and its descendants. */
 bool ResetBlockFailureFlags(CBlockIndex *pindex);

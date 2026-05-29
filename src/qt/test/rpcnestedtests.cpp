@@ -52,7 +52,7 @@ void RPCNestedTests::rpcNestedTests()
     pcoinsTip = new CCoinsViewCache(pcoinsdbview);
     LoadGenesisBlock(chainparams);
     {
-        CValidationState state;
+        BlockValidationState state;
         bool ok = ActivateBestChain(state, chainparams);
         QVERIFY(ok);
     }

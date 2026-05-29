@@ -325,7 +325,7 @@ UniValue prioritisetransaction(const JSONRPCRequest& request)
 
 
 // NOTE: Assumes a conclusive result; if result is inconclusive, it must be handled by caller
-UniValue BIP22ValidationResult(const CValidationState& state)
+UniValue BIP22ValidationResult(const BlockValidationState& state)
 {
     if (state.IsValid())
         return NullUniValue;
@@ -478,7 +478,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
             // TestBlockValidity only supports blocks built on the current Tip
             if (block.hashPrevBlock != pindexPrev->GetBlockHash())
                 return "inconclusive-not-best-prevblk";
-            CValidationState state;
+            BlockValidationState state;
             TestBlockValidity(state, Params(), block, pindexPrev, false, true);
             return BIP22ValidationResult(state);
         }

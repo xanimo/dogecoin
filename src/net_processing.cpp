@@ -930,17 +930,46 @@ void PeerLogicValidation::UpdatedBlockTip(const CBlockIndex *pindexNew, const CB
     nTimeBestReceived = GetTime();
 }
 
-void PeerLogicValidation::BlockChecked(const CBlock& block, const CValidationState& state) {
+
+static int GetDoSForBlock(const BlockValidationState& state) {
+    switch (state.GetResult()) {
+    case BlockValidationResult::BLOCK_RESULT_UNSET:
+        return 0;
+    case BlockValidationResult::BLOCK_CONSENSUS:
+    case BlockValidationResult::BLOCK_CACHED_INVALID:
+    case BlockValidationResult::BLOCK_INVALID_HEADER:
+    case BlockValidationResult::BLOCK_MUTATED:
+    case BlockValidationResult::BLOCK_CHECKPOINT:
+        return 100;
+    case BlockValidationResult::BLOCK_MISSING_PREV:
+        return 10;
+    case BlockValidationResult::BLOCK_INVALID_PREV:
+    case BlockValidationResult::BLOCK_TIME_FUTURE:
+        return 0;
+    }
+    return 0;
+}
+
+static int GetDoSForTx(const TxValidationState& state) {
+    switch (state.GetResult()) {
+    case TxValidationResult::TX_CONSENSUS:
+        return 100;
+    default:
+        return 0;
+    }
+}
+
+
+void PeerLogicValidation::BlockChecked(const CBlock& block, const BlockValidationState& state) {
     LOCK(cs_main);
 
     const uint256 hash(block.GetHash());
     std::map<uint256, std::pair<NodeId, bool>>::iterator it = mapBlockSource.find(hash);
 
-    int nDoS = 0;
-    if (state.IsInvalid(nDoS)) {
+    if (state.IsInvalid()) {
         if (it != mapBlockSource.end() && State(it->second.first)) {
-            assert (state.GetRejectCode() < REJECT_INTERNAL); // Blocks are never rejected with internal reject codes
-            CBlockReject reject = {(unsigned char)state.GetRejectCode(), state.GetRejectReason().substr(0, MAX_REJECT_MESSAGE_LENGTH), hash};
+            int nDoS = GetDoSForBlock(state);
+            CBlockReject reject = {GetRejectCodeForBlock(state), state.GetRejectReason().substr(0, MAX_REJECT_MESSAGE_LENGTH), hash};
             State(it->second.first)->rejects.push_back(reject);
             if (nDoS > 0 && it->second.second)
                 Misbehaving(it->second.first, nDoS);
@@ -1083,7 +1112,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                             LOCK(cs_most_recent_block);
                             a_recent_block = most_recent_block;
                         }
-                        CValidationState dummy;
+                        BlockValidationState dummy;
                         ActivateBestChain(dummy, Params(), a_recent_block);
                     }
                     if (chainActive.Contains(mi->second)) {
@@ -1270,11 +1299,11 @@ void static ProcessOrphanTx(CConnman* connman, std::set<uint256>& orphan_work_se
         NodeId fromPeer = orphan_it->second.fromPeer;
         bool fMissingInputs2 = false;
 
-        // Use a dummy CValidationState so someone can't setup nodes to
+        // Use a dummy TxValidationState so someone can't setup nodes to
         // counter-DoS based on orphan resolution (that is, feeding
         // people an invalid transaction based on LegitTxX in order to
         // get anyone relaying LegitTxX banned)
-        CValidationState stateDummy;
+        TxValidationState stateDummy;
 
         if (setMisbehaving.count(fromPeer)) continue;
 
@@ -1296,8 +1325,8 @@ void static ProcessOrphanTx(CConnman* connman, std::set<uint256>& orphan_work_se
 
         } else if (!fMissingInputs2) {
 
-            int nDos = 0;
-            if (stateDummy.IsInvalid(nDos) && nDos > 0) {
+            int nDos = GetDoSForTx(stateDummy);
+            if (stateDummy.IsInvalid() && nDos > 0) {
                 // Punish peer that gave us an invalid orphan tx
                 Misbehaving(fromPeer, nDos);
                 setMisbehaving.insert(fromPeer);
@@ -1306,7 +1335,7 @@ void static ProcessOrphanTx(CConnman* connman, std::set<uint256>& orphan_work_se
 
             LogPrint("mempool", "    removed orphan tx %s\n", orphanHash.ToString());
 
-            if (!orphanTx.HasWitness() && !stateDummy.CorruptionPossible()) {
+            if (!orphanTx.HasWitness()) { // Dogecoin: no witness, always safe to cache rejection
                 // Do not use rejection cache for witness transactions or
                 // witness-stripped transactions, as they can have been malleated.
                 // See https://github.com/bitcoin/bitcoin/issues/8279 for details.
@@ -1825,7 +1854,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 LOCK(cs_most_recent_block);
                 a_recent_block = most_recent_block;
             }
-            CValidationState dummy;
+            BlockValidationState dummy;
             ActivateBestChain(dummy, Params(), a_recent_block);
         }
 
@@ -2000,7 +2029,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         LOCK(cs_main);
 
         bool fMissingInputs = false;
-        CValidationState state;
+        TxValidationState state;
 
         // Mark the tx as received
         g_txrequest.ReceivedResponse(pfrom->GetId(), inv.hash);
@@ -2073,7 +2102,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 g_txrequest.ForgetTxHash(tx.GetHash());
             }
         } else {
-            if (!tx.HasWitness() && !state.CorruptionPossible()) {
+            if (!tx.HasWitness()) { // Dogecoin: no witness, always safe to cache rejection
                 // Do not use rejection cache for witness transactions or
                 // witness-stripped transactions, as they can have been malleated.
                 // See https://github.com/bitcoin/bitcoin/issues/8279 for details.
@@ -2096,8 +2125,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                 // Never relay transactions that we would assign a non-zero DoS
                 // score for, as we expect peers to do the same with us in that
                 // case.
-                int nDoS = 0;
-                if (!state.IsInvalid(nDoS) || nDoS == 0) {
+                if (!state.IsInvalid() || GetDoSForTx(state) == 0) {
                     LogPrintf("Force relaying tx %s from whitelisted peer=%d\n", tx.GetHash().ToString(), pfrom->id);
                     RelayTransaction(tx, connman);
                 } else {
@@ -2109,15 +2137,16 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         for (const CTransactionRef& removedTx : lRemovedTxn)
             AddToCompactExtraTransactions(removedTx);
 
-        int nDoS = 0;
-        if (state.IsInvalid(nDoS))
+        if (state.IsInvalid())
         {
             LogPrint("mempoolrej", "%s from peer=%d was not accepted: %s\n", tx.GetHash().ToString(),
                 pfrom->id,
                 FormatStateMessage(state));
-            if (state.GetRejectCode() < REJECT_INTERNAL) // Never send AcceptToMemoryPool's internal codes over P2P
-                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::REJECT, strCommand, (unsigned char)state.GetRejectCode(),
+            unsigned char nRejectCode = GetRejectCodeForTx(state);
+            if (nRejectCode != 0) // Never send internal codes (TX_CONFLICT etc.) over P2P
+                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::REJECT, strCommand, nRejectCode,
                                    state.GetRejectReason().substr(0, MAX_REJECT_MESSAGE_LENGTH), inv.hash));
+            int nDoS = GetDoSForTx(state);
             if (nDoS > 0) {
                 Misbehaving(pfrom->GetId(), nDoS);
             }
@@ -2142,10 +2171,10 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         }
 
         const CBlockIndex *pindex = NULL;
-        CValidationState state;
+        BlockValidationState state;
         if (!ProcessNewBlockHeaders({cmpctblock.header}, state, chainparams, &pindex)) {
-            int nDoS;
-            if (state.IsInvalid(nDoS)) {
+            if (state.IsInvalid()) {
+                int nDoS = GetDoSForBlock(state);
                 if (nDoS > 0) {
                     LOCK(cs_main);
                     Misbehaving(pfrom->GetId(), nDoS);
@@ -2295,12 +2324,12 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             // the peer if the header turns out to be for an invalid block.
             // Note that if a peer tries to build on an invalid chain, that
             // will be detected and the peer will be banned.
-            CValidationState frvState;
+            BlockValidationState frvState;
             CBlockHeader frv_first_invalid;
             const CBlockIndex *pindexFrv = nullptr;
             if (!ProcessNewBlockHeaders({cmpctblock.header}, frvState, chainparams, &pindexFrv, &frv_first_invalid)) {
-                int nDoS;
-                if (frvState.IsInvalid(nDoS)) {
+                if (frvState.IsInvalid()) {
+                    int nDoS = GetDoSForBlock(frvState);
                     if (nDoS > 0) {
                         LOCK(cs_main);
                         Misbehaving(pfrom->GetId(), nDoS);
@@ -2471,11 +2500,11 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         }
         }
 
-        CValidationState state;
+        BlockValidationState state;
         CBlockHeader first_invalid_header;
         if (!ProcessNewBlockHeaders(headers, state, chainparams, &pindexLast, &first_invalid_header)) {
-            int nDoS;
-            if (state.IsInvalid(nDoS)) {
+            if (state.IsInvalid()) {
+                int nDoS = GetDoSForBlock(state);
                 if (nDoS > 0) {
                     LOCK(cs_main);
                     Misbehaving(pfrom->GetId(), nDoS);

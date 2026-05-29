@@ -23,7 +23,7 @@ ToMemPool(CMutableTransaction& tx)
 {
     LOCK(cs_main);
 
-    CValidationState state;
+    TxValidationState state;
     return AcceptToMemoryPool(mempool, state, MakeTransactionRef(tx), false, NULL, NULL, true, 0);
 }
 

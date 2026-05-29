@@ -297,7 +297,7 @@ WalletModel::SendCoinsReturn WalletModel::sendCoins(WalletModelTransaction &tran
         }
 
         CReserveKey *keyChange = transaction.getPossibleKeyChange();
-        CValidationState state;
+        TxValidationState state;
         if(!wallet->CommitTransaction(*newTx, *keyChange, g_connman.get(), state))
             return SendCoinsReturn(TransactionCommitFailed, QString::fromStdString(state.GetRejectReason()));
 

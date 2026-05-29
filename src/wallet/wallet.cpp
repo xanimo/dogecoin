@@ -1597,7 +1597,7 @@ void CWallet::ReacceptWalletTransactions()
         CWalletTx& wtx = *(item.second);
 
         LOCK(mempool.cs);
-        CValidationState state;
+        TxValidationState state;
         wtx.AcceptToMemoryPool(maxTxFee, state);
     }
 }
@@ -1607,7 +1607,7 @@ bool CWalletTx::RelayWalletTransaction(CConnman* connman)
     assert(pwallet->GetBroadcastTransactions());
     if (!IsCoinBase() && !isAbandoned() && GetDepthInMainChain() == 0)
     {
-        CValidationState state;
+        TxValidationState state;
         /* GetDepthInMainChain already catches known conflicts. */
         if (InMempool() || AcceptToMemoryPool(maxTxFee, state)) {
             LogPrintf("Relaying wtx %s\n", GetHash().ToString());
@@ -2817,7 +2817,7 @@ bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wt
 /**
  * Call after CreateTransaction unless you want to abort
  */
-bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey, CConnman* connman, CValidationState& state)
+bool CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey, CConnman* connman, TxValidationState& state)
 {
     {
         LOCK2(cs_main, cs_wallet);

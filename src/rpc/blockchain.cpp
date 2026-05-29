@@ -1458,7 +1458,7 @@ UniValue preciousblock(const JSONRPCRequest& request)
         pblockindex = mapBlockIndex[hash];
     }
 
-    CValidationState state;
+    BlockValidationState state;
     PreciousBlock(state, Params(), pblockindex);
 
     if (!state.IsValid()) {
@@ -1484,7 +1484,7 @@ UniValue invalidateblock(const JSONRPCRequest& request)
 
     std::string strHash = request.params[0].get_str();
     uint256 hash(uint256S(strHash));
-    CValidationState state;
+    BlockValidationState state;
 
     {
         LOCK(cs_main);
@@ -1533,7 +1533,7 @@ UniValue reconsiderblock(const JSONRPCRequest& request)
         ResetBlockFailureFlags(pblockindex);
     }
 
-    CValidationState state;
+    BlockValidationState state;
     ActivateBestChain(state, Params());
 
     if (!state.IsValid()) {

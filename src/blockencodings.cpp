@@ -207,14 +207,14 @@ ReadStatus PartiallyDownloadedBlock::FillBlock(CBlock& block, const std::vector<
     if (vtx_missing.size() != tx_missing_offset)
         return READ_STATUS_INVALID;
 
-    CValidationState state;
+    BlockValidationState state;
     // TODO: Make sure lack of block height doesn't cause verification problems
     if (!CheckBlock(block, state)) {
         // TODO: We really want to just check merkle tree manually here,
         // but that is expensive, and CheckBlock caches a block's
         // "checked-status" (in the CBlock?). CBlock should be able to
         // check its own merkle root and cache that check.
-        if (state.CorruptionPossible())
+        if (state.GetResult() == BlockValidationResult::BLOCK_MUTATED)
             return READ_STATUS_FAILED; // Possible Short ID collision
         return READ_STATUS_CHECKBLOCK_FAILED;
     }

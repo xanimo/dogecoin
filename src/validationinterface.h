@@ -8,6 +8,7 @@
 #define BITCOIN_VALIDATIONINTERFACE_H
 
 #include <boost/signals2/signal.hpp>
+#include "consensus/validation.h"
 #include <memory>
 
 class CBlock;
@@ -18,7 +19,6 @@ class CConnman;
 class CReserveScript;
 class CTransaction;
 class CValidationInterface;
-class CValidationState;
 class uint256;
 
 // These functions dispatch to one or all registered wallets
@@ -37,7 +37,7 @@ protected:
     virtual void SetBestChain(const CBlockLocator &locator) {}
     virtual void UpdatedTransaction(const uint256 &hash) {}
     virtual void ResendWalletTransactions(int64_t nBestBlockTime, CConnman* connman) {}
-    virtual void BlockChecked(const CBlock&, const CValidationState&) {}
+    virtual void BlockChecked(const CBlock&, const BlockValidationState&) {}
     virtual void GetScriptForMining(std::shared_ptr<CReserveScript>&) {};
     virtual void ResetRequestCount(const uint256 &hash) {};
     virtual void NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock>& block) {};
@@ -67,7 +67,7 @@ struct CMainSignals {
     /** Tells listeners to broadcast their data. */
     boost::signals2::signal<void (int64_t nBestBlockTime, CConnman* connman)> Broadcast;
     /** Notifies listeners of a block validation result */
-    boost::signals2::signal<void (const CBlock&, const CValidationState&)> BlockChecked;
+    boost::signals2::signal<void (const CBlock&, const BlockValidationState&)> BlockChecked;
     /** Notifies listeners that a key for mining is required (coinbase) */
     boost::signals2::signal<void (std::shared_ptr<CReserveScript>&)> ScriptForMining;
     /** Notifies listeners that a block has been successfully mined */
