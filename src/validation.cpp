@@ -2691,7 +2691,7 @@ bool CChainState::InvalidateBlock(CValidationState& state, const CChainParams& c
             return false;
         }
     }
-    UpdateMempoolForReorg(disconnectpool, false);
+    UpdateMempoolForReorg(disconnectpool, true);
 
     // Now mark the blocks we just disconnected as descendants invalid
     // Note: this may not be all descendants, e.g. the disconnected block
