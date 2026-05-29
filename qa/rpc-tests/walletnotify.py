@@ -167,6 +167,10 @@ class WalletNotifyTest(BitcoinTestFramework):
 
         # mine 3 blocks on node 2, reconnect and sync
         self.nodes[2].generate(3)
+        # reconsider the locally-invalidated block so node 2 doesn't disconnect
+        # peers that send headers containing it (our chain through A->B->C at
+        # height+3 has more work and wins regardless)
+        self.nodes[2].reconsiderblock(reset_hash)
         connect_nodes(self.nodes[2], 1)
         self.sync_all()
 
