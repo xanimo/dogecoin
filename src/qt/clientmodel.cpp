@@ -172,7 +172,7 @@ void ClientModel::updateAlert()
 
 bool ClientModel::inInitialBlockDownload() const
 {
-    return IsInitialBlockDownload();
+    return ChainstateActive().IsInitialBlockDownload();
 }
 
 enum BlockSource ClientModel::getBlockSource() const

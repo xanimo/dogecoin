@@ -2388,7 +2388,7 @@ bool CWallet::FundTransaction(CMutableTransaction& tx, CAmount& nFeeRet, bool ov
 
 static bool IsCurrentForAntiFeeSniping()
 {
-    if (IsInitialBlockDownload()) {
+    if (ChainstateActive().IsInitialBlockDownload()) {
         return false;
     }
     constexpr int64_t MAX_ANTI_FEE_SNIPING_TIP_AGE = 8 * 60 * 60; // in seconds
