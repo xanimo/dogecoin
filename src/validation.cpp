@@ -3243,9 +3243,8 @@ bool BlockManager::AcceptBlockHeader(const CBlockHeader& block, BlockValidationS
 }
 
 // Exposed wrapper for AcceptBlockHeader
-bool ProcessNewBlockHeaders(const std::vector<CBlockHeader>& headers, BlockValidationState& state, const CChainParams& chainparams, const CBlockIndex** ppindex, CBlockHeader *first_invalid)
+bool ProcessNewBlockHeaders(const std::vector<CBlockHeader>& headers, BlockValidationState& state, const CChainParams& chainparams, const CBlockIndex** ppindex)
 {
-    if (first_invalid != nullptr) first_invalid->SetNull();
     {
         LOCK(cs_main);
         for (const CBlockHeader& header : headers) {
@@ -3253,7 +3252,7 @@ bool ProcessNewBlockHeaders(const std::vector<CBlockHeader>& headers, BlockValid
             bool accepted = g_blockman.AcceptBlockHeader(header, state, chainparams, &pindex);
             ChainstateActive().CheckBlockIndex(chainparams.GetConsensus(0));
 
-            if (!accepted) {                if (first_invalid) *first_invalid = header;
+            if (!accepted) {
                 return false;
             }
             if (ppindex) {
