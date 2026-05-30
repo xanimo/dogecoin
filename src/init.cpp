@@ -1483,7 +1483,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     int64_t nCoinDBCache = std::min(nTotalCache / 2, (nTotalCache / 4) + (1 << 23)); // use 25%-50% of the remainder for disk cache
     nCoinDBCache = std::min(nCoinDBCache, nMaxCoinsDBCache << 20); // cap total coins db cache
     nTotalCache -= nCoinDBCache;
-    nCoinCacheUsage = nTotalCache; // the rest goes to in-memory cache
+    int64_t nCoinCacheUsage = nTotalCache; // the rest goes to in-memory cache
     int64_t nMempoolSizeMax = GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000;
     LogPrintf("Cache configuration:\n");
     LogPrintf("* Using %.1fMiB for block index database\n", nBlockTreeDBCache * (1.0 / 1024 / 1024));
@@ -1519,6 +1519,13 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                         "", CClientUIInterface::MSG_ERROR);
                 });
                 pcoinsTip = new CCoinsViewCache(pcoinscatcher);
+
+                {
+                    LOCK(cs_main);
+                    ::ChainstateActive().m_coinstip_cache_size_bytes = (size_t)nCoinCacheUsage;
+                    ::ChainstateActive().m_coinsdb_cache_size_bytes = (size_t)nCoinDBCache;
+                    ::ChainstateActive().m_coins_view_db = pcoinsdbview;
+                }
 
                 if (fReindex) {
                     pblocktree->WriteReindexing(true);
