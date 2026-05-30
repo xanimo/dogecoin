@@ -649,10 +649,22 @@ void ThreadImport(std::vector<fs::path> vImportFiles)
     }
 
     // scan for better chains in the block chain database, that are not yet connected in the active best chain
-    BlockValidationState state;
-    if (!ActivateBestChain(state, chainparams)) {
-        LogPrintf("Failed to connect best block");
-        StartShutdown();
+
+    // We can't hold cs_main during ActivateBestChain even though we're accessing
+    // the g_chainman unique_ptrs since ABC requires us not to be holding cs_main, so retrieve
+    // the relevant pointers before the ABC call.
+    std::vector<CChainState*> chainstates;
+    {
+        LOCK(cs_main);
+        chainstates = g_chainman.GetAll();
+    }
+    for (CChainState* chainstate : chainstates) {
+        BlockValidationState state;
+        if (!chainstate->ActivateBestChain(state, chainparams, nullptr)) {
+            LogPrintf("Failed to connect best block (%s)\n", state.ToString());
+            StartShutdown();
+            return;
+        }
     }
 
     if (GetBoolArg("-stopafterblockimport", DEFAULT_STOPAFTERBLOCKIMPORT)) {

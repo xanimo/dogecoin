@@ -80,12 +80,14 @@ ChainstateManager g_chainman;
 
 CChainState& ChainstateActive()
 {
+    LOCK(::cs_main);
     assert(g_chainman.m_active_chainstate);
     return *g_chainman.m_active_chainstate;
 }
 
 CChain& ChainActive()
 {
+    LOCK(::cs_main);
     return ::ChainstateActive().m_chain;
 }
 CCriticalSection cs_main;
@@ -1234,6 +1236,7 @@ CBlockIndex *pindexBestForkTip = NULL, *pindexBestForkBase = NULL;
 
 BlockMap& BlockIndex()
 {
+    LOCK(::cs_main);
     return g_chainman.m_blockman.m_block_index;
 }
 
@@ -4290,7 +4293,7 @@ bool LoadExternalBlockFile(const CChainParams& chainparams, FILE* fileIn, CDiskB
                 // Activate the genesis block so normal node progress can continue
                 if (hash == chainparams.GetConsensus(0).hashGenesisBlock) {
                     BlockValidationState state;
-                    if (!ActivateBestChain(state, chainparams)) {
+                    if (!ActivateBestChain(state, chainparams, nullptr)) {
                         break;
                     }
                 }
