@@ -35,6 +35,7 @@
 #include "ui_interface.h"
 #include "undo.h"
 #include "util.h"
+#include "utilmemory.h"
 #include "utilmoneystr.h"
 #include "utilstrencodings.h"
 #include "validationinterface.h"
@@ -4529,6 +4530,36 @@ std::string CChainState::ToString()
     return strprintf("Chainstate [%s] @ height %d (%s)",
         m_from_snapshot_blockhash.IsNull() ? "ibd" : "snapshot",
         tip ? tip->nHeight : -1, tip ? tip->GetBlockHash().ToString() : "null");
+}
+
+CoinsViews::CoinsViews(
+    std::string ldb_name,
+    size_t cache_size_bytes,
+    bool in_memory,
+    bool should_wipe) : m_dbview(
+                            GetDataDir() / ldb_name, cache_size_bytes, in_memory, should_wipe),
+                        m_catcherview(&m_dbview) {}
+
+void CoinsViews::InitCache()
+{
+    m_cacheview = MakeUnique<CCoinsViewCache>(&m_catcherview);
+}
+
+void CChainState::InitCoinsDB(
+    size_t cache_size_bytes,
+    bool in_memory,
+    bool should_wipe,
+    std::string leveldb_name)
+{
+    m_coins_views = MakeUnique<CoinsViews>(
+        leveldb_name, cache_size_bytes, in_memory, should_wipe);
+}
+
+void CChainState::InitCoinsCache(size_t cache_size_bytes)
+{
+    assert(m_coins_views != nullptr);
+    m_coinstip_cache_size_bytes = cache_size_bytes;
+    m_coins_views->InitCache();
 }
 
 bool CChainState::ResizeCoinsCaches(size_t coinstip_size, size_t coinsdb_size)

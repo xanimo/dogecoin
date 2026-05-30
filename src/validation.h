@@ -693,11 +693,58 @@ private:
     //! easily as opposed to referencing a global.
     BlockManager& m_blockman;
 
+    //! Manages the UTXO set, which is a reflection of the contents of `m_chain`.
+    std::unique_ptr<CoinsViews> m_coins_views;
+
 public:
     const uint256 m_from_snapshot_blockhash{};
 
     explicit CChainState(BlockManager& blockman, const uint256& snapshot_blockhash = uint256())
         : m_blockman(blockman), m_from_snapshot_blockhash(snapshot_blockhash) { }
+
+    /**
+     * Initialize the CoinsViews UTXO set database management data structures. The in-memory
+     * cache is initialized separately.
+     *
+     * All parameters forwarded to CoinsViews.
+     */
+    void InitCoinsDB(
+        size_t cache_size_bytes,
+        bool in_memory,
+        bool should_wipe,
+        std::string leveldb_name = "chainstate") EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+
+    //! Initialize the in-memory coins cache (to be done after the health of the on-disk database
+    //! is verified).
+    void InitCoinsCache(size_t cache_size_bytes) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+
+    //! @returns whether or not the CoinsViews object has been fully initialized and we can
+    //!          safely flush this object to disk.
+    bool HasCoinsViews() const { return (bool)m_coins_views; }
+
+    //! @returns A reference to the in-memory cache of the UTXO set.
+    CCoinsViewCache& CoinsTip() EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        assert(m_coins_views->m_cacheview);
+        return *m_coins_views->m_cacheview.get();
+    }
+
+    //! @returns A reference to the on-disk UTXO set database.
+    CCoinsViewDB& CoinsDB() EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        return m_coins_views->m_dbview;
+    }
+
+    //! @returns A reference to a wrapped view of the in-memory UTXO set that
+    //!     handles disk read errors gracefully.
+    CCoinsViewErrorCatcher& CoinsErrorCatcher() EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        return m_coins_views->m_catcherview;
+    }
+
+    //! Destructs all objects related to accessing the UTXO set.
+    void ResetCoinsViews() { m_coins_views.reset(); }
+
 
     //! The current chain of blockheaders we consult and build on.
     //! @see CChain, CBlockIndex.
