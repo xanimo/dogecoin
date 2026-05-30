@@ -48,7 +48,7 @@ void RPCNestedTests::rpcNestedTests()
     ForceSetArg("-datadir", path);
     //mempool.setSanityCheck(1.0);
     pblocktree = new CBlockTreeDB(1 << 20, true);
-    pcoinsdbview = new CCoinsViewDB(1 << 23, true);
+    pcoinsdbview = new CCoinsViewDB(fs::path(path) / "chainstate", 1 << 23, true);
     pcoinsTip = new CCoinsViewCache(pcoinsdbview);
     LoadGenesisBlock(chainparams);
     {
