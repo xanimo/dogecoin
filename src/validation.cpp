@@ -105,7 +105,6 @@ bool fPruneMode = false;
 bool fIsBareMultisigStd = DEFAULT_PERMIT_BAREMULTISIG;bool fRequireStandard = true;
 bool fCheckBlockIndex = false;
 bool fCheckpointsEnabled = DEFAULT_CHECKPOINTS_ENABLED;
-size_t nCoinCacheUsage = 5000 * 300;
 uint64_t nPruneTarget = 0;
 int64_t nMaxTipAge = DEFAULT_MAX_TIP_AGE;
 bool fEnableReplacement = DEFAULT_ENABLE_REPLACEMENT;
@@ -2069,7 +2068,7 @@ bool CChainState::FlushStateToDisk(
     }
     int64_t nMempoolSizeMax = GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000;
     int64_t cacheSize = pcoinsTip->DynamicMemoryUsage() * DB_PEAK_USAGE_FACTOR;
-    int64_t nTotalSpace = nCoinCacheUsage + std::max<int64_t>(nMempoolSizeMax - nMempoolUsage, 0);
+    int64_t nTotalSpace = m_coinstip_cache_size_bytes + std::max<int64_t>(nMempoolSizeMax - nMempoolUsage, 0);
     // The cache is large and we're within 10% and 10 MiB of the limit, but we have time now (not in the middle of a block processing).
     bool fCacheLarge = mode == FlushStateMode::PERIODIC && cacheSize > std::max((9 * nTotalSpace) / 10, nTotalSpace - MAX_BLOCK_COINSDB_USAGE * 1024 * 1024);
     // The cache is over the limit, we have to write now.
@@ -3859,7 +3858,7 @@ bool CVerifyDB::VerifyDB(const CChainParams& chainparams, CCoinsView *coinsview,
             }
         }
         // check level 3: check for inconsistencies during memory-only disconnect of tip blocks
-        if (nCheckLevel >= 3 && pindex == pindexState && (coins.DynamicMemoryUsage() + pcoinsTip->DynamicMemoryUsage()) <= nCoinCacheUsage) {
+        if (nCheckLevel >= 3 && pindex == pindexState && (coins.DynamicMemoryUsage() + pcoinsTip->DynamicMemoryUsage()) <= ::ChainstateActive().m_coinstip_cache_size_bytes) {
             assert(coins.GetBestBlock() == pindex->GetBlockHash());
             DisconnectResult res = ::ChainstateActive().DisconnectBlock(block, pindex, coins);
             if (res == DISCONNECT_FAILED) {
@@ -4530,6 +4529,41 @@ std::string CChainState::ToString()
     return strprintf("Chainstate [%s] @ height %d (%s)",
         m_from_snapshot_blockhash.IsNull() ? "ibd" : "snapshot",
         tip ? tip->nHeight : -1, tip ? tip->GetBlockHash().ToString() : "null");
+}
+
+bool CChainState::ResizeCoinsCaches(size_t coinstip_size, size_t coinsdb_size)
+{
+    if (coinstip_size == m_coinstip_cache_size_bytes &&
+            coinsdb_size == m_coinsdb_cache_size_bytes) {
+        // Cache sizes are unchanged, no need to continue.
+        return true;
+    }
+    size_t old_coinstip_size = m_coinstip_cache_size_bytes;
+    m_coinstip_cache_size_bytes = coinstip_size;
+    m_coinsdb_cache_size_bytes = coinsdb_size;
+    if (m_coins_view_db) {
+        m_coins_view_db->ResizeCache(coinsdb_size);
+    }
+
+    LogPrintf("[%s] resized coinsdb cache to %.1f MiB\n",
+        this->ToString(), coinsdb_size * (1.0 / 1024 / 1024));
+    LogPrintf("[%s] resized coinstip cache to %.1f MiB\n",
+        this->ToString(), coinstip_size * (1.0 / 1024 / 1024));
+
+    BlockValidationState state;
+    const CChainParams& chainparams = Params();
+
+    bool ret;
+
+    if (coinstip_size > old_coinstip_size) {
+        // Likely no need to flush if cache sizes have grown.
+        ret = FlushStateToDisk(chainparams, state, FlushStateMode::IF_NEEDED);
+    } else {
+        // Otherwise, flush state to disk and deallocate the in-memory coins map.
+        ret = FlushStateToDisk(chainparams, state, FlushStateMode::ALWAYS);
+        pcoinsTip->ReallocateCache();
+    }
+    return ret;
 }
 
 std::string CBlockFileInfo::ToString() const
