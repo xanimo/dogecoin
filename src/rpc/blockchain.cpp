@@ -998,7 +998,7 @@ UniValue gettxoutsetinfo(const JSONRPCRequest& request)
     UniValue ret(UniValue::VOBJ);
 
     CCoinsStats stats;
-    g_chainstate.ForceFlushStateToDisk();
+    ::ChainstateActive().ForceFlushStateToDisk();
     if (GetUTXOStats(pcoinsTip, stats)) {
         ret.pushKV("height", (int64_t)stats.nHeight);
         ret.pushKV("bestblock", stats.hashBlock.GetHex());

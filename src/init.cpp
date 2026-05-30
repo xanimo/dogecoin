@@ -208,7 +208,7 @@ void Shutdown()
     {
         LOCK(cs_main);
         if (pcoinsTip != nullptr) {
-            g_chainstate.ForceFlushStateToDisk();
+            ::ChainstateActive().ForceFlushStateToDisk();
         }
         delete pcoinsTip;
         pcoinsTip = NULL;
@@ -1488,6 +1488,10 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
         nStart = GetTimeMillis();
         do {
             try {
+                {
+                    LOCK(cs_main);
+                    g_chainman.InitializeChainstate();
+                }
                 UnloadBlockIndex();
                 delete pcoinsTip;
                 delete pcoinsdbview;
@@ -1644,7 +1648,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
         nLocalServices = ServiceFlags(nLocalServices & ~NODE_NETWORK);
         if (!fReindex) {
             uiInterface.InitMessage(_("Pruning blockstore..."));
-            g_chainstate.PruneAndFlush();
+            ::ChainstateActive().PruneAndFlush();
         }
     }
 
