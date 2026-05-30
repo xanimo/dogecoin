@@ -1511,7 +1511,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                 delete pblocktree;
 
                 pblocktree = new CBlockTreeDB(nBlockTreeDBCache, false, fReindex);
-                pcoinsdbview = new CCoinsViewDB(nCoinDBCache, false, fReindex || fReindexChainState);
+                pcoinsdbview = new CCoinsViewDB(GetDataDir() / "chainstate", nCoinDBCache, false, fReindex || fReindexChainState);
                 pcoinscatcher = new CCoinsViewErrorCatcher(pcoinsdbview);
                 pcoinscatcher->AddReadErrCallback([]() {
                     uiInterface.ThreadSafeMessageBox(

@@ -9,8 +9,11 @@
 #include "coins.h"
 #include "dbwrapper.h"
 #include "chain.h"
+#include "fs.h"
+#include "sync.h"
 
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -19,6 +22,9 @@
 class CBlockIndex;
 class CCoinsViewDBCursor;
 class uint256;
+
+// Actually declared in validation.cpp; can't include because of circular dependency.
+extern CCriticalSection cs_main;
 
 //! Compensate for extra memory peak (x1.5-x1.9) at flush time.
 static constexpr int DB_PEAK_USAGE_FACTOR = 2;
@@ -70,9 +76,11 @@ struct CDiskTxPos : public CDiskBlockPos
 class CCoinsViewDB : public CCoinsView
 {
 protected:
-    CDBWrapper db;
+    std::unique_ptr<CDBWrapper> m_db;
+    fs::path m_ldb_path;
+    bool m_is_memory;
 public:
-    CCoinsViewDB(size_t nCacheSize, bool fMemory = false, bool fWipe = false);
+    CCoinsViewDB(fs::path ldb_path, size_t nCacheSize, bool fMemory = false, bool fWipe = false);
 
     bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
     bool HaveCoin(const COutPoint &outpoint) const override;
@@ -84,6 +92,9 @@ public:
     //! Attempt to update from an older database format. Returns whether an error occurred.
     bool Upgrade();
     size_t EstimateSize() const override;
+
+    //! Dynamically alter the underlying leveldb cache size.
+    void ResizeCache(size_t new_cache_size) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 };
 
 /** Specialization of CCoinsViewCursor to iterate over a CCoinsViewDB */
