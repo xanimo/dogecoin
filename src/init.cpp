@@ -1503,6 +1503,8 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                 {
                     LOCK(cs_main);
                     g_chainman.InitializeChainstate();
+                    g_chainman.m_total_coinstip_cache = (int64_t)nCoinCacheUsage;
+                    g_chainman.m_total_coinsdb_cache = (int64_t)nCoinDBCache;
                 }
                 UnloadBlockIndex();
                 delete pcoinsTip;
