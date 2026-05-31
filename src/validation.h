@@ -646,6 +646,18 @@ enum class CoinsCacheSizeState
 // Defined below, but needed for `friend` usage in CChainState.
 class ChainstateManager;
 
+//! This enum describes the various roles a specific CChainState instance can take.
+//! Other parts of the system sometimes need to vary in behavior depending on the
+//! existence of a background validation chainstate, e.g. when building indexes.
+enum class ChainstateRole {
+    // Single chainstate in use, "normal" IBD mode.
+    NORMAL,
+    // Doing IBD-style validation in the background. Implies use of an assumed-valid chainstate.
+    BACKGROUND,
+    // Active assumed-valid chainstate. Implies use of a background IBD chainstate.
+    ASSUMEDVALID,
+};
+
 /**
  * CChainState stores and provides an API to update our local knowledge of the
  * current best chain.
@@ -823,6 +835,9 @@ public:
 
     /** Update the chain tip based on database information, i.e. CoinsTip()'s best block. */
     bool LoadChainTip(const CChainParams& chainparams) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+    //! Return the current role of this chainstate. See ChainstateRole for details.
+    ChainstateRole GetRole() const EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
     //! Dictates whether we need to flush the cache to disk or not.
     //!
