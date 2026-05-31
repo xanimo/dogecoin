@@ -2089,7 +2089,8 @@ bool CChainState::FlushStateToDisk(
         if (!CheckDiskSpace(0))
             return state.Error("out of disk space");
         // First make sure all block and undo data is flushed to disk.
-        FlushBlockFile();
+        // Use FlushChainstateBlockFile so each chainstate flushes its own blockfile.
+        m_blockman.FlushChainstateBlockFile(m_chain.Tip() ? m_chain.Tip()->nHeight : 0);
         // Then update all block file information (which may refer to block and undo files).
         {
             std::vector<std::pair<int, const CBlockFileInfo*> > vFiles;
@@ -2104,7 +2105,7 @@ bool CChainState::FlushStateToDisk(
                 vBlocks.push_back(*it);
                 setDirtyBlockIndex.erase(it++);
             }
-            if (!pblocktree->WriteBatchSync(vFiles, nLastBlockFile, vBlocks)) {
+            if (!pblocktree->WriteBatchSync(vFiles, m_blockman.MaxBlockfileNum(), vBlocks)) {
                 return AbortNode(state, "Failed to write to block index database");
             }
         }
@@ -2832,7 +2833,22 @@ static bool FindBlockPos(BlockValidationState &state, CDiskBlockPos &pos, unsign
 {
     LOCK(cs_LastBlockFile);
 
-    unsigned int nFile = fKnown ? pos.nFile : nLastBlockFile;
+    // Determine which blockfile type to use based on block height.
+    // cs_main is held by AcceptBlock (AssertLockHeld), so m_snapshot_height is safe to read.
+    const BlockfileType chain_type = g_chainman.m_blockman.BlockfileTypeForHeight((int)nHeight);
+
+    // Initialize the ASSUMED cursor the first time we write an ASSUMED block.
+    if (chain_type == BlockfileType::ASSUMED && !g_chainman.m_blockman.m_assumed_blockfile_cursor) {
+        const int new_file = g_chainman.m_blockman.MaxBlockfileNum() + 1;
+        g_chainman.m_blockman.m_assumed_blockfile_cursor = BlockfileCursor{new_file};
+        LogPrintf("[snapshot] initializing assumed blockfile cursor at %d\n", new_file);
+    }
+
+    int& last_blockfile = (chain_type == BlockfileType::ASSUMED)
+        ? g_chainman.m_blockman.m_assumed_blockfile_cursor->file_num
+        : nLastBlockFile;
+
+    unsigned int nFile = fKnown ? pos.nFile : (unsigned int)last_blockfile;
     if (vinfoBlockFile.size() <= nFile) {
         vinfoBlockFile.resize(nFile + 1);
     }
@@ -2848,12 +2864,12 @@ static bool FindBlockPos(BlockValidationState &state, CDiskBlockPos &pos, unsign
         pos.nPos = vinfoBlockFile[nFile].nSize;
     }
 
-    if ((int)nFile != nLastBlockFile) {
+    if ((int)nFile != last_blockfile) {
         if (!fKnown) {
-            LogPrintf("Leaving block file %i: %s\n", nLastBlockFile, vinfoBlockFile[nLastBlockFile].ToString());
+            LogPrintf("Leaving block file %i: %s\n", last_blockfile, vinfoBlockFile[last_blockfile].ToString());
         }
         FlushBlockFile(!fKnown);
-        nLastBlockFile = nFile;
+        last_blockfile = nFile;
     }
 
     vinfoBlockFile[nFile].AddBlock(nHeight, nTime);
@@ -3511,7 +3527,7 @@ static void FindFilesToPruneManual(std::set<int>& setFilesToPrune, int nManualPr
     }
 
     int count=0;
-    for (int fileNumber = 0; fileNumber < nLastBlockFile; fileNumber++) {
+    for (int fileNumber = 0; fileNumber < g_chainman.m_blockman.MaxBlockfileNum(); fileNumber++) {
         if (vinfoBlockFile[fileNumber].nSize == 0 || vinfoBlockFile[fileNumber].nHeightLast > nLastBlockWeCanPrune)
             continue;
         if (vinfoBlockFile[fileNumber].nHeightFirst < (unsigned)nFirstBlockWeCanPrune)
@@ -3585,7 +3601,7 @@ static void FindFilesToPrune(std::set<int>& setFilesToPrune, uint64_t nPruneAfte
     int count=0;
 
     if (nCurrentUsage + nBuffer >= prune_budget) {
-        for (int fileNumber = 0; fileNumber < nLastBlockFile; fileNumber++) {
+        for (int fileNumber = 0; fileNumber < g_chainman.m_blockman.MaxBlockfileNum(); fileNumber++) {
             nBytesToPrune = vinfoBlockFile[fileNumber].nSize + vinfoBlockFile[fileNumber].nUndoSize;
 
             if (vinfoBlockFile[fileNumber].nSize == 0)
@@ -3696,19 +3712,22 @@ bool BlockManager::LoadBlockIndex(
     // If snapshot is active, bootstrap nChainTx for the snapshot base block
     // from hardcoded assumeutxo chainparams. nChainTx is normally accumulated
     // from nTx values which we don't have yet in the snapshot chainstate.
-    int snapshot_height = -1;
     if (snapshot_blockhash) {
         auto it = m_block_index.find(*snapshot_blockhash);
         if (it != m_block_index.end() && it->second) {
-            snapshot_height = it->second->nHeight;
+            m_snapshot_height = it->second->nHeight;
             const CChainParams& params = Params();
-            auto au_it = params.Assumeutxo().find(snapshot_height);
+            auto au_it = params.Assumeutxo().find(*m_snapshot_height);
             if (au_it != params.Assumeutxo().end()) {
                 it->second->nChainTx = au_it->second.nChainTx;
                 LogPrintf("[snapshot] set nChainTx=%d for %s\n",
                     au_it->second.nChainTx, snapshot_blockhash->ToString());
             }
         }
+    } else {
+        // If not called with a snapshot blockhash, clear cached snapshot height.
+        // Relevant during snapshot completion when the blockman may be reloaded.
+        m_snapshot_height.reset();
     }
 
     // Calculate nChainWork
@@ -3729,7 +3748,7 @@ bool BlockManager::LoadBlockIndex(
         // Pruned nodes may have deleted the block.
         if (pindex->nTx > 0) {
             if (pindex->pprev) {
-                if (snapshot_blockhash && pindex->nHeight == snapshot_height &&
+                if (snapshot_blockhash && m_snapshot_height && pindex->nHeight == *m_snapshot_height &&
                         pindex->GetBlockHash() == *snapshot_blockhash) {
                     // nChainTx was bootstrapped above; don't overwrite it.
                     assert(pindex->nChainTx > 0);
@@ -3777,6 +3796,46 @@ void BlockManager::Unload() {
     m_block_index.clear();
 }
 
+int BlockManager::MaxBlockfileNum() const
+{
+    AssertLockHeld(cs_LastBlockFile);
+    if (m_assumed_blockfile_cursor) {
+        return std::max(nLastBlockFile, m_assumed_blockfile_cursor->file_num);
+    }
+    return nLastBlockFile;
+}
+
+BlockfileType BlockManager::BlockfileTypeForHeight(int height) const
+{
+    if (!m_snapshot_height) return BlockfileType::NORMAL;
+    return (height >= *m_snapshot_height) ? BlockfileType::ASSUMED : BlockfileType::NORMAL;
+}
+
+bool BlockManager::FlushChainstateBlockFile(int tip_height)
+{
+    LOCK(cs_LastBlockFile);
+    int file_num;
+    if (m_snapshot_height && tip_height >= *m_snapshot_height) {
+        // ASSUMED chainstate: flush its dedicated blockfile if cursor exists
+        if (!m_assumed_blockfile_cursor) return false;
+        file_num = m_assumed_blockfile_cursor->file_num;
+    } else {
+        file_num = nLastBlockFile;
+    }
+    CDiskBlockPos posOld(file_num, 0);
+    FILE* fileOld = OpenBlockFile(posOld);
+    if (fileOld) {
+        FileCommit(fileOld);
+        fclose(fileOld);
+    }
+    fileOld = OpenUndoFile(posOld);
+    if (fileOld) {
+        FileCommit(fileOld);
+        fclose(fileOld);
+    }
+    return true;
+}
+
 bool static LoadBlockIndexDB(const CChainParams& chainparams)
 {
     if (!g_chainman.m_blockman.LoadBlockIndex(
@@ -3800,6 +3859,34 @@ bool static LoadBlockIndexDB(const CChainParams& chainparams)
             vinfoBlockFile.push_back(info);
         } else {
             break;
+        }
+    }
+
+    // Initialize per-type blockfile cursors.
+    // When a snapshot is active, files containing blocks at heights >= snapshot_height
+    // belong to the ASSUMED chainstate. We derive the last file for each type
+    // by scanning all loaded files in order; the last matching assignment wins.
+    {
+        LOCK(cs_LastBlockFile);
+        if (g_chainman.m_blockman.m_snapshot_height) {
+            int max_normal_file = 0;
+            int max_assumed_file = -1;
+            for (int i = 0; i < (int)vinfoBlockFile.size(); ++i) {
+                if (vinfoBlockFile[i].nSize == 0) continue;
+                const int last_h = (int)vinfoBlockFile[i].nHeightLast;
+                if (last_h >= *g_chainman.m_blockman.m_snapshot_height) {
+                    max_assumed_file = std::max(max_assumed_file, i);
+                } else {
+                    max_normal_file = std::max(max_normal_file, i);
+                }
+            }
+            nLastBlockFile = max_normal_file;
+            if (max_assumed_file >= 0) {
+                g_chainman.m_blockman.m_assumed_blockfile_cursor = BlockfileCursor{max_assumed_file};
+            }
+            LogPrintf("[snapshot] blockfile cursors: normal=%d, assumed=%s\n",
+                nLastBlockFile,
+                max_assumed_file >= 0 ? std::to_string(max_assumed_file) : "none");
         }
     }
 

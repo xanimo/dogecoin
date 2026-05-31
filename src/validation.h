@@ -529,6 +529,21 @@ struct CBlockIndexWorkComparator
     bool operator()(const CBlockIndex *pa, const CBlockIndex *pb) const;
 };
 
+/** Whether a block belongs to the normal IBD chain or the assumed-valid snapshot chain. */
+enum class BlockfileType {
+    // Normal blocks downloaded during IBD.
+    NORMAL = 0,
+    // Blocks downloaded as part of an assumed-valid (snapshot) chainstate.
+    ASSUMED = 1,
+};
+
+/** Tracks the last blockfile number and highest undo-tracked block height for one chain type. */
+struct BlockfileCursor {
+    int file_num{0};
+    //! The highest block height whose undo data has been written into this file.
+    int undo_height{0};
+};
+
 /**
  * Maintains a tree of blocks (stored in `m_block_index`) which is consulted
  * to determine where the most-work tip is.
@@ -597,6 +612,24 @@ public:
         BlockValidationState& state,
         const CChainParams& chainparams,
         CBlockIndex** ppindex) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+    //! Snapshot base block height, if an assumed-valid snapshot is active.
+    //! Set during LoadBlockIndex; cleared when the snapshot is fully validated.
+    std::optional<int> m_snapshot_height GUARDED_BY(cs_main);
+
+    //! Blockfile cursor for the ASSUMED (snapshot) chainstate. When active,
+    //! snapshot blocks are written to a separate set of blockfiles from normal
+    //! IBD blocks, making pruning effective for both chains simultaneously.
+    std::optional<BlockfileCursor> m_assumed_blockfile_cursor GUARDED_BY(cs_LastBlockFile);
+
+    /** Return the highest blockfile number across all active cursors. */
+    int MaxBlockfileNum() const EXCLUSIVE_LOCKS_REQUIRED(cs_LastBlockFile);
+
+    /** Determine which blockfile type should store a block at the given height. */
+    BlockfileType BlockfileTypeForHeight(int height) const EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+    /** Flush the blockfile for the chainstate associated with the given tip height. */
+    bool FlushChainstateBlockFile(int tip_height);
 };
 
 /**
