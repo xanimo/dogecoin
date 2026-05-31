@@ -1906,6 +1906,98 @@ UniValue dumptxoutset(const JSONRPCRequest& request)
     return result;
 }
 
+UniValue loadtxoutset(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 1)
+        throw runtime_error(
+            "loadtxoutset \"path\"\n"
+            "\nLoad the serialized UTXO set from disk.\n"
+            "Once this snapshot is loaded, its contents will be deserialized into a second chainstate\n"
+            "data structure, which is then used to sync to the network's tip under a security model\n"
+            "very much like assumevalid. Meanwhile, the original chainstate will complete the initial\n"
+            "block download process in the background, eventually validating up to the block that the\n"
+            "snapshot is based upon.\n\n"
+            "The result is a usable dogecoind instance that is current with the network tip in a\n"
+            "matter of minutes rather than hours. UTXO snapshots are typically obtained from\n"
+            "third-party sources (HTTP, torrent, etc.) which is reasonable since their\n"
+            "contents are always checked by hash.\n"
+            "\nArguments:\n"
+            "1. \"path\"    (string, required) path to the snapshot file. If relative, will be prefixed by datadir.\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"coins_loaded\": n,    (numeric) the number of coins loaded from the snapshot\n"
+            "  \"tip_hash\": \"hash\",  (string) the hash of the base of the snapshot\n"
+            "  \"base_height\": n,     (numeric) the height of the base of the snapshot\n"
+            "  \"path\": \"path\",      (string) the absolute path that the snapshot was loaded from\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("loadtxoutset", "utxo.dat")
+            + HelpExampleRpc("loadtxoutset", "utxo.dat")
+        );
+
+    const fs::path path = GetDataDir() / request.params[0].get_str();
+
+    FILE* file{fsbridge::fopen(path, "rb")};
+    CAutoFile afile{file, SER_DISK, CLIENT_VERSION};
+    if (afile.IsNull()) {
+        throw JSONRPCError(
+            RPC_INVALID_PARAMETER,
+            "Couldn't open file " + path.string() + " for reading.");
+    }
+
+    SnapshotMetadata metadata;
+    afile >> metadata;
+
+    uint256 base_blockhash = metadata.m_base_blockhash;
+    int max_secs_to_wait_for_headers = 60 * 10;
+    CBlockIndex* snapshot_start_block = nullptr;
+
+    LogPrintf("[snapshot] waiting to see blockheader %s in headers chain before snapshot activation\n",
+        base_blockhash.ToString());
+
+    while (max_secs_to_wait_for_headers > 0) {
+        {
+            LOCK(::cs_main);
+            auto it = mapBlockIndex.find(base_blockhash);
+            snapshot_start_block = (it != mapBlockIndex.end()) ? it->second : nullptr;
+        }
+        max_secs_to_wait_for_headers -= 1;
+
+        if (!IsRPCRunning()) {
+            throw JSONRPCError(RPC_CLIENT_NOT_CONNECTED, "Shutting down");
+        }
+
+        if (!snapshot_start_block) {
+            MilliSleep(1000);
+        } else {
+            break;
+        }
+    }
+
+    if (!snapshot_start_block) {
+        LogPrintf("[snapshot] timed out waiting for snapshot start blockheader %s\n",
+            base_blockhash.ToString());
+        throw JSONRPCError(
+            RPC_INTERNAL_ERROR,
+            "Timed out waiting for base block header to appear in headers chain");
+    }
+    if (!g_chainman.ActivateSnapshot(afile, metadata, false)) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Unable to load UTXO snapshot " + path.string());
+    }
+    CBlockIndex* new_tip;
+    {
+        LOCK(::cs_main);
+        new_tip = g_chainman.ActiveTip();
+    }
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("coins_loaded", (uint64_t)metadata.m_coins_count);
+    result.pushKV("tip_hash", new_tip->GetBlockHash().ToString());
+    result.pushKV("base_height", new_tip->nHeight);
+    result.pushKV("path", path.string());
+    return result;
+}
+
 static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         okSafe argNames
   //  --------------------- ------------------------  -----------------------  ------ ----------
@@ -1929,6 +2021,8 @@ static const CRPCCommand commands[] =
     { "blockchain",         "verifychain",            &verifychain,            true,  {"checklevel","nblocks"} },
 
     { "blockchain",         "preciousblock",          &preciousblock,          true,  {"blockhash"} },
+    { "blockchain",         "dumptxoutset",           &dumptxoutset,           true,  {"path"} },
+    { "blockchain",         "loadtxoutset",           &loadtxoutset,           true,  {"path"} },
 
     /* Not shown in help */
     { "hidden",             "invalidateblock",        &invalidateblock,        true,  {"blockhash"} },
@@ -1936,7 +2030,6 @@ static const CRPCCommand commands[] =
     { "hidden",             "waitfornewblock",        &waitfornewblock,        true,  {"timeout"} },
     { "hidden",             "waitforblock",           &waitforblock,           true,  {"blockhash","timeout"} },
     { "hidden",             "waitforblockheight",     &waitforblockheight,     true,  {"height","timeout"} },
-    { "hidden",             "dumptxoutset",           &dumptxoutset,           true,  {"path"} },
 };
 
 void RegisterBlockchainRPCCommands(CRPCTable &t)
