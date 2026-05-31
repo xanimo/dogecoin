@@ -75,6 +75,10 @@ TestingSetup::TestingSetup(const std::string& chainName) : BasicTestingSetup(cha
         pblocktree = new CBlockTreeDB(1 << 20, true);
         pcoinsdbview = new CCoinsViewDB(pathTemp / "chainstate", 1 << 23, true);
         pcoinsTip = new CCoinsViewCache(pcoinsdbview);
+        {
+            LOCK(cs_main);
+            g_chainman.InitializeChainstate();
+        }
         LoadGenesisBlock(chainparams);
         {
             BlockValidationState state;
@@ -95,6 +99,7 @@ TestingSetup::~TestingSetup()
         threadGroup.interrupt_all();
         threadGroup.join_all();
         UnloadBlockIndex();
+        g_chainman.Reset();
         delete pcoinsTip;
         delete pcoinsdbview;
         delete pblocktree;
