@@ -577,7 +577,8 @@ public:
     bool LoadBlockIndex(
         const Consensus::Params& consensus_params,
         CBlockTreeDB& blocktree,
-        std::set<CBlockIndex*, CBlockIndexWorkComparator>& block_index_candidates)
+        std::set<CBlockIndex*, CBlockIndexWorkComparator>& block_index_candidates,
+        const std::optional<uint256>& snapshot_blockhash = std::nullopt)
         EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
     /** Clear all data members. */
