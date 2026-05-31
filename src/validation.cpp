@@ -4970,6 +4970,14 @@ bool ChainstateManager::ActivateSnapshot(
         return false;
     }
 
+    {
+        LOCK(::cs_main);
+        if (m_active_chainstate->m_mempool && m_active_chainstate->m_mempool->size() > 0) {
+            LogPrintf("[snapshot] can't activate a snapshot when mempool not empty\n");
+            return false;
+        }
+    }
+
     int64_t current_coinsdb_cache_size{0};
     int64_t current_coinstip_cache_size{0};
 
@@ -5029,11 +5037,28 @@ bool ChainstateManager::ActivateSnapshot(
 
     {
         LOCK(::cs_main);
+
+        // Do a final check to ensure that the snapshot chainstate is actually a more
+        // work chain than the active chainstate; a user could have loaded a snapshot
+        // very late in the IBD process, and we wouldn't want to load a useless chainstate.
+        if (!CBlockIndexWorkComparator()(ActiveTip(), snapshot_chainstate->m_chain.Tip())) {
+            LogPrintf("[snapshot] activation failed - work does not exceed active chainstate\n");
+            this->MaybeRebalanceCaches();
+            return false;
+        }
+
         assert(!m_snapshot_chainstate);
         m_snapshot_chainstate.swap(snapshot_chainstate);
         const bool chaintip_loaded = m_snapshot_chainstate->LoadChainTip(::Params());
         assert(chaintip_loaded);
 
+        // Transfer possession of the mempool to the snapshot chainstate.
+        // Mempool is empty at this point because we're still in IBD.
+        assert(!m_snapshot_chainstate->m_mempool || m_snapshot_chainstate->m_mempool->size() == 0);
+        if (m_active_chainstate->m_mempool) {
+            m_snapshot_chainstate->m_mempool = m_active_chainstate->m_mempool;
+            m_active_chainstate->m_mempool = nullptr;
+        }
         m_active_chainstate = m_snapshot_chainstate.get();
 
         LogPrintf("[snapshot] successfully activated snapshot %s\n", base_blockhash.ToString());
@@ -5195,6 +5220,17 @@ bool ChainstateManager::PopulateAndValidateSnapshot(
         LogPrintf("[snapshot] timed out waiting for snapshot start blockheader %s\n",
             base_blockhash.ToString());
         return false;
+    }
+
+    // This work comparison is a duplicate check with the one performed later in
+    // ActivateSnapshot(), but is done so that we avoid doing the long work of staging
+    // a snapshot that isn't actually usable.
+    {
+        LOCK(::cs_main);
+        if (!CBlockIndexWorkComparator()(ActiveTip(), snapshot_start_block)) {
+            LogPrintf("[snapshot] activation failed - height does not exceed active chainstate\n");
+            return false;
+        }
     }
 
     // Assert that the deserialized chainstate contents match the expected assumeutxo value.
