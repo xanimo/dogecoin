@@ -1,0 +1,41 @@
+// Copyright (c) 2010 Satoshi Nakamoto
+// Copyright (c) 2009-2020 The Bitcoin Core developers
+// Copyright (c) 2022 The Dogecoin Core developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#ifndef DOGECOIN_NODE_COINSTATS_H
+#define DOGECOIN_NODE_COINSTATS_H
+
+#include "amount.h"
+#include "uint256.h"
+
+#include <cstdint>
+#include <functional>
+
+class CCoinsView;
+
+enum class CoinStatsHashType {
+    HASH_SERIALIZED,
+    MUHASH,
+    NONE,
+};
+
+struct CCoinsStats
+{
+    int nHeight{0};
+    uint256 hashBlock{};
+    uint64_t nTransactions{0};
+    uint64_t nTransactionOutputs{0};
+    uint64_t nBogoSize{0};
+    uint256 hashSerialized{};
+    uint64_t nDiskSize{0};
+    CAmount nTotalAmount{0};
+};
+
+//! Calculate statistics about the unspent transaction output set
+bool GetUTXOStats(CCoinsView* view, CCoinsStats& stats,
+    CoinStatsHashType hash_type = CoinStatsHashType::HASH_SERIALIZED,
+    const std::function<void()>& interruption_point = {});
+
+#endif // DOGECOIN_NODE_COINSTATS_H

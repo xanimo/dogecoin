@@ -118,6 +118,7 @@ struct CCoinsCacheEntry
 
     CCoinsCacheEntry() : flags(0) {}
     explicit CCoinsCacheEntry(Coin&& coin_) : coin(std::move(coin_)), flags(0) {}
+    CCoinsCacheEntry(Coin&& coin_, unsigned char flag) : coin(std::move(coin_)), flags(flag) {}
 };
 
 typedef std::unordered_map<COutPoint, CCoinsCacheEntry, SaltedOutpointHasher> CCoinsMap;
@@ -245,6 +246,13 @@ public:
      * already exist.
      */
     void AddCoin(const COutPoint& outpoint, Coin&& coin, bool potential_overwrite);
+
+    /**
+     * Emplace a coin in the cache directly, bypassing normal checks.
+     * Only use this when importing snapshot UTXO sets, where the caller
+     * guarantees that each (txid, vout) is unique.
+     */
+    void EmplaceCoinInternalDANGER(COutPoint&& outpoint, Coin&& coin);
 
     /**
      * Spend a coin. Pass moveto in order to get the deleted data.

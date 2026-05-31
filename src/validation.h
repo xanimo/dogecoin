@@ -15,6 +15,7 @@
 #include "chain.h"
 #include "coins.h"
 #include "fs.h"
+#include "node/utxo_snapshot.h"
 #include "txdb.h"
 #include "policy/policy.h" // For RECOMMENDED_MIN_TX_FEE
 #include "protocol.h" // For CMessageHeader::MessageStartChars
@@ -696,11 +697,18 @@ private:
     //! Manages the UTXO set, which is a reflection of the contents of `m_chain`.
     std::unique_ptr<CoinsViews> m_coins_views;
 
+    //! Optional mempool that is kept in sync with the chain.
+    //! Only the active chainstate has a mempool.
+    CTxMemPool* m_mempool{nullptr};
+
 public:
     const uint256 m_from_snapshot_blockhash{};
 
     explicit CChainState(BlockManager& blockman, const uint256& snapshot_blockhash = uint256())
         : m_blockman(blockman), m_from_snapshot_blockhash(snapshot_blockhash) { }
+
+    CChainState(CTxMemPool* mempool, BlockManager& blockman, const uint256& snapshot_blockhash = uint256())
+        : m_blockman(blockman), m_mempool(mempool), m_from_snapshot_blockhash(snapshot_blockhash) { }
 
     /**
      * Initialize the CoinsViews UTXO set database management data structures. The in-memory
@@ -819,11 +827,11 @@ public:
     //! Dictates whether we need to flush the cache to disk or not.
     //!
     //! @return the state of the size of the coins cache.
-    CoinsCacheSizeState GetCoinsCacheSizeState(const CTxMemPool& tx_pool)
+    CoinsCacheSizeState GetCoinsCacheSizeState(const CTxMemPool* tx_pool)
         EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
     CoinsCacheSizeState GetCoinsCacheSizeState(
-        const CTxMemPool& tx_pool,
+        const CTxMemPool* tx_pool,
         size_t max_coins_cache_size_bytes,
         size_t max_mempool_size_bytes) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
@@ -1017,6 +1025,29 @@ public:
     //! Check to see if caches are out of balance and if so, call
     //! ResizeCoinsCaches() as needed.
     void MaybeRebalanceCaches() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+
+    /**
+     * Construct and activate a Chainstate on the basis of UTXO snapshot data.
+     *
+     * Steps:
+     * - Load and deserialize snapshot metadata from the given AutoFile.
+     * - Verify the snapshot metadata is consistent with the chainparams.
+     * - Load coins from the given AutoFile into a new CoinsViewCache.
+     * - Reset the active chain and validate the tip.
+     * - (Sync) Finish initializing the snapshot chainstate.
+     *
+     * @param[in]  coins_file   AutoFile pointing to the beginning of the snapshot.
+     * @param[in]  metadata     Deserialized metadata for the snapshot.
+     * @param[in]  in_memory    If true, do not write snapshot data to disk.
+     */
+    [[nodiscard]] bool ActivateSnapshot(
+        CAutoFile& coins_file, const SnapshotMetadata& metadata, bool in_memory);
+
+private:
+    [[nodiscard]] bool PopulateAndValidateSnapshot(
+        CChainState& snapshot_chainstate,
+        CAutoFile& coins_file,
+        const SnapshotMetadata& metadata);
 };
 
 extern ChainstateManager g_chainman GUARDED_BY(::cs_main);
