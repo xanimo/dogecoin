@@ -2574,7 +2574,11 @@ bool CChainState::ActivateBestChain(BlockValidationState &state, const CChainPar
         // Notifications/callbacks that can run without cs_main
 
         // Notify external listeners about the new tip.
-        GetMainSignals().UpdatedBlockTip(pindexNewTip, pindexFork, fInitialDownload);
+        // Only fire for the active chainstate; background IBD chainstate
+        // notifications could confuse listeners expecting in-order progress.
+        if (this == &::ChainstateActive()) {
+            GetMainSignals().UpdatedBlockTip(pindexNewTip, pindexFork, fInitialDownload);
+        }
 
         // Always notify the UI if a new block tip was connected
         if (pindexFork != pindexNewTip) {
@@ -3818,6 +3822,17 @@ bool CChainState::LoadChainTip(const CChainParams& chainparams)
         DateTimeStrFormat("%Y-%m-%d %H:%M:%S", m_chain.Tip()->GetBlockTime()),
         GuessVerificationProgress(chainparams.TxData(), m_chain.Tip()));
     return true;
+}
+
+ChainstateRole CChainState::GetRole() const
+{
+    AssertLockHeld(::cs_main);
+    if (g_chainman.GetAll().size() <= 1) {
+        return ChainstateRole::NORMAL;
+    }
+    return (this != &::ChainstateActive()) ?
+               ChainstateRole::BACKGROUND :
+               ChainstateRole::ASSUMEDVALID;
 }
 
 CVerifyDB::CVerifyDB()
