@@ -33,15 +33,9 @@ static void ApplyStats(CCoinsStats& stats, CHashWriter& ss, const uint256& hash,
     ss << VARINT(0u);
 }
 
-bool GetUTXOStats(CCoinsView* view, CCoinsStats& stats,
-    CoinStatsHashType hash_type,
+static bool GetUTXOStatsHashSerialized(CCoinsView* view, CCoinsStats& stats,
     const std::function<void()>& interruption_point)
 {
-    // Only HASH_SERIALIZED is supported in this implementation.
-    if (hash_type != CoinStatsHashType::HASH_SERIALIZED) {
-        return false;
-    }
-
     std::unique_ptr<CCoinsViewCursor> pcursor(view->Cursor());
 
     CHashWriter ss(SER_GETHASH, PROTOCOL_VERSION);
@@ -68,6 +62,7 @@ bool GetUTXOStats(CCoinsView* view, CCoinsStats& stats,
             }
             prevkey = key.hash;
             outputs[key.n] = std::move(coin);
+            stats.coins_count++;
         } else {
             return error("%s: unable to read value", __func__);
         }
@@ -79,4 +74,50 @@ bool GetUTXOStats(CCoinsView* view, CCoinsStats& stats,
     stats.hashSerialized = ss.GetHash();
     stats.nDiskSize = view->EstimateSize();
     return true;
+}
+
+static bool GetUTXOStatsNone(CCoinsView* view, CCoinsStats& stats,
+    const std::function<void()>& interruption_point)
+{
+    std::unique_ptr<CCoinsViewCursor> pcursor(view->Cursor());
+
+    stats.hashBlock = pcursor->GetBestBlock();
+    {
+        LOCK(cs_main);
+        stats.nHeight = mapBlockIndex.find(stats.hashBlock)->second->nHeight;
+    }
+    while (pcursor->Valid()) {
+        if (interruption_point) {
+            interruption_point();
+        } else {
+            boost::this_thread::interruption_point();
+        }
+        COutPoint key;
+        Coin coin;
+        if (pcursor->GetKey(key) && pcursor->GetValue(coin)) {
+            stats.nTransactionOutputs++;
+            stats.coins_count++;
+            stats.nTotalAmount += coin.out.nValue;
+        } else {
+            return error("%s: unable to read value", __func__);
+        }
+        pcursor->Next();
+    }
+    stats.nDiskSize = view->EstimateSize();
+    return true;
+}
+
+bool GetUTXOStats(CCoinsView* view, CCoinsStats& stats,
+    CoinStatsHashType hash_type,
+    const std::function<void()>& interruption_point)
+{
+    switch (hash_type) {
+    case CoinStatsHashType::HASH_SERIALIZED:
+        return GetUTXOStatsHashSerialized(view, stats, interruption_point);
+    case CoinStatsHashType::NONE:
+        return GetUTXOStatsNone(view, stats, interruption_point);
+    case CoinStatsHashType::MUHASH:
+        return error("%s: MuHash not supported", __func__);
+    }
+    assert(false);
 }

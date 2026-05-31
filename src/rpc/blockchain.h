@@ -9,14 +9,23 @@
 #include <vector>
 #include <stdint.h>
 #include <amount.h>
+#include <streams.h>
 
+class CAutoFile;
 class CBlock;
 class CBlockIndex;
+class CChainState;
 class UniValue;
 
 static constexpr int NUM_GETBLOCKSTATS_PERCENTILES = 5;
 
 /** Used by getblockstats to get feerates at different percentiles by weight  */
 void CalculatePercentilesBySize(CAmount result[NUM_GETBLOCKSTATS_PERCENTILES], std::vector<std::pair<CAmount, int64_t>>& scores, int64_t total_size);
+
+/**
+ * Helper to create UTXO snapshots given a chainstate and a file handle.
+ * @return a UniValue map containing metadata about the snapshot.
+ */
+UniValue CreateUTXOSnapshot(CChainState& chainstate, CAutoFile& afile);
 
 #endif

@@ -3797,6 +3797,29 @@ void LoadChainTip(const CChainParams& chainparams)
         GuessVerificationProgress(chainparams.TxData(), chainActive.Tip()));
 }
 
+bool CChainState::LoadChainTip(const CChainParams& chainparams)
+{
+    AssertLockHeld(cs_main);
+    const CCoinsViewCache& coins_cache = CoinsTip();
+    if (m_chain.Tip() && m_chain.Tip()->GetBlockHash() == coins_cache.GetBestBlock()) {
+        return true;
+    }
+
+    // Load pointer to end of best chain
+    BlockMap::iterator it = mapBlockIndex.find(coins_cache.GetBestBlock());
+    if (it == mapBlockIndex.end()) {
+        return false;
+    }
+    m_chain.SetTip(it->second);
+    PruneBlockIndexCandidates();
+
+    LogPrintf("Loaded best chain: hashBestChain=%s height=%d date=%s progress=%f\n",
+        m_chain.Tip()->GetBlockHash().ToString(), m_chain.Height(),
+        DateTimeStrFormat("%Y-%m-%d %H:%M:%S", m_chain.Tip()->GetBlockTime()),
+        GuessVerificationProgress(chainparams.TxData(), m_chain.Tip()));
+    return true;
+}
+
 CVerifyDB::CVerifyDB()
 {
     uiInterface.ShowProgress(_("Verifying blocks..."), 0);
