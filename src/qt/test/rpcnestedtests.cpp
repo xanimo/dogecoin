@@ -50,6 +50,10 @@ void RPCNestedTests::rpcNestedTests()
     pblocktree = new CBlockTreeDB(1 << 20, true);
     pcoinsdbview = new CCoinsViewDB(fs::path(path) / "chainstate", 1 << 23, true);
     pcoinsTip = new CCoinsViewCache(pcoinsdbview);
+    {
+        LOCK(cs_main);
+        g_chainman.InitializeChainstate();
+    }
     LoadGenesisBlock(chainparams);
     {
         BlockValidationState state;
@@ -151,6 +155,7 @@ void RPCNestedTests::rpcNestedTests()
     delete pcoinsTip;
     delete pcoinsdbview;
     delete pblocktree;
+    g_chainman.Reset();
 
     fs::remove_all(fs::path(path));
 }
