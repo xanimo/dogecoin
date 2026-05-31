@@ -1016,6 +1016,14 @@ public:
     //!          snapshot in the background.
     bool IsBackgroundIBD(CChainState* chainstate) const;
 
+    //! Return the height of the base block of the snapshot in use, if one exists, else nullopt.
+    std::optional<int> GetSnapshotBaseHeight() const EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+
+    //! Return the [start, end] (inclusive) of block heights we can prune for a given chainstate.
+    //! start > end is possible, meaning no blocks can be pruned.
+    std::pair<int, int> GetPruneRange(
+        const CChainState& chainstate, int last_height_can_prune) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+
     //! Return the most-work chainstate that has been fully validated.
     //!
     //! During background validation of a snapshot, this is the IBD chain. After
