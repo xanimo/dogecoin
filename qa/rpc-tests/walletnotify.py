@@ -174,15 +174,17 @@ class WalletNotifyTest(BitcoinTestFramework):
         connect_nodes(self.nodes[2], 1)
         self.sync_all()
 
-        # we should now receive 4 notifications:
-        # - from the prior transaction being put into the mempool (AcceptToMemoryPool)
+        # we should now receive 2 notifications:
         # - from the prior transaction no longer being in the best chain (DisconnectTip)
-        # - from the prior transaction being conflicted (MemPoolConflictRemovalTracker)
-        # - for the new transaction that double-spent the previous transaction.
+        # - for the new transaction that double-spent the previous transaction (ConnectBlock)
+        # Note: the double-spend tx (txid_ds) is always in the first new block after the
+        # fork, so by the time UpdateMempoolForReorg runs its inputs are already spent.
+        # Therefore txid cannot re-enter the mempool, and no AcceptToMemoryPool or
+        # MemPoolConflictRemovalTracker notifications fire.
         mined_in = self.nodes[0].gettransaction(txid_ds)['blockhash']
         height = self.nodes[0].getblock(mined_in)['height']
-        assert self.wait_for_notifications(4, True)
-        for i in range(0,4):
+        assert self.wait_for_notifications(2, True)
+        for i in range(0,2):
             assert self.notifs[self.current_line + i] in [
                 "{} {}".format(txid, 0),
                 "{} {}".format(txid_ds, height)
@@ -190,7 +192,7 @@ class WalletNotifyTest(BitcoinTestFramework):
         assert self.nodes[0].gettransaction(txid)['confirmations'] == -3
         assert len(self.nodes[0].gettransaction(txid)['walletconflicts']) == 1
         assert self.nodes[0].gettransaction(txid_ds)['confirmations'] == 3
-        self.current_line += 4
+        self.current_line += 2
 
         # mine 10 more blocks
         self.nodes[1].generate(10)

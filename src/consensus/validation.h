@@ -112,6 +112,9 @@ inline unsigned char GetRejectCodeForBlock(const BlockValidationState& state)
 {
     switch (state.GetResult()) {
     case BlockValidationResult::BLOCK_CHECKPOINT:  return REJECT_CHECKPOINT;
+    case BlockValidationResult::BLOCK_MISSING_PREV:
+    case BlockValidationResult::BLOCK_INVALID_PREV:
+        return 0; // Preserve historical behavior: bad-prevblk was sent with code 0
     default:                                       return REJECT_INVALID;
     }
 }

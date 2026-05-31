@@ -1927,7 +1927,7 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
         if (!tx.IsCoinBase())
         {
             if (!view.HaveInputs(tx))
-                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "early-auxpow-block");
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-inputs-missingorspent");
 
             // Check that transaction is BIP68 final
             // BIP68 lock checks (as opposed to nLockTime checks) must
