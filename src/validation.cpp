@@ -3685,12 +3685,31 @@ CBlockIndex * BlockManager::InsertBlockIndex(const uint256& hash)
 bool BlockManager::LoadBlockIndex(
     const Consensus::Params& consensus_params,
     CBlockTreeDB& blocktree,
-    std::set<CBlockIndex*, CBlockIndexWorkComparator>& block_index_candidates)
+    std::set<CBlockIndex*, CBlockIndexWorkComparator>& block_index_candidates,
+    const std::optional<uint256>& snapshot_blockhash)
 {
     if (!blocktree.LoadBlockIndexGuts([this](const uint256& hash){ return this->InsertBlockIndex(hash); }))
         return false;
 
     boost::this_thread::interruption_point();
+
+    // If snapshot is active, bootstrap nChainTx for the snapshot base block
+    // from hardcoded assumeutxo chainparams. nChainTx is normally accumulated
+    // from nTx values which we don't have yet in the snapshot chainstate.
+    int snapshot_height = -1;
+    if (snapshot_blockhash) {
+        auto it = m_block_index.find(*snapshot_blockhash);
+        if (it != m_block_index.end() && it->second) {
+            snapshot_height = it->second->nHeight;
+            const CChainParams& params = Params();
+            auto au_it = params.Assumeutxo().find(snapshot_height);
+            if (au_it != params.Assumeutxo().end()) {
+                it->second->nChainTx = au_it->second.nChainTx;
+                LogPrintf("[snapshot] set nChainTx=%d for %s\n",
+                    au_it->second.nChainTx, snapshot_blockhash->ToString());
+            }
+        }
+    }
 
     // Calculate nChainWork
     std::vector<std::pair<int, CBlockIndex*> > vSortedByHeight;
@@ -3710,7 +3729,11 @@ bool BlockManager::LoadBlockIndex(
         // Pruned nodes may have deleted the block.
         if (pindex->nTx > 0) {
             if (pindex->pprev) {
-                if (pindex->pprev->nChainTx) {
+                if (snapshot_blockhash && pindex->nHeight == snapshot_height &&
+                        pindex->GetBlockHash() == *snapshot_blockhash) {
+                    // nChainTx was bootstrapped above; don't overwrite it.
+                    assert(pindex->nChainTx > 0);
+                } else if (pindex->pprev->nChainTx) {
                     pindex->nChainTx = pindex->pprev->nChainTx + pindex->nTx;
                 } else {
                     pindex->nChainTx = 0;
@@ -3758,7 +3781,8 @@ bool static LoadBlockIndexDB(const CChainParams& chainparams)
 {
     if (!g_chainman.m_blockman.LoadBlockIndex(
             chainparams.GetConsensus(0), *pblocktree,
-            ::ChainstateActive().setBlockIndexCandidates)) {
+            ::ChainstateActive().setBlockIndexCandidates,
+            g_chainman.SnapshotBlockhash())) {
         return false;
     }
 
@@ -4456,6 +4480,10 @@ void CChainState::CheckBlockIndex(const Consensus::Params& consensusParams)
     CBlockIndex* pindexFirstNotScriptsValid = NULL; // Oldest ancestor of pindex which does not have BLOCK_VALID_SCRIPTS (regardless of being valid or not).
     while (pindex != NULL) {
         nNodes++;
+        if (pindex->pprev && pindex->nTx > 0) {
+            // nChainTx should increase monotonically
+            assert(pindex->pprev->nChainTx <= pindex->nChainTx);
+        }
         if (pindexFirstInvalid == NULL && pindex->nStatus & BLOCK_FAILED_VALID) pindexFirstInvalid = pindex;
         if (pindexFirstMissing == NULL && !(pindex->nStatus & BLOCK_HAVE_DATA)) pindexFirstMissing = pindex;
         if (pindexFirstNeverProcessed == NULL && pindex->nTx == 0) pindexFirstNeverProcessed = pindex;
