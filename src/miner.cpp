@@ -152,8 +152,13 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 
     const Consensus::Params& consensus = chainparams.GetConsensus(nHeight);
     const int32_t nChainId = consensus.nAuxpowChainId;
-    // FIXME: Active version bits after the always-auxpow fork!
-    // const int32_t nVersion = ComputeBlockVersion(pindexPrev, consensus);
+    // TODO: Enable BIP9 version-bits signaling once the AuxPoW chain ID encoding conflict
+    // is resolved.  GetChainId() = nVersion >> 16 includes BIP9 bits 29-31, so ORing
+    // VERSIONBITS_TOP_BITS (bit 29) into the version corrupts the chain ID from 98 to
+    // 0x2062=8290.  A targeted fix is to mask GetChainId() to bits 16-28 only (chain IDs
+    // must be < 8192), but that change touches the AuxPoW validation path.
+    // const int32_t nVersionBits = ComputeBlockVersion(pindexPrev, consensus);
+    // pblock->nVersion = nVersionBits | (nChainId * CPureBlockHeader::VERSION_CHAIN_START);
     const int32_t nVersion = VERSIONBITS_LAST_OLD_BLOCK_VERSION;
     pblock->SetBaseVersion(nVersion, nChainId);
     // -regtest only: allow overriding block.nVersion with

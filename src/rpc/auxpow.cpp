@@ -66,8 +66,8 @@ static UniValue AuxMiningCreateBlock(const CScript& scriptPubKey)
     static uint64_t nStart;
     static unsigned nExtraNonce = 0;
 
-    // Dogecoin: Never mine witness tx
-    const bool fMineWitnessTx = false;
+    // Witness mining is gated by IsWitnessEnabled() inside CreateNewBlock().
+    const bool fMineWitnessTx = true;
 
     /* Search for cached blocks with given scriptPubKey and assign it to pBlock
      * if we find a match. This allows for creating multiple aux templates with

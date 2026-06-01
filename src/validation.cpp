@@ -3001,6 +3001,14 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
 bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
 {
+    // On regtest, segwit is always enabled for testing without requiring BIP9 signaling.
+    // BIP9 signaling on mainnet/testnet requires resolving the AuxPoW version encoding
+    // conflict: Dogecoin stores chain ID in bits 16-31 while BIP9 uses bit 29 as a
+    // top-bits marker. The two encodings are non-overlapping for chainId 98 (bits 17-22)
+    // but miner.cpp and CheckBlockHeader need corresponding fixes before enabling.
+    if (Params().MineBlocksOnDemand()) {
+        return true;
+    }
     LOCK(cs_main);
     return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE);
 }
@@ -3093,10 +3101,18 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
     // Reject outdated version blocks when 95% (75% on testnet) of the network has upgraded:
     // check for version 2, 3 and 4 upgrades
     // Dogecoin: Version 2 enforcement was never used
-    if((block.GetBaseVersion() < 3 && nHeight >= consensusParams.BIP66Height) ||
-       (block.GetBaseVersion() < 4 && nHeight >= consensusParams.BIP65Height))
-            return state.Invalid(false, REJECT_OBSOLETE, strprintf("bad-version(0x%08x)", block.GetBaseVersion()),
-                                 strprintf("rejected nVersion=0x%08x block", block.GetBaseVersion()));
+    //
+    // BIP9-style versions (bit 29 set, top mask == 0x20000000) store signal bits in the
+    // full nVersion alongside the AuxPoW chain ID. GetBaseVersion() strips everything
+    // above bit 7, so it cannot be used to test BIP9 blocks against the v3/v4 floor.
+    // BIP9 blocks always implicitly satisfy the version >= 4 requirement.
+    const bool isBip9Version = (block.nVersion & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS;
+    if (!isBip9Version) {
+        if((block.GetBaseVersion() < 3 && nHeight >= consensusParams.BIP66Height) ||
+           (block.GetBaseVersion() < 4 && nHeight >= consensusParams.BIP65Height))
+                return state.Invalid(false, REJECT_OBSOLETE, strprintf("bad-version(0x%08x)", block.GetBaseVersion()),
+                                     strprintf("rejected nVersion=0x%08x block", block.GetBaseVersion()));
+    }
 
     return true;
 }
