@@ -109,7 +109,11 @@ public:
      */
     inline int32_t GetChainId() const
     {
-        return nVersion >> 16;
+        /* Mask to bits 16-28 only (chain IDs must be < 8192 = 2^13).
+         * Bits 29-31 are reserved for BIP9 version-bits signaling and must
+         * not be interpreted as part of the chain ID.  Dogecoin uses chain
+         * ID 98 (bits 17-22), which sits entirely below bit 29. */
+        return (nVersion >> 16) & 0x1FFF;
     }
 
     /**
