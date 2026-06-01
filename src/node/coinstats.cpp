@@ -7,8 +7,10 @@
 #include "node/coinstats.h"
 
 #include "coins.h"
+#include "crypto/muhash.h"
 #include "hash.h"
 #include "serialize.h"
+#include "streams.h"
 #include "sync.h"
 #include "uint256.h"
 #include "validation.h"
@@ -107,6 +109,49 @@ static bool GetUTXOStatsNone(CCoinsView* view, CCoinsStats& stats,
     return true;
 }
 
+static bool GetUTXOStatsMuHash(CCoinsView* view, CCoinsStats& stats,
+    const std::function<void()>& interruption_point)
+{
+    std::unique_ptr<CCoinsViewCursor> pcursor(view->Cursor());
+
+    stats.hashBlock = pcursor->GetBestBlock();
+    {
+        LOCK(cs_main);
+        stats.nHeight = mapBlockIndex.find(stats.hashBlock)->second->nHeight;
+    }
+
+    MuHash3072 muhash;
+
+    while (pcursor->Valid()) {
+        if (interruption_point) {
+            interruption_point();
+        } else {
+            boost::this_thread::interruption_point();
+        }
+        COutPoint key;
+        Coin coin;
+        if (pcursor->GetKey(key) && pcursor->GetValue(coin)) {
+            // Serialize the UTXO: outpoint + (height<<1|coinbase) + CTxOut
+            CDataStream ss(SER_GETHASH, PROTOCOL_VERSION);
+            ss << key;
+            ss << (uint32_t(coin.nHeight) << 1 | uint32_t(coin.fCoinBase));
+            ss << coin.out;
+            muhash.Insert(Span<const unsigned char>((const unsigned char*)ss.data(), ss.size()));
+
+            stats.nTransactionOutputs++;
+            stats.nTotalAmount += coin.out.nValue;
+            stats.coins_count++;
+        } else {
+            return error("%s: unable to read value", __func__);
+        }
+        pcursor->Next();
+    }
+
+    muhash.Finalize(stats.hashSerialized);
+    stats.nDiskSize = view->EstimateSize();
+    return true;
+}
+
 bool GetUTXOStats(CCoinsView* view, CCoinsStats& stats,
     CoinStatsHashType hash_type,
     const std::function<void()>& interruption_point)
@@ -117,7 +162,7 @@ bool GetUTXOStats(CCoinsView* view, CCoinsStats& stats,
     case CoinStatsHashType::NONE:
         return GetUTXOStatsNone(view, stats, interruption_point);
     case CoinStatsHashType::MUHASH:
-        return error("%s: MuHash not supported", __func__);
+        return GetUTXOStatsMuHash(view, stats, interruption_point);
     }
     assert(false);
 }
