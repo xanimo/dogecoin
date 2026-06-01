@@ -786,7 +786,11 @@ public:
     //! @returns A reference to the on-disk UTXO set database.
     CCoinsViewDB& CoinsDB() EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
-        return m_coins_views->m_dbview;
+        // m_coins_views is used when InitCoinsDB() was called (snapshot path).
+        // The legacy init path (init.cpp) sets m_coins_view_db directly instead.
+        if (m_coins_views) return m_coins_views->m_dbview;
+        assert(m_coins_view_db != nullptr);
+        return *m_coins_view_db;
     }
 
     //! @returns A reference to a wrapped view of the in-memory UTXO set that
