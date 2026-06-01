@@ -474,11 +474,11 @@ public:
         m_assumeutxo_data = MapAssumeutxo{
             {
                 110,
-                {uint256S("0x76fd7334ac7c1baf57ddc0c626f073a655a35d98a4258cd1382c8cc2b8392e10"), 110},
+                {uint256S("0x36bb190106d9f55432f4012c7f781d17b77cf6621f3f35ef9454290eac9407aa"), 110},
             },
             {
                 210,
-                {uint256S("0x9c5ed99ef98544b34f8920b6d1802f72ac28ae6e2bd2bd4c316ff10c230df3f2"), 210},
+                {uint256S("0x197aca7b067b1bfd517d71c2e2918b69f132dbd13a019f28162703ffa298e662"), 210},
             },
         };
 

@@ -2071,7 +2071,8 @@ bool CChainState::FlushStateToDisk(
         nLastSetChain = nNow;
     }
     int64_t nMempoolSizeMax = GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000;
-    int64_t cacheSize = pcoinsTip->DynamicMemoryUsage() * DB_PEAK_USAGE_FACTOR;
+    CCoinsViewCache& coins_flush_tip = HasCoinsViews() ? CoinsTip() : *::pcoinsTip;
+    int64_t cacheSize = coins_flush_tip.DynamicMemoryUsage() * DB_PEAK_USAGE_FACTOR;
     int64_t nTotalSpace = m_coinstip_cache_size_bytes + std::max<int64_t>(nMempoolSizeMax - nMempoolUsage, 0);
     // The cache is large and we're within 10% and 10 MiB of the limit, but we have time now (not in the middle of a block processing).
     bool fCacheLarge = mode == FlushStateMode::PERIODIC && cacheSize > std::max((9 * nTotalSpace) / 10, nTotalSpace - MAX_BLOCK_COINSDB_USAGE * 1024 * 1024);
@@ -2121,10 +2122,10 @@ bool CChainState::FlushStateToDisk(
         // twice (once in the log, and once in the tables). This is already
         // an overestimation, as most will delete an existing entry or
         // overwrite one. Still, use a conservative safety factor of 2.
-        if (!CheckDiskSpace(48 * 2 * 2 * pcoinsTip->GetCacheSize()))
+        if (!CheckDiskSpace(48 * 2 * 2 * coins_flush_tip.GetCacheSize()))
             return state.Error("out of disk space");
         // Flush the chainstate (which may refer to block index entries).
-        if (!pcoinsTip->Flush())
+        if (!coins_flush_tip.Flush())
             return AbortNode(state, "Failed to write to coin database");
         nLastFlush = nNow;
     }
@@ -2241,7 +2242,8 @@ bool CChainState::DisconnectTip(BlockValidationState& state, const CChainParams&
     // Apply the block atomically to the chain state.
     int64_t nStart = GetTimeMicros();
     {
-        CCoinsViewCache view(pcoinsTip);
+        CCoinsViewCache* coins_tip_ptr = HasCoinsViews() ? &CoinsTip() : ::pcoinsTip;
+        CCoinsViewCache view(coins_tip_ptr);
         assert(view.GetBestBlock() == pindexDelete->GetBlockHash());
         if (DisconnectBlock(block, pindexDelete, view) != DISCONNECT_OK)
             return error("DisconnectTip(): DisconnectBlock %s failed", pindexDelete->GetBlockHash().ToString());
@@ -2309,7 +2311,8 @@ bool CChainState::ConnectTip(BlockValidationState& state, const CChainParams& ch
     int64_t nTime3;
     LogPrint("bench", "  - Load block from disk: %.2fms [%.2fs]\n", (nTime2 - nTime1) * 0.001, nTimeReadFromDisk * 0.000001);
     {
-        CCoinsViewCache view(pcoinsTip);
+        CCoinsViewCache* coins_tip_ptr = HasCoinsViews() ? &CoinsTip() : ::pcoinsTip;
+        CCoinsViewCache view(coins_tip_ptr);
         bool rv = ConnectBlock(blockConnecting, state, pindexNew, view, chainparams);
         GetMainSignals().BlockChecked(blockConnecting, state);
         if (!rv) {
@@ -2474,7 +2477,7 @@ bool CChainState::ActivateBestChainStep(BlockValidationState& state, const CChai
         }
     }
 
-    mempool.check(pcoinsTip);
+    mempool.check(HasCoinsViews() ? &CoinsTip() : ::pcoinsTip);
 
     // Callbacks/notifications for a new best chain.
     if (fInvalidFound)
@@ -4572,12 +4575,22 @@ void CChainState::CheckBlockIndex(const Consensus::Params& consensusParams)
             assert(pindex->pprev->nChainTx <= pindex->nChainTx);
         }
         if (pindexFirstInvalid == NULL && pindex->nStatus & BLOCK_FAILED_VALID) pindexFirstInvalid = pindex;
-        if (pindexFirstMissing == NULL && !(pindex->nStatus & BLOCK_HAVE_DATA)) pindexFirstMissing = pindex;
+        // Don't count assumed-valid snapshot blocks as "missing data" or "not yet
+        // validated": their lack of BLOCK_HAVE_DATA and BLOCK_VALID_* flags is
+        // expected and should not contaminate tracking variables used for post-snapshot
+        // blocks where the invariants genuinely apply.
+        const bool is_assumed_valid_for_tracking =
+            g_chainman.m_blockman.m_snapshot_height &&
+            pindex->nHeight > 0 &&
+            pindex->nHeight <= static_cast<int>(*g_chainman.m_blockman.m_snapshot_height);
+        if (!is_assumed_valid_for_tracking) {
+            if (pindexFirstMissing == NULL && !(pindex->nStatus & BLOCK_HAVE_DATA)) pindexFirstMissing = pindex;
+            if (pindex->pprev != NULL && pindexFirstNotTransactionsValid == NULL && (pindex->nStatus & BLOCK_VALID_MASK) < BLOCK_VALID_TRANSACTIONS) pindexFirstNotTransactionsValid = pindex;
+            if (pindex->pprev != NULL && pindexFirstNotChainValid == NULL && (pindex->nStatus & BLOCK_VALID_MASK) < BLOCK_VALID_CHAIN) pindexFirstNotChainValid = pindex;
+            if (pindex->pprev != NULL && pindexFirstNotScriptsValid == NULL && (pindex->nStatus & BLOCK_VALID_MASK) < BLOCK_VALID_SCRIPTS) pindexFirstNotScriptsValid = pindex;
+        }
         if (pindexFirstNeverProcessed == NULL && pindex->nTx == 0) pindexFirstNeverProcessed = pindex;
         if (pindex->pprev != NULL && pindexFirstNotTreeValid == NULL && (pindex->nStatus & BLOCK_VALID_MASK) < BLOCK_VALID_TREE) pindexFirstNotTreeValid = pindex;
-        if (pindex->pprev != NULL && pindexFirstNotTransactionsValid == NULL && (pindex->nStatus & BLOCK_VALID_MASK) < BLOCK_VALID_TRANSACTIONS) pindexFirstNotTransactionsValid = pindex;
-        if (pindex->pprev != NULL && pindexFirstNotChainValid == NULL && (pindex->nStatus & BLOCK_VALID_MASK) < BLOCK_VALID_CHAIN) pindexFirstNotChainValid = pindex;
-        if (pindex->pprev != NULL && pindexFirstNotScriptsValid == NULL && (pindex->nStatus & BLOCK_VALID_MASK) < BLOCK_VALID_SCRIPTS) pindexFirstNotScriptsValid = pindex;
 
         // Begin: actual consistency checks.
         if (pindex->pprev == NULL) {
@@ -4586,21 +4599,34 @@ void CChainState::CheckBlockIndex(const Consensus::Params& consensusParams)
             assert(pindex == chainActive.Genesis()); // The current active chain's genesis block must be this block.
         }
         if (pindex->nChainTx == 0) assert(pindex->nSequenceId <= 0);  // nSequenceId can't be set positive for blocks that aren't linked (negative is used for preciousblock)
+        // Assumed-valid snapshot blocks have faked nTx/nChainTx values set by
+        // PopulateAndValidateSnapshot without BLOCK_HAVE_DATA or BLOCK_VALID_TRANSACTIONS;
+        // relax the corresponding invariants for those blocks.
+        const bool assumed_valid_block =
+            g_chainman.m_blockman.m_snapshot_height &&
+            pindex->nHeight > 0 &&
+            pindex->nHeight <= static_cast<int>(*g_chainman.m_blockman.m_snapshot_height);
         // VALID_TRANSACTIONS is equivalent to nTx > 0 for all nodes (whether or not pruning has occurred).
         // HAVE_DATA is only equivalent to nTx > 0 (or VALID_TRANSACTIONS) if no pruning has occurred.
         if (!fHavePruned) {
             // If we've never pruned, then HAVE_DATA should be equivalent to nTx > 0
-            assert(!(pindex->nStatus & BLOCK_HAVE_DATA) == (pindex->nTx == 0));
-            assert(pindexFirstMissing == pindexFirstNeverProcessed);
+            if (!assumed_valid_block) {
+                assert(!(pindex->nStatus & BLOCK_HAVE_DATA) == (pindex->nTx == 0));
+                assert(pindexFirstMissing == pindexFirstNeverProcessed);
+            }
         } else {
             // If we have pruned, then we can only say that HAVE_DATA implies nTx > 0
             if (pindex->nStatus & BLOCK_HAVE_DATA) assert(pindex->nTx > 0);
         }
         if (pindex->nStatus & BLOCK_HAVE_UNDO) assert(pindex->nStatus & BLOCK_HAVE_DATA);
-        assert(((pindex->nStatus & BLOCK_VALID_MASK) >= BLOCK_VALID_TRANSACTIONS) == (pindex->nTx > 0)); // This is pruning-independent.
+        if (!assumed_valid_block) {
+            assert(((pindex->nStatus & BLOCK_VALID_MASK) >= BLOCK_VALID_TRANSACTIONS) == (pindex->nTx > 0)); // This is pruning-independent.
+        }
         // All parents having had data (at some point) is equivalent to all parents being VALID_TRANSACTIONS, which is equivalent to nChainTx being set.
         assert((pindexFirstNeverProcessed != NULL) == (pindex->nChainTx == 0)); // nChainTx != 0 is used to signal that all parent blocks have been processed (but may have been pruned).
-        assert((pindexFirstNotTransactionsValid != NULL) == (pindex->nChainTx == 0));
+        if (!assumed_valid_block) {
+            assert((pindexFirstNotTransactionsValid != NULL) == (pindex->nChainTx == 0));
+        }
         assert(pindex->nHeight == nHeight); // nHeight must be consistent.
         assert(pindex->pprev == NULL || pindex->nChainWork >= pindex->pprev->nChainWork); // For every block except the genesis block, the chainwork must be larger than the parent's.
         assert(nHeight < 2 || (pindex->pskip && (pindex->pskip->nHeight < nHeight))); // The pskip pointer must point back for all but the first 2 blocks.
@@ -5227,7 +5253,8 @@ bool ChainstateManager::ActivateSnapshot(
         LOCK(::cs_main);
         snapshot_chainstate->InitCoinsDB(
             static_cast<size_t>(current_coinsdb_cache_size * SNAPSHOT_CACHE_PERC),
-            in_memory, false, "chainstate");
+            in_memory, false,
+            strprintf("chainstate%s", base_blockhash.ToString()));
         snapshot_chainstate->InitCoinsCache(
             static_cast<size_t>(current_coinstip_cache_size * SNAPSHOT_CACHE_PERC));
     }
@@ -5255,6 +5282,16 @@ bool ChainstateManager::ActivateSnapshot(
 
         assert(!m_snapshot_chainstate);
         m_snapshot_chainstate.swap(snapshot_chainstate);
+
+        // Set m_snapshot_height so that CheckBlockIndex relaxes assertions for
+        // assumed-valid blocks whose nTx was faked by PopulateAndValidateSnapshot.
+        {
+            auto it = m_blockman.m_block_index.find(base_blockhash);
+            if (it != m_blockman.m_block_index.end()) {
+                m_blockman.m_snapshot_height = it->second->nHeight;
+            }
+        }
+
         const bool chaintip_loaded = m_snapshot_chainstate->LoadChainTip(::Params());
         assert(chaintip_loaded);
 
@@ -5396,7 +5433,7 @@ bool ChainstateManager::PopulateAndValidateSnapshot(
         snapshot_coinsdb = &snapshot_chainstate.CoinsDB();
     }
 
-    if (!GetUTXOStats(snapshot_coinsdb, stats, CoinStatsHashType::HASH_SERIALIZED, breakpoint_fnc)) {
+    if (!GetUTXOStats(snapshot_coinsdb, stats, CoinStatsHashType::MUHASH, breakpoint_fnc)) {
         LogPrintf("[snapshot] failed to generate coins stats\n");
         return false;
     }

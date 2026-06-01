@@ -910,36 +910,59 @@ UniValue pruneblockchain(const JSONRPCRequest& request)
 
 UniValue gettxoutsetinfo(const JSONRPCRequest& request)
 {
-    if (request.fHelp || request.params.size() != 0)
+    if (request.fHelp || request.params.size() > 1)
         throw runtime_error(
-            "gettxoutsetinfo\n"
+            "gettxoutsetinfo ( \"hash_type\" )\n"
             "\nReturns statistics about the unspent transaction output set.\n"
             "Note this call may take some time.\n"
+            "\nArguments:\n"
+            "1. \"hash_type\"    (string, optional, default=hash_serialized_2) "
+                "The hash type to compute, either \"hash_serialized_2\" or \"muhash\".\n"
             "\nResult:\n"
             "{\n"
             "  \"height\":n,     (numeric) The current block height (index)\n"
             "  \"bestblock\": \"hex\",   (string) the best block hash hex\n"
             "  \"transactions\": n,      (numeric) The number of transactions\n"
             "  \"txouts\": n,            (numeric) The number of output transactions\n"
-            "  \"hash_serialized\": \"hash\",   (string) The serialized hash\n"
+            "  \"hash_serialized_2\": \"hash\",  (string) The serialized hash (when hash_type=hash_serialized_2)\n"
+            "  \"muhash\": \"hash\",             (string) The MuHash (when hash_type=muhash)\n"
             "  \"disk_size\": n,         (numeric) The estimated size of the chainstate on disk\n"
             "  \"total_amount\": x.xxx          (numeric) The total amount\n"
             "}\n"
             "\nExamples:\n"
             + HelpExampleCli("gettxoutsetinfo", "")
+            + HelpExampleCli("gettxoutsetinfo", "\"muhash\"")
             + HelpExampleRpc("gettxoutsetinfo", "")
         );
 
     UniValue ret(UniValue::VOBJ);
 
+    // Optional hash_type parameter: "hash_serialized_2" (default) or "muhash".
+    // "muhash" is a pure function of the UTXO set contents and is suitable for
+    // use as a static assumeutxo chainparams entry across different mining runs.
+    std::string hash_type_str = "hash_serialized_2";
+    if (request.params.size() > 0) {
+        hash_type_str = request.params[0].get_str();
+        if (hash_type_str != "hash_serialized_2" && hash_type_str != "muhash") {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid hash_type: must be \"hash_serialized_2\" or \"muhash\"");
+        }
+    }
+    CoinStatsHashType hash_type = (hash_type_str == "muhash")
+        ? CoinStatsHashType::MUHASH
+        : CoinStatsHashType::HASH_SERIALIZED;
+
     CCoinsStats stats;
     ::ChainstateActive().ForceFlushStateToDisk();
-    if (GetUTXOStats(pcoinsTip, stats)) {
+    if (GetUTXOStats(pcoinsTip, stats, hash_type)) {
         ret.pushKV("height", (int64_t)stats.nHeight);
         ret.pushKV("bestblock", stats.hashBlock.GetHex());
         ret.pushKV("transactions", (int64_t)stats.nTransactions);
         ret.pushKV("txouts", (int64_t)stats.nTransactionOutputs);
-        ret.pushKV("hash_serialized_2", stats.hashSerialized.GetHex());
+        if (hash_type == CoinStatsHashType::MUHASH) {
+            ret.pushKV("muhash", stats.hashSerialized.GetHex());
+        } else {
+            ret.pushKV("hash_serialized_2", stats.hashSerialized.GetHex());
+        }
         ret.pushKV("disk_size", stats.nDiskSize);
         ret.pushKV("total_amount", ValueFromAmount(stats.nTotalAmount));
     } else {
@@ -1885,10 +1908,11 @@ UniValue dumptxoutset(const JSONRPCRequest& request)
             + HelpExampleRpc("dumptxoutset", "utxo.dat")
         );
 
-    const fs::path path = GetDataDir() / request.params[0].get_str();
+    const fs::path userpath{request.params[0].get_str()};
+    const fs::path path = userpath.is_absolute() ? userpath : GetDataDir() / userpath;
     // Write to a temporary path and then move into `path` on completion
     // to avoid confusion due to an interruption.
-    const fs::path temppath = GetDataDir() / (request.params[0].get_str() + ".incomplete");
+    const fs::path temppath{path.string() + ".incomplete"};
 
     if (fs::exists(path)) {
         throw JSONRPCError(
@@ -1935,7 +1959,8 @@ UniValue loadtxoutset(const JSONRPCRequest& request)
             + HelpExampleRpc("loadtxoutset", "utxo.dat")
         );
 
-    const fs::path path = GetDataDir() / request.params[0].get_str();
+    const fs::path userpath{request.params[0].get_str()};
+    const fs::path path = userpath.is_absolute() ? userpath : GetDataDir() / userpath;
 
     FILE* file{fsbridge::fopen(path, "rb")};
     CAutoFile afile{file, SER_DISK, CLIENT_VERSION};
