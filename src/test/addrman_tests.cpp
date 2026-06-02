@@ -613,7 +613,7 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_tried_bucket)
     uint256 nKey1 = (uint256)(CHashWriter(SER_GETHASH, 0) << 1).GetHash();
     uint256 nKey2 = (uint256)(CHashWriter(SER_GETHASH, 0) << 2).GetHash();
 
-    std::vector<bool> asmap1 = FromBytes(asmap, sizeof(asmap) * 8);
+    std::vector<bool> asmap1 = FromBytes(asmap_raw, sizeof(asmap_raw) * 8);
 
     BOOST_CHECK_EQUAL(info1.GetTriedBucket(nKey1, asmap1), 236);
 
@@ -670,7 +670,7 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_new_bucket)
     uint256 nKey1 = (uint256)(CHashWriter(SER_GETHASH, 0) << 1).GetHash();
     uint256 nKey2 = (uint256)(CHashWriter(SER_GETHASH, 0) << 2).GetHash();
 
-    std::vector<bool> asmap1 = FromBytes(asmap, sizeof(asmap) * 8);
+    std::vector<bool> asmap1 = FromBytes(asmap_raw, sizeof(asmap_raw) * 8);
 
     // Test: Make sure the buckets are what we expect
     BOOST_CHECK_EQUAL(info1.GetNewBucket(nKey1, asmap1), 795);
@@ -738,7 +738,7 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_new_bucket)
 
 BOOST_AUTO_TEST_CASE(addrman_serialization)
 {
-    std::vector<bool> asmap1 = FromBytes(asmap, sizeof(asmap) * 8);
+    std::vector<bool> asmap1 = FromBytes(asmap_raw, sizeof(asmap_raw) * 8);
 
     CAddrManTest addrman_asmap1(true, asmap1);
     CAddrManTest addrman_asmap1_dup(true, asmap1);
