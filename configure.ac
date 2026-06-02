@@ -729,6 +729,11 @@ define(MINIMUM_REQUIRED_BOOST, 1.60.0)
 dnl Check for boost libs
 AX_BOOST_BASE([MINIMUM_REQUIRED_BOOST], , AC_MSG_ERROR(Need at least boost 1.60.0))
 
+dnl Boost <1.65 references std::auto_ptr in shared_ptr.hpp, which libc++ removes
+dnl in C++17 mode (causing macOS builds to fail). Boost guards these references
+dnl behind BOOST_NO_AUTO_PTR; define it so the deprecated paths are excluded.
+BOOST_CPPFLAGS="$BOOST_CPPFLAGS -DBOOST_NO_AUTO_PTR"
+
 dnl As of boost 1.69.0, boost_system is header-only and
 dnl as of version 1.89.0 it is fully removed.
 dnl We conditionally check whether to include boost_system
