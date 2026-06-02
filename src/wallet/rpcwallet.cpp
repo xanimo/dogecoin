@@ -1155,7 +1155,7 @@ class Witnessifier : public boost::static_visitor<bool>
 public:
     CScriptID result;
 
-    bool operator()(const CNoDestination &dest) const { return false; }
+    bool operator()(const CNoDestination &dest) { return false; }
 
     bool operator()(const CKeyID &keyID) {
         CPubKey pubkey;
@@ -1194,9 +1194,9 @@ public:
         return false;
     }
 
-    bool operator()(const WitnessV0KeyHash &id) const { return false; }
-    bool operator()(const WitnessV0ScriptHash &id) const { return false; }
-    bool operator()(const WitnessUnknown &id) const { return false; }
+    bool operator()(const WitnessV0KeyHash &id) { return false; }
+    bool operator()(const WitnessV0ScriptHash &id) { return false; }
+    bool operator()(const WitnessUnknown &id) { return false; }
 };
 
 UniValue addwitnessaddress(const JSONRPCRequest& request)
