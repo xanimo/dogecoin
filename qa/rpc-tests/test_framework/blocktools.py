@@ -25,8 +25,8 @@ def create_block(hashprev, coinbase, nTime=None):
     block.calc_sha256()
     return block
 
-# From BIP141
-WITNESS_COMMITMENT_HEADER = b"\xaa\x21\xa9\xed"
+# Dogecoin uses "DOGE" as the witness commitment header (BIP141 uses \xaa\x21\xa9\xed)
+WITNESS_COMMITMENT_HEADER = b"\x44\x4f\x47\x45"
 
 # According to BIP141, blocks with witness rules active must commit to the
 # hash of all in-block transactions including witness.

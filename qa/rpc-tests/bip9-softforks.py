@@ -14,16 +14,18 @@ from io import BytesIO
 import time
 import itertools
 
+DOGE_CHAIN_ID = 0x00620000  # Chain ID 98 for Dogecoin AuxPoW
+
 '''
 This test is meant to exercise BIP forks
 Connect to a single node.
-regtest lock-in with 108/144 block signalling
-activation after a further 144 blocks
+regtest lock-in with 540/720 block signalling
+activation after a further 720 blocks
 mine 2 block and save coinbases for later use
-mine 141 blocks to transition from DEFINED to STARTED
-mine 100 blocks signalling readiness and 44 not in order to fail to change state this period
-mine 108 blocks signalling readiness and 36 blocks not signalling readiness (STARTED->LOCKED_IN)
-mine a further 143 blocks (LOCKED_IN)
+mine 717 blocks to transition from DEFINED to STARTED
+mine 500 blocks signalling readiness and 220 not in order to fail to change state this period
+mine 540 blocks signalling readiness and 180 blocks not signalling readiness (STARTED->LOCKED_IN)
+mine a further 719 blocks (LOCKED_IN)
 test that enforcement has not triggered (which triggers ACTIVE)
 test that enforcement has triggered
 '''
@@ -67,7 +69,7 @@ class BIP9SoftForksTest(ComparisonTestFramework):
     def generate_blocks(self, number, version, test_blocks = []):
         for i in range(number):
             block = create_block(self.tip, create_coinbase(self.height), self.last_block_time + 1)
-            block.nVersion = version
+            block.nVersion = version | DOGE_CHAIN_ID
             block.rehash()
             block.solve()
             test_blocks.append([block, True])
@@ -97,15 +99,15 @@ class BIP9SoftForksTest(ComparisonTestFramework):
         assert(bipName not in tmpl['rules'])
         assert(bipName not in tmpl['vbavailable'])
         assert_equal(tmpl['vbrequired'], 0)
-        assert_equal(tmpl['version'], 0x20000000)
+        assert_equal(tmpl['version'], 0x20620000)
 
         # Test 1
         # Advance from DEFINED to STARTED
-        test_blocks = self.generate_blocks(141, 4)
+        test_blocks = self.generate_blocks(717, 4)
         yield TestInstance(test_blocks, sync_every_block=False)
 
         assert_equal(self.get_bip9_status(bipName)['status'], 'started')
-        assert_equal(self.get_bip9_status(bipName)['since'], 144)
+        assert_equal(self.get_bip9_status(bipName)['since'], 720)
         tmpl = self.nodes[0].getblocktemplate({})
         assert(bipName not in tmpl['rules'])
         assert_equal(tmpl['vbavailable'][bipName], bitno)
@@ -113,16 +115,16 @@ class BIP9SoftForksTest(ComparisonTestFramework):
         assert(tmpl['version'] & activated_version)
 
         # Test 2
-        # Fail to achieve LOCKED_IN 100 out of 144 signal bit 1
+        # Fail to achieve LOCKED_IN 500 out of 720 signal bit 1
         # using a variety of bits to simulate multiple parallel softforks
-        test_blocks = self.generate_blocks(50, activated_version) # 0x20000001 (signalling ready)
-        test_blocks = self.generate_blocks(20, 4, test_blocks) # 0x00000004 (signalling not)
-        test_blocks = self.generate_blocks(50, activated_version, test_blocks) # 0x20000101 (signalling ready)
-        test_blocks = self.generate_blocks(24, 4, test_blocks) # 0x20010000 (signalling not)
+        test_blocks = self.generate_blocks(250, activated_version) # 0x20620001 (signalling ready)
+        test_blocks = self.generate_blocks(100, 4, test_blocks) # 0x00620004 (signalling not)
+        test_blocks = self.generate_blocks(250, activated_version, test_blocks) # 0x20620001 (signalling ready)
+        test_blocks = self.generate_blocks(120, 4, test_blocks) # 0x00620004 (signalling not)
         yield TestInstance(test_blocks, sync_every_block=False)
 
         assert_equal(self.get_bip9_status(bipName)['status'], 'started')
-        assert_equal(self.get_bip9_status(bipName)['since'], 144)
+        assert_equal(self.get_bip9_status(bipName)['since'], 720)
         tmpl = self.nodes[0].getblocktemplate({})
         assert(bipName not in tmpl['rules'])
         assert_equal(tmpl['vbavailable'][bipName], bitno)
@@ -130,26 +132,26 @@ class BIP9SoftForksTest(ComparisonTestFramework):
         assert(tmpl['version'] & activated_version)
 
         # Test 3
-        # 108 out of 144 signal bit 1 to achieve LOCKED_IN
+        # 540 out of 720 signal bit 1 to achieve LOCKED_IN
         # using a variety of bits to simulate multiple parallel softforks
-        test_blocks = self.generate_blocks(58, activated_version) # 0x20000001 (signalling ready)
-        test_blocks = self.generate_blocks(26, 4, test_blocks) # 0x00000004 (signalling not)
-        test_blocks = self.generate_blocks(50, activated_version, test_blocks) # 0x20000101 (signalling ready)
-        test_blocks = self.generate_blocks(10, 4, test_blocks) # 0x20010000 (signalling not)
+        test_blocks = self.generate_blocks(290, activated_version) # 0x20620001 (signalling ready)
+        test_blocks = self.generate_blocks(130, 4, test_blocks) # 0x00620004 (signalling not)
+        test_blocks = self.generate_blocks(250, activated_version, test_blocks) # 0x20620001 (signalling ready)
+        test_blocks = self.generate_blocks(50, 4, test_blocks) # 0x00620004 (signalling not)
         yield TestInstance(test_blocks, sync_every_block=False)
 
         assert_equal(self.get_bip9_status(bipName)['status'], 'locked_in')
-        assert_equal(self.get_bip9_status(bipName)['since'], 432)
+        assert_equal(self.get_bip9_status(bipName)['since'], 2160)
         tmpl = self.nodes[0].getblocktemplate({})
         assert(bipName not in tmpl['rules'])
 
         # Test 4
-        # 143 more version 536870913 blocks (waiting period-1)
-        test_blocks = self.generate_blocks(143, 4)
+        # 719 more blocks (waiting period-1)
+        test_blocks = self.generate_blocks(719, 4)
         yield TestInstance(test_blocks, sync_every_block=False)
 
         assert_equal(self.get_bip9_status(bipName)['status'], 'locked_in')
-        assert_equal(self.get_bip9_status(bipName)['since'], 432)
+        assert_equal(self.get_bip9_status(bipName)['since'], 2160)
         tmpl = self.nodes[0].getblocktemplate({})
         assert(bipName not in tmpl['rules'])
 
@@ -163,7 +165,7 @@ class BIP9SoftForksTest(ComparisonTestFramework):
         invalidatePostSignature(spendtx)
         spendtx.rehash()
         block = create_block(self.tip, create_coinbase(self.height), self.last_block_time + 1)
-        block.nVersion = activated_version
+        block.nVersion = activated_version | DOGE_CHAIN_ID
         block.vtx.append(spendtx)
         block.hashMerkleRoot = block.calc_merkle_root()
         block.rehash()
@@ -175,7 +177,7 @@ class BIP9SoftForksTest(ComparisonTestFramework):
         yield TestInstance([[block, True]])
 
         assert_equal(self.get_bip9_status(bipName)['status'], 'active')
-        assert_equal(self.get_bip9_status(bipName)['since'], 576)
+        assert_equal(self.get_bip9_status(bipName)['since'], 2880)
         tmpl = self.nodes[0].getblocktemplate({})
         assert(bipName in tmpl['rules'])
         assert(bipName not in tmpl['vbavailable'])
@@ -193,7 +195,7 @@ class BIP9SoftForksTest(ComparisonTestFramework):
         spendtx.rehash()
 
         block = create_block(self.tip, create_coinbase(self.height), self.last_block_time + 1)
-        block.nVersion = 5
+        block.nVersion = 5 | DOGE_CHAIN_ID
         block.vtx.append(spendtx)
         block.hashMerkleRoot = block.calc_merkle_root()
         block.rehash()

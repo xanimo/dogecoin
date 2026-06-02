@@ -107,13 +107,13 @@ testScripts = [
     'p2p-fullblocktest.py',
     'fundrawtransaction.py',
     #'p2p-compactblocks.py',
-    # 'segwit.py',
+    'segwit.py',
     # vv Tests less than 2m vv
     'auxpow.py',
     'getauxblock.py',
     'wallet.py',
     'wallet-accounts.py',
-    # 'p2p-segwit.py',
+    'p2p-segwit.py',
     'wallet-dump.py',
     'listtransactions.py',
     'p2p-policy.py',
@@ -154,7 +154,7 @@ testScripts = [
     'prioritise_transaction.py',
     'invalidblockrequest.py',
     # 'invalidtxrequest.py',
-    # 'p2p-versionbits-warning.py',
+    'p2p-versionbits-warning.py',
     'preciousblock.py',
     'importprunedfunds.py',
     'createauxblock.py',
@@ -197,7 +197,7 @@ testScriptsExt = [
     'getblocktemplate_longpoll.py',
     'p2p-timeouts.py',
     # vv Tests less than 60s vv
-    # 'bip9-softforks.py',
+    'bip9-softforks.py',
     'p2p-feefilter.py',
     'rpcbind_test.py',
     # vv Tests less than 30s vv

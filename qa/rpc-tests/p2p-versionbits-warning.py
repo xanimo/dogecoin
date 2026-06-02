@@ -17,10 +17,11 @@ Generate chains with block versions that appear to be signalling unknown
 soft-forks, and test that warning alerts are generated.
 '''
 
-VB_PERIOD = 144 # versionbits period length for regtest
-VB_THRESHOLD = 108 # versionbits activation threshold for regtest
+VB_PERIOD = 720 # versionbits period length for regtest
+VB_THRESHOLD = 540 # versionbits activation threshold for regtest
 VB_TOP_BITS = 0x20000000
-VB_UNKNOWN_BIT = 27 # Choose a bit unassigned to any deployment
+VB_UNKNOWN_BIT = 14 # Choose a bit unassigned to any deployment (bits 0-15 safe; 16-28 are Dogecoin chain ID range)
+DOGE_CHAIN_ID = 0x00620000  # Chain ID 98 for Dogecoin AuxPoW
 
 WARN_UNKNOWN_RULES_MINED = "Unknown block versions being mined! It's possible unknown rules are in effect"
 WARN_UNKNOWN_RULES_ACTIVE = "unknown new rules activated (versionbit {})".format(VB_UNKNOWN_BIT)
@@ -117,7 +118,7 @@ class VersionBitsWarningTest(BitcoinTestFramework):
 
         # 2. Now build one period of blocks on the tip, with < VB_THRESHOLD
         # blocks signaling some unknown bit.
-        nVersion = VB_TOP_BITS | (1<<VB_UNKNOWN_BIT)
+        nVersion = VB_TOP_BITS | (1<<VB_UNKNOWN_BIT) | DOGE_CHAIN_ID
         self.send_blocks_with_version(test_node, VB_THRESHOLD-1, nVersion)
 
         # Fill rest of period with regular version blocks

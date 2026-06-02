@@ -81,9 +81,9 @@ class TestNode(NodeConnCB):
         [conn.send_message(r) for r in self.tx_store.get_transactions(message.inv)]
 
         for i in message.inv:
-            if i.type == 1:
+            if (i.type & ~MSG_WITNESS_FLAG) == 1:  # MSG_TX or MSG_WITNESS_TX
                 self.tx_request_map[i.hash] = True
-            elif i.type == 2:
+            elif (i.type & ~MSG_WITNESS_FLAG) == 2:  # MSG_BLOCK or MSG_WITNESS_BLOCK
                 self.block_request_map[i.hash] = True
 
     def on_inv(self, conn, message):
@@ -175,10 +175,13 @@ class TestManager(object):
 
     def add_all_connections(self, nodes):
         for i in range(len(nodes)):
-            # Create a p2p connection to each node
+            # Create a p2p connection to each node.
+            # Advertise NODE_WITNESS so the node will serve blocks when segwit
+            # is enabled (IsWitnessEnabled always returns true on regtest).
             test_node = TestNode(self.block_store, self.tx_store)
             self.test_nodes.append(test_node)
-            self.connections.append(NodeConn('127.0.0.1', p2p_port(i), nodes[i], test_node))
+            self.connections.append(NodeConn('127.0.0.1', p2p_port(i), nodes[i], test_node,
+                                             services=NODE_NETWORK|NODE_WITNESS))
             # Make sure the TestNode (callback class) has a reference to its
             # associated NodeConn
             test_node.add_connection(self.connections[-1])

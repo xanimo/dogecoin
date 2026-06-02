@@ -94,7 +94,7 @@ class BlockStore(object):
     def get_blocks(self, inv):
         responses = []
         for i in inv:
-            if (i.type == 2): # MSG_BLOCK
+            if (i.type & ~MSG_WITNESS_FLAG) == 2: # MSG_BLOCK or MSG_WITNESS_BLOCK
                 data = self.get(i.hash)
                 if data is not None:
                     # Use msg_generic to avoid re-serialization

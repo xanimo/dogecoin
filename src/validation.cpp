@@ -1763,9 +1763,13 @@ public:
 
     bool Condition(const CBlockIndex* pindex, const Consensus::Params& params) const
     {
+        // Include the Dogecoin chain ID in the expected version so that
+        // chain-ID bits (which miners always set) are not treated as unknown.
+        const int32_t nExpectedVersion = ComputeBlockVersion(pindex->pprev, params) |
+                                         (params.nAuxpowChainId * CPureBlockHeader::VERSION_CHAIN_START);
         return ((pindex->nVersion & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS) &&
                ((pindex->nVersion >> bit) & 1) != 0 &&
-               ((ComputeBlockVersion(pindex->pprev, params) >> bit) & 1) == 0;
+               ((nExpectedVersion >> bit) & 1) == 0;
     }
 };
 
@@ -2205,8 +2209,19 @@ void static UpdateTip(CBlockIndex *pindexNew, const CChainParams& chainParams) {
         // Check the version of the last 100 blocks to see if we need to upgrade:
         for (int i = 0; i < 100 && pindex != NULL; i++)
         {
-            int32_t nExpectedVersion = ComputeBlockVersion(pindex->pprev, chainParams.GetConsensus(pindex->nHeight));
-            if (pindex->GetBaseVersion() > VERSIONBITS_LAST_OLD_BLOCK_VERSION && (pindex->GetBaseVersion() & ~nExpectedVersion) != 0)
+            const Consensus::Params& blockParams = chainParams.GetConsensus(pindex->nHeight);
+            int32_t nExpectedVersion = ComputeBlockVersion(pindex->pprev, blockParams);
+            int32_t nBlockVer;
+            if ((pindex->nVersion & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS) {
+                // BIP9-format block: include the Dogecoin chain ID in the expected version,
+                // since miners always OR it in. Compare the full nVersion against expected.
+                nExpectedVersion |= (blockParams.nAuxpowChainId * CPureBlockHeader::VERSION_CHAIN_START);
+                nBlockVer = pindex->nVersion;
+            } else {
+                // Legacy/AuxPoW block: use GetBaseVersion() to ignore upper bits.
+                nBlockVer = pindex->GetBaseVersion();
+            }
+            if (nBlockVer > VERSIONBITS_LAST_OLD_BLOCK_VERSION && (nBlockVer & ~nExpectedVersion) != 0)
                 ++nUpgraded;
             pindex = pindex->pprev;
         }
@@ -3001,14 +3016,6 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
 bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
 {
-    // On regtest, segwit is always enabled for testing without requiring BIP9 signaling.
-    // BIP9 signaling on mainnet/testnet requires resolving the AuxPoW version encoding
-    // conflict: Dogecoin stores chain ID in bits 16-31 while BIP9 uses bit 29 as a
-    // top-bits marker. The two encodings are non-overlapping for chainId 98 (bits 17-22)
-    // but miner.cpp and CheckBlockHeader need corresponding fixes before enabling.
-    if (Params().MineBlocksOnDemand()) {
-        return true;
-    }
     LOCK(cs_main);
     return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE);
 }
@@ -3151,8 +3158,6 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const CB
         }
     }
 
-    //TODO: DIP141 implement CheckWitnessMalleation
-
     // Validation for witness commitments.
     // * We compute the witness hash (which is the hash including witnesses) of all the block's transactions, except the
     //   coinbase (where 0x0000....0000 is used instead).
@@ -3161,8 +3166,8 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const CB
     // * There must be at least one output whose scriptPubKey is a single 36-byte push, the first 4 bytes of which are
     //   {0x44, 0x4f, 0x47, 0x45}, and the following 32 bytes are SHA256^2(witness root, witness nonce). In case there are
     //   multiple, the last one is used.
-    bool fRegTest = GetBoolArg("-regtest", false);
-    if (!CheckWitnessMalleation(block, fRegTest, state)) {
+    bool fHaveWitness = IsWitnessEnabled(pindexPrev, consensusParams);
+    if (!CheckWitnessMalleation(block, fHaveWitness, state)) {
         return false;
     }
 

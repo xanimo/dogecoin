@@ -486,6 +486,10 @@ public:
     {
         consensus.vDeployments[d].nStartTime = nStartTime;
         consensus.vDeployments[d].nTimeout = nTimeout;
+        digishieldConsensus.vDeployments[d].nStartTime = nStartTime;
+        digishieldConsensus.vDeployments[d].nTimeout = nTimeout;
+        auxpowConsensus.vDeployments[d].nStartTime = nStartTime;
+        auxpowConsensus.vDeployments[d].nTimeout = nTimeout;
     }
 };
 static CRegTestParams regTestParams;

@@ -15,9 +15,11 @@ from binascii import hexlify
 
 # The versionbit bit used to signal activation of SegWit
 VB_WITNESS_BIT = 1
-VB_PERIOD = 144
-VB_ACTIVATION_THRESHOLD = 108
+VB_PERIOD = 720
+VB_ACTIVATION_THRESHOLD = 540
 VB_TOP_BITS = 0x20000000
+# Dogecoin chain ID 98 encoded in bits 16-28; must be OR'd into all BIP9 block versions
+DOGE_CHAIN_ID = 0x00620000
 
 MAX_SIGOP_COST = 80000
 
@@ -197,23 +199,24 @@ class SegWitTest(BitcoinTestFramework):
 
     def setup_network(self):
         self.nodes = []
-        self.nodes.append(start_node(0, self.options.tmpdir, ["-debug", "-logtimemicros=1", "-whitelist=127.0.0.1"]))
+        # Use Bitcoin-equivalent minrelaytxfee (1000 sat/kB) since test fees are calibrated for BTC amounts
+        self.nodes.append(start_node(0, self.options.tmpdir, ["-debug", "-logtimemicros=1", "-whitelist=127.0.0.1", "-minrelaytxfee=0.00001", "-blockmintxfee=0.00001", "-dustlimit=0.00001", "-harddustlimit=0.00001"]))
         # Start a node for testing IsStandard rules.
-        self.nodes.append(start_node(1, self.options.tmpdir, ["-debug", "-logtimemicros=1", "-whitelist=127.0.0.1", "-acceptnonstdtxn=0"]))
+        self.nodes.append(start_node(1, self.options.tmpdir, ["-debug", "-logtimemicros=1", "-whitelist=127.0.0.1", "-acceptnonstdtxn=0", "-minrelaytxfee=0.00001", "-blockmintxfee=0.00001", "-dustlimit=0.00001", "-harddustlimit=0.00001"]))
         connect_nodes(self.nodes[0], 1)
 
         # Disable segwit's bip9 parameter to simulate upgrading after activation.
-        self.nodes.append(start_node(2, self.options.tmpdir, ["-debug", "-whitelist=127.0.0.1", "-bip9params=segwit:0:0"]))
+        self.nodes.append(start_node(2, self.options.tmpdir, ["-debug", "-whitelist=127.0.0.1", "-bip9params=segwit:0:0", "-minrelaytxfee=0.00001", "-blockmintxfee=0.00001", "-dustlimit=0.00001", "-harddustlimit=0.00001"]))
         connect_nodes(self.nodes[0], 2)
 
     ''' Helpers '''
     # Build a block on top of node0's tip.
-    def build_next_block(self, nVersion=4):
+    def build_next_block(self, nVersion=0x620004):
         tip = self.nodes[0].getbestblockhash()
         height = self.nodes[0].getblockcount() + 1
         block_time = self.nodes[0].getblockheader(tip)["mediantime"] + 1
         block = create_block(int(tip, 16), create_coinbase(height), block_time)
-        block.nVersion = nVersion
+        block.nVersion = nVersion | DOGE_CHAIN_ID
         block.rehash()
         return block
 
@@ -242,7 +245,7 @@ class SegWitTest(BitcoinTestFramework):
         self.test_node.sync_with_ping() # make sure the block was processed
         txid = block.vtx[0].sha256
 
-        self.nodes[0].generate(99) # let the block mature
+        self.nodes[0].generate(59) # let the block mature (Dogecoin nCoinbaseMaturity=60)
 
         # Create a transaction that spends the coinbase
         tx = CTransaction()
@@ -1296,7 +1299,7 @@ class SegWitTest(BitcoinTestFramework):
         spend_tx.rehash()
 
         # Now test a premature spend.
-        self.nodes[0].generate(98)
+        self.nodes[0].generate(58)  # Dogecoin nCoinbaseMaturity=60; 58 more = 59 deep = premature
         sync_blocks(self.nodes)
         block2 = self.build_next_block()
         self.update_witness_block_with_transactions(block2, [spend_tx])
