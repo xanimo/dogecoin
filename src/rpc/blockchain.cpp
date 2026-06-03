@@ -399,6 +399,7 @@ std::string EntryDescriptionString()
 
 void entryToJSON(UniValue &info, const CTxMemPoolEntry &e)
 {
+    AssertLockHeld(cs_main);
     AssertLockHeld(mempool.cs);
 
     info.pushKV("size", (int)e.GetTxSize());
@@ -435,7 +436,7 @@ UniValue mempoolToJSON(bool fVerbose = false)
 {
     if (fVerbose)
     {
-        LOCK(mempool.cs);
+        LOCK2(cs_main, mempool.cs);
         UniValue o(UniValue::VOBJ);
         BOOST_FOREACH(const CTxMemPoolEntry& e, mempool.mapTx)
         {
@@ -523,7 +524,7 @@ UniValue getmempoolancestors(const JSONRPCRequest& request)
 
     uint256 hash = ParseHashV(request.params[0], "parameter 1");
 
-    LOCK(mempool.cs);
+    LOCK2(cs_main, mempool.cs);
 
     CTxMemPool::txiter it = mempool.mapTx.find(hash);
     if (it == mempool.mapTx.end()) {
@@ -587,7 +588,7 @@ UniValue getmempooldescendants(const JSONRPCRequest& request)
 
     uint256 hash = ParseHashV(request.params[0], "parameter 1");
 
-    LOCK(mempool.cs);
+    LOCK2(cs_main, mempool.cs);
 
     CTxMemPool::txiter it = mempool.mapTx.find(hash);
     if (it == mempool.mapTx.end()) {
@@ -639,7 +640,7 @@ UniValue getmempoolentry(const JSONRPCRequest& request)
 
     uint256 hash = ParseHashV(request.params[0], "parameter 1");
 
-    LOCK(mempool.cs);
+    LOCK2(cs_main, mempool.cs);
 
     CTxMemPool::txiter it = mempool.mapTx.find(hash);
     if (it == mempool.mapTx.end()) {
