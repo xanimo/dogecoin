@@ -128,10 +128,11 @@ const std::string strMessageMagic = "Dogecoin Signed Message:\n";
 // File-scope aliases for g_chainman.m_blockman members used by free functions.
 static std::multimap<CBlockIndex*, CBlockIndex*>& mapBlocksUnlinked = g_chainman.m_blockman.m_blocks_unlinked;
 
+CCriticalSection cs_LastBlockFile;
+
 // Internal stuff
 namespace {
     CBlockIndex* pindexBestInvalid = nullptr;
-    CCriticalSection cs_LastBlockFile;
     std::vector<CBlockFileInfo> vinfoBlockFile;
     int nLastBlockFile = 0;
     /** Global flag to indicate we should check to see if there are
