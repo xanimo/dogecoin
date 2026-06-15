@@ -100,23 +100,39 @@ public:
  * The data vector contains RIPEMD160(SHA256(pubkey)), where pubkey is the serialized public key.
  * Script-hash-addresses have version 5 (or 196 testnet).
  * The data vector contains RIPEMD160(SHA256(cscript)), where cscript is the serialized redemption script.
+ * Witness addresses use bech32 encoding (BIP 173).
  */
 class CBitcoinAddress : public CBase58Data {
+private:
+    // For bech32 witness addresses
+    bool fBech32;
+    int nWitVersion;
+    std::vector<unsigned char> witProgram;
+    std::string bech32String;
+
 public:
     bool Set(const CKeyID &id);
     bool Set(const CScriptID &id);
+    bool Set(const WitnessV0KeyHash &id);
+    bool Set(const WitnessV0ScriptHash &id);
+    bool Set(const WitnessUnknown &id);
     bool Set(const CTxDestination &dest);
     bool IsValid() const;
     bool IsValid(const CChainParams &params) const;
 
-    CBitcoinAddress() {}
-    CBitcoinAddress(const CTxDestination &dest) { Set(dest); }
-    CBitcoinAddress(const std::string& strAddress) { SetString(strAddress); }
-    CBitcoinAddress(const char* pszAddress) { SetString(pszAddress); }
+    CBitcoinAddress() : fBech32(false), nWitVersion(-1) {}
+    CBitcoinAddress(const CTxDestination &dest) : fBech32(false), nWitVersion(-1) { Set(dest); }
+    CBitcoinAddress(const std::string& strAddress) : fBech32(false), nWitVersion(-1) { SetString(strAddress); }
+    CBitcoinAddress(const char* pszAddress) : fBech32(false), nWitVersion(-1) { SetString(pszAddress); }
+
+    bool SetString(const char* psz);
+    bool SetString(const std::string& str);
+    std::string ToString() const;
 
     CTxDestination Get() const;
     bool GetKeyID(CKeyID &keyID) const;
     bool IsScript() const;
+    bool IsWitness() const;
 };
 
 /**

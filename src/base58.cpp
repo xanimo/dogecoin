@@ -4,6 +4,7 @@
 
 #include "base58.h"
 
+#include "bech32.h"
 #include "hash.h"
 #include "uint256.h"
 
@@ -212,6 +213,30 @@ int CBase58Data::CompareTo(const CBase58Data& b58) const
 
 namespace
 {
+
+/** Convert from one power-of-2 number base to another. */
+template<int frombits, int tobits, bool pad, typename O, typename I>
+bool ConvertBits(O& out, I it, I end) {
+    size_t acc = 0;
+    size_t bits = 0;
+    const size_t maxv = (1 << tobits) - 1;
+    while (it != end) {
+        acc = (acc << frombits) | *it;
+        bits += frombits;
+        while (bits >= (size_t)tobits) {
+            bits -= tobits;
+            out.push_back((acc >> bits) & maxv);
+        }
+        ++it;
+    }
+    if (pad) {
+        if (bits) out.push_back((acc << (tobits - bits)) & maxv);
+    } else if (bits >= (size_t)frombits || ((acc << (tobits - bits)) & maxv)) {
+        return false;
+    }
+    return true;
+}
+
 class CBitcoinAddressVisitor : public boost::static_visitor<bool>
 {
 private:
@@ -222,6 +247,9 @@ public:
 
     bool operator()(const CKeyID& id) const { return addr->Set(id); }
     bool operator()(const CScriptID& id) const { return addr->Set(id); }
+    bool operator()(const WitnessV0KeyHash& id) const { return addr->Set(id); }
+    bool operator()(const WitnessV0ScriptHash& id) const { return addr->Set(id); }
+    bool operator()(const WitnessUnknown& id) const { return addr->Set(id); }
     bool operator()(const CNoDestination& no) const { return false; }
 };
 
@@ -229,19 +257,109 @@ public:
 
 bool CBitcoinAddress::Set(const CKeyID& id)
 {
+    fBech32 = false;
+    nWitVersion = -1;
+    witProgram.clear();
+    bech32String.clear();
     SetData(Params().Base58Prefix(CChainParams::PUBKEY_ADDRESS), &id, 20);
     return true;
 }
 
 bool CBitcoinAddress::Set(const CScriptID& id)
 {
+    fBech32 = false;
+    nWitVersion = -1;
+    witProgram.clear();
+    bech32String.clear();
     SetData(Params().Base58Prefix(CChainParams::SCRIPT_ADDRESS), &id, 20);
+    return true;
+}
+
+bool CBitcoinAddress::Set(const WitnessV0KeyHash& id)
+{
+    fBech32 = true;
+    nWitVersion = 0;
+    witProgram.assign(id.begin(), id.end());
+    std::vector<uint8_t> data = {0}; // witness version 0
+    ConvertBits<8, 5, true>(data, witProgram.begin(), witProgram.end());
+    bech32String = bech32::Encode(Params().Bech32HRP(), data);
+    return true;
+}
+
+bool CBitcoinAddress::Set(const WitnessV0ScriptHash& id)
+{
+    fBech32 = true;
+    nWitVersion = 0;
+    witProgram.assign(id.begin(), id.end());
+    std::vector<uint8_t> data = {0}; // witness version 0
+    ConvertBits<8, 5, true>(data, witProgram.begin(), witProgram.end());
+    bech32String = bech32::Encode(Params().Bech32HRP(), data);
+    return true;
+}
+
+bool CBitcoinAddress::Set(const WitnessUnknown& id)
+{
+    fBech32 = true;
+    nWitVersion = id.version;
+    witProgram.assign(id.program, id.program + id.length);
+    std::vector<uint8_t> data = {(uint8_t)id.version};
+    ConvertBits<8, 5, true>(data, witProgram.begin(), witProgram.end());
+    bech32String = bech32::Encode(Params().Bech32HRP(), data);
     return true;
 }
 
 bool CBitcoinAddress::Set(const CTxDestination& dest)
 {
     return boost::apply_visitor(CBitcoinAddressVisitor(this), dest);
+}
+
+bool CBitcoinAddress::SetString(const char* psz)
+{
+    // Try bech32 decode first
+    std::string str(psz);
+    auto bech = bech32::Decode(str);
+    if (bech.second.size() > 0 && bech.first == Params().Bech32HRP()) {
+        // It's a valid bech32 address
+        int version = bech.second[0]; // first byte is witness version
+        std::vector<unsigned char> program;
+        if (ConvertBits<5, 8, false>(program, bech.second.begin() + 1, bech.second.end())) {
+            if (program.size() >= 2 && program.size() <= 40) {
+                if (version == 0 && (program.size() == 20 || program.size() == 32)) {
+                    fBech32 = true;
+                    nWitVersion = version;
+                    witProgram = program;
+                    bech32String = str;
+                    return true;
+                }
+                if (version != 0) {
+                    fBech32 = true;
+                    nWitVersion = version;
+                    witProgram = program;
+                    bech32String = str;
+                    return true;
+                }
+            }
+        }
+    }
+    // Try base58 decode
+    fBech32 = false;
+    nWitVersion = -1;
+    witProgram.clear();
+    bech32String.clear();
+    return CBase58Data::SetString(psz);
+}
+
+bool CBitcoinAddress::SetString(const std::string& str)
+{
+    return SetString(str.c_str());
+}
+
+std::string CBitcoinAddress::ToString() const
+{
+    if (fBech32) {
+        return bech32String;
+    }
+    return CBase58Data::ToString();
 }
 
 bool CBitcoinAddress::IsValid() const
@@ -251,6 +369,13 @@ bool CBitcoinAddress::IsValid() const
 
 bool CBitcoinAddress::IsValid(const CChainParams& params) const
 {
+    if (fBech32) {
+        // Validate bech32 witness address
+        if (nWitVersion < 0 || nWitVersion > 16) return false;
+        if (witProgram.size() < 2 || witProgram.size() > 40) return false;
+        if (nWitVersion == 0 && witProgram.size() != 20 && witProgram.size() != 32) return false;
+        return true;
+    }
     bool fCorrectSize = vchData.size() == 20;
     bool fKnownVersion = vchVersion == params.Base58Prefix(CChainParams::PUBKEY_ADDRESS) ||
                          vchVersion == params.Base58Prefix(CChainParams::SCRIPT_ADDRESS);
@@ -261,6 +386,27 @@ CTxDestination CBitcoinAddress::Get() const
 {
     if (!IsValid())
         return CNoDestination();
+
+    if (fBech32) {
+        if (nWitVersion == 0) {
+            if (witProgram.size() == 20) {
+                uint160 hash;
+                std::copy(witProgram.begin(), witProgram.end(), hash.begin());
+                return WitnessV0KeyHash(hash);
+            }
+            if (witProgram.size() == 32) {
+                uint256 hash;
+                std::copy(witProgram.begin(), witProgram.end(), hash.begin());
+                return WitnessV0ScriptHash(hash);
+            }
+        }
+        WitnessUnknown unk;
+        unk.version = nWitVersion;
+        unk.length = witProgram.size();
+        std::copy(witProgram.begin(), witProgram.end(), unk.program);
+        return unk;
+    }
+
     uint160 id;
     memcpy(&id, &vchData[0], 20);
     if (vchVersion == Params().Base58Prefix(CChainParams::PUBKEY_ADDRESS))
@@ -273,6 +419,7 @@ CTxDestination CBitcoinAddress::Get() const
 
 bool CBitcoinAddress::GetKeyID(CKeyID& keyID) const
 {
+    if (fBech32) return false;
     if (!IsValid() || vchVersion != Params().Base58Prefix(CChainParams::PUBKEY_ADDRESS))
         return false;
     uint160 id;
@@ -283,7 +430,12 @@ bool CBitcoinAddress::GetKeyID(CKeyID& keyID) const
 
 bool CBitcoinAddress::IsScript() const
 {
-    return IsValid() && vchVersion == Params().Base58Prefix(CChainParams::SCRIPT_ADDRESS);
+    return IsValid() && !fBech32 && vchVersion == Params().Base58Prefix(CChainParams::SCRIPT_ADDRESS);
+}
+
+bool CBitcoinAddress::IsWitness() const
+{
+    return IsValid() && fBech32;
 }
 
 void CBitcoinSecret::SetKey(const CKey& vchSecret)

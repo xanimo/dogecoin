@@ -92,6 +92,18 @@ public:
     {
         return (exp_addrType == "none");
     }
+    bool operator()(const WitnessV0KeyHash &id) const
+    {
+        return (exp_addrType == "witness_v0_keyhash");
+    }
+    bool operator()(const WitnessV0ScriptHash &id) const
+    {
+        return (exp_addrType == "witness_v0_scripthash");
+    }
+    bool operator()(const WitnessUnknown &id) const
+    {
+        return (exp_addrType == "witness_unknown");
+    }
 };
 
 // Visitor to check address payload
@@ -114,6 +126,20 @@ public:
     bool operator()(const CNoDestination &no) const
     {
         return exp_payload.size() == 0;
+    }
+    bool operator()(const WitnessV0KeyHash &id) const
+    {
+        uint160 exp_key(exp_payload);
+        return exp_key == id;
+    }
+    bool operator()(const WitnessV0ScriptHash &id) const
+    {
+        uint256 exp_key(exp_payload);
+        return exp_key == id;
+    }
+    bool operator()(const WitnessUnknown &id) const
+    {
+        return false;
     }
 };
 

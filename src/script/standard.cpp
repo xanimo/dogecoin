@@ -205,6 +205,20 @@ bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
         addressRet = CScriptID(uint160(vSolutions[0]));
         return true;
     }
+    else if (whichType == TX_WITNESS_V0_KEYHASH)
+    {
+        WitnessV0KeyHash hash;
+        std::copy(vSolutions[0].begin(), vSolutions[0].end(), hash.begin());
+        addressRet = hash;
+        return true;
+    }
+    else if (whichType == TX_WITNESS_V0_SCRIPTHASH)
+    {
+        WitnessV0ScriptHash hash;
+        std::copy(vSolutions[0].begin(), vSolutions[0].end(), hash.begin());
+        addressRet = hash;
+        return true;
+    }
     // Multisig txns have more than one address...
     return false;
 }
@@ -272,6 +286,24 @@ public:
     bool operator()(const CScriptID &scriptID) const {
         script->clear();
         *script << OP_HASH160 << ToByteVector(scriptID) << OP_EQUAL;
+        return true;
+    }
+
+    bool operator()(const WitnessV0KeyHash &id) const {
+        script->clear();
+        *script << OP_0 << ToByteVector(id);
+        return true;
+    }
+
+    bool operator()(const WitnessV0ScriptHash &id) const {
+        script->clear();
+        *script << OP_0 << ToByteVector(id);
+        return true;
+    }
+
+    bool operator()(const WitnessUnknown &id) const {
+        script->clear();
+        *script << CScript::EncodeOP_N(id.version) << std::vector<unsigned char>(id.program, id.program + id.length);
         return true;
     }
 };
