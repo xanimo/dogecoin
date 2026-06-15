@@ -1164,6 +1164,10 @@ public:
         }
         return false;
     }
+
+    bool operator()(const WitnessV0KeyHash &id) { return false; }
+    bool operator()(const WitnessV0ScriptHash &id) { return false; }
+    bool operator()(const WitnessUnknown &id) { return false; }
 };
 
 UniValue addwitnessaddress(const JSONRPCRequest& request)
