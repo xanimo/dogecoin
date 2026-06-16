@@ -113,6 +113,7 @@ testScripts = [
     'getauxblock.py',
     'wallet.py',
     'wallet-accounts.py',
+    'wallet-address-types.py',
     # 'p2p-segwit.py',
     'wallet-dump.py',
     'listtransactions.py',

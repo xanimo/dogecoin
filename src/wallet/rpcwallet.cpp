@@ -111,18 +111,21 @@ UniValue getnewaddress(const JSONRPCRequest& request)
     if (!EnsureWalletIsAvailable(request.fHelp))
         return NullUniValue;
 
-    if (request.fHelp || request.params.size() > 1)
+    if (request.fHelp || request.params.size() > 2)
         throw runtime_error(
-            "getnewaddress ( \"account\" )\n"
+            "getnewaddress ( \"account\" \"address_type\" )\n"
             "\nReturns a new Dogecoin address for receiving payments.\n"
             "If 'account' is specified (DEPRECATED), it is added to the address book \n"
             "so payments received with the address will be credited to 'account'.\n"
             "\nArguments:\n"
             "1. \"account\"        (string, optional) DEPRECATED. The account name for the address to be linked to. If not provided, the default account \"\" is used. It can also be set to the empty string \"\" to represent the default account. The account does not need to exist, it will be created if there is no account by the given name.\n"
+            "2. \"address_type\"   (string, optional) The address type to use. Options are \"legacy\", \"p2sh-segwit\", and \"bech32\". Default is \"legacy\".\n"
             "\nResult:\n"
             "\"address\"    (string) The new dogecoin address\n"
             "\nExamples:\n"
             + HelpExampleCli("getnewaddress", "")
+            + HelpExampleCli("getnewaddress", "\"\" \"bech32\"")
+            + HelpExampleCli("getnewaddress", "\"\" \"p2sh-segwit\"")
             + HelpExampleRpc("getnewaddress", "")
         );
 
@@ -133,6 +136,14 @@ UniValue getnewaddress(const JSONRPCRequest& request)
     if (request.params.size() > 0)
         strAccount = AccountFromValue(request.params[0]);
 
+    string address_type = "legacy";
+    if (request.params.size() > 1) {
+        address_type = request.params[1].get_str();
+        if (address_type != "legacy" && address_type != "p2sh-segwit" && address_type != "bech32") {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Unknown address type '" + address_type + "', must be 'legacy', 'p2sh-segwit', or 'bech32'");
+        }
+    }
+
     if (!pwalletMain->IsLocked())
         pwalletMain->TopUpKeyPool();
 
@@ -141,6 +152,25 @@ UniValue getnewaddress(const JSONRPCRequest& request)
     if (!pwalletMain->GetKeyFromPool(newKey))
         throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, "Error: Keypool ran out, please call keypoolrefill first");
     CKeyID keyID = newKey.GetID();
+
+    if (address_type == "bech32") {
+        // Return native segwit bech32 address (P2WPKH)
+        CTxDestination witdest = WitnessV0KeyHash(keyID);
+        // Store the witness script so wallet can spend it
+        CScript witscript = GetScriptForDestination(keyID);
+        CScript witnessScript = GetScriptForWitness(witscript);
+        pwalletMain->AddCScript(witnessScript);
+        pwalletMain->SetAddressBook(keyID, strAccount, "receive");
+        return CBitcoinAddress(witdest).ToString();
+    } else if (address_type == "p2sh-segwit") {
+        // Return P2SH-wrapped segwit address
+        CScript basescript = GetScriptForDestination(keyID);
+        CScript witscript = GetScriptForWitness(basescript);
+        pwalletMain->AddCScript(witscript);
+        CScriptID scriptID(witscript);
+        pwalletMain->SetAddressBook(scriptID, strAccount, "receive");
+        return CBitcoinAddress(scriptID).ToString();
+    }
 
     pwalletMain->SetAddressBook(keyID, strAccount, "receive");
 
