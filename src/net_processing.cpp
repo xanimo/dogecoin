@@ -71,8 +71,8 @@ static constexpr int64_t OVERLOADED_PEER_TX_DELAY = 2 * 1000000;
 static constexpr int64_t GETDATA_TX_INTERVAL = 30 * 1000000; // 30 seconds
 /** Limit to avoid sending big packets. Not used in processing incoming GETDATA for compatibility */
 static const unsigned int MAX_GETDATA_SZ = 1000;
-/** Minimum blocks required to signal NODE_NETWORK_LIMITED */
-static const unsigned int NODE_NETWORK_LIMITED_MIN_BLOCKS = 288;
+/** Minimum blocks required to signal NODE_NETWORK_LIMITED (2 days at 1 min/block) */
+static const unsigned int NODE_NETWORK_LIMITED_MIN_BLOCKS = 2880;
 /** Maximum number of compact filters that may be requested with one getcfilters. See BIP 157. */
 static constexpr uint32_t MAX_GETCFILTERS_SIZE = 1000;
 /** Maximum number of cf hashes that may be requested with one getcfheaders. See BIP 157. */
