@@ -65,6 +65,18 @@ BOOST_AUTO_TEST_CASE(GetFeeTest)
     // some more integer checks
     BOOST_CHECK(CFeeRate(CAmount(26), 789) == CFeeRate(32));
     BOOST_CHECK(CFeeRate(CAmount(27), 789) == CFeeRate(34));
+
+    // Dogecoin (F-01): fee amounts up to MAX_MONEY (1e18 sat) make nFeePaid*1000
+    // overflow int64_t (Bitcoin's 21M-coin cap keeps it under INT64_MAX, so this
+    // is fork-specific). The full constructor and GetFee() must compute without
+    // overflow: exact where the result fits, saturating where it genuinely does not.
+    BOOST_CHECK_EQUAL(CFeeRate(MAX_MONEY, 1000).GetFeePerK(), MAX_MONEY);     // 1e18*1000/1000
+    BOOST_CHECK_EQUAL(CFeeRate(MAX_MONEY, 250).GetFeePerK(), 4 * MAX_MONEY);  // 4e18 < INT64_MAX
+    BOOST_CHECK_EQUAL(CFeeRate(-MAX_MONEY, 250).GetFeePerK(), -4 * MAX_MONEY);
+    // GetFee: nSatoshisPerK * nSize must not overflow; saturates when the true fee
+    // exceeds int64_t (1e18 sat/kB * 1e6 bytes / 1000 == 1e21 > INT64_MAX).
+    BOOST_CHECK_EQUAL(CFeeRate(MAX_MONEY).GetFee(1000000), std::numeric_limits<CAmount>::max());
+
     // Maximum size in bytes, should not crash
     CFeeRate(MAX_MONEY, std::numeric_limits<size_t>::max() >> 1).GetFeePerK();
 }
