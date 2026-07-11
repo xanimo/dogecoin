@@ -450,6 +450,7 @@ CSHA512::CSHA512() : bytes(0)
 
 CSHA512& CSHA512::Write(const unsigned char* data, size_t len)
 {
+    if (len == 0) return *this; // empty input: avoid nullptr + offset UB (F-02)
     const unsigned char* end = data + len;
     size_t bufsize = bytes % 128;
     if (bufsize && bufsize + len >= 128) {

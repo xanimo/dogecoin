@@ -361,6 +361,7 @@ CSHA1::CSHA1() : bytes(0)
 
 CSHA1& CSHA1::Write(const unsigned char* data, size_t len)
 {
+    if (len == 0) return *this; // empty input: avoid nullptr + offset UB (F-02)
     const unsigned char* end = data + len;
     size_t bufsize = bytes % 64;
     if (bufsize && bufsize + len >= 64) {
