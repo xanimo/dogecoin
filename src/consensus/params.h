@@ -80,6 +80,19 @@ struct Params {
     int32_t nAuxpowChainId;
     bool fStrictChainId;
     bool fAllowLegacyBlocks;
+    /**
+     * AuxPoW protocol version effective for this consensus epoch.
+     *   0 = AuxPoW not yet active (legacy PoW only)
+     *   1 = AuxPoW active, chain ID packed into block nVersion bits 16-31
+     *       (the historical "version abuse"; leaves only 8 base-version bits,
+     *        so BIP9 versionbits signalling is impossible)
+     *   2 = AuxPoW active, chain ID validated out-of-band so the full nVersion
+     *       is available to BIP9 versionbits (segwit prerequisite; not yet
+     *       assigned to any epoch — see DIP dip-xanimo-auxpow-versionbits)
+     * Forward-ported from patricklodder's 2016 nAuxPowVersion work (PR #1344),
+     * replacing the derived fAllowLegacyBlocks gate with an explicit version.
+     */
+    int nAuxPowVersion;
 
     /** Height-aware consensus parameters */
     uint32_t nHeightEffective; // When these parameters come into use

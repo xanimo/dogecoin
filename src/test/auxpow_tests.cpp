@@ -452,4 +452,38 @@ BOOST_AUTO_TEST_CASE(auxpow_pow)
 
 /* ************************************************************************** */
 
+/* ************************************************************************** */
+
+/* nAuxPowVersion replaced the derived fAllowLegacyBlocks gate. The forward-port
+   is only safe if the two agree on every epoch of every chain, since validation
+   now keys off the version instead of the flag. Checked at the heights where
+   the consensus epochs change rather than at a single height, because the
+   params are a chain of epochs and only one of them is live at a time. */
+BOOST_AUTO_TEST_CASE(auxpow_version_matches_legacy_gate)
+{
+    const std::string chains[] = {
+        CBaseChainParams::MAIN, CBaseChainParams::TESTNET, CBaseChainParams::REGTEST
+    };
+    /* Spans the pre-AuxPoW, digishield and AuxPoW epochs on every chain. */
+    const uint32_t heights[] = {0, 1, 144999, 145000, 371336, 371337, 1000000, 5000000};
+
+    for (const std::string& chain : chains) {
+        const CChainParams& params = Params(chain);
+        for (uint32_t height : heights) {
+            const Consensus::Params& c = params.GetConsensus(height);
+            BOOST_CHECK_MESSAGE((c.nAuxPowVersion < 1) == c.fAllowLegacyBlocks,
+                chain + " at height " + std::to_string(height) +
+                ": nAuxPowVersion " + std::to_string(c.nAuxPowVersion) +
+                " disagrees with fAllowLegacyBlocks");
+
+            /* Version 2 frees nVersion for versionbits and changes what the
+               miner emits. No epoch assigns it yet, so the new branch in
+               BlockAssembler is unreachable and this port is inert. */
+            BOOST_CHECK_MESSAGE(c.nAuxPowVersion < 2,
+                chain + " at height " + std::to_string(height) +
+                " already enables AuxPoW v2; the miner path is no longer inert");
+        }
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()
