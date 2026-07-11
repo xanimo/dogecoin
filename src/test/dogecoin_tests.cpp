@@ -209,6 +209,148 @@ BOOST_AUTO_TEST_CASE(get_next_work_digishield_rounding)
     BOOST_CHECK_EQUAL(CalculateDogecoinNextWorkRequired(&pindexLast, nLastRetargetTime, params), 0x1b6558a4);
 }
 
+// Adversarial timespan clamping (Thread-C). Block timestamps are attacker-
+// influenced (bounded only by median-time-past and the 2h future limit), so
+// CalculateDogecoinNextWorkRequired must bound how far one retarget can move the
+// target regardless of how extreme the reported actual timespan is. These are
+// positive controls: they feed timespans FAR outside the modulation window and
+// assert the output equals the clamped-ratio target, and that two differently
+// extreme manipulations produce the IDENTICAL clamped result (so the adjustment
+// is bounded, not proportional to the manipulation).
+BOOST_AUTO_TEST_CASE(get_next_work_digishield_clamp_low)
+{
+    SelectParams(CBaseChainParams::MAIN);
+    const Consensus::Params& params = Params().GetConsensus(145000); // digishield: timespan 60
+    BOOST_CHECK_EQUAL(params.nPowTargetTimespan, 60);
+
+    CBlockIndex pindexLast;
+    pindexLast.nHeight = 145107;
+    pindexLast.nTime   = 1395101360;
+    pindexLast.nBits   = 0x1b3439cd;
+
+    // nMinTimespan for digishield = timespan - timespan/4 = 45. Any pre-clamp
+    // modulated timespan < 45 (i.e. nActual < -60) must clamp to 45.
+    arith_uint256 bnExpected;
+    bnExpected.SetCompact(pindexLast.nBits);
+    bnExpected *= 45;
+    bnExpected /= 60;
+    const unsigned int expected = bnExpected.GetCompact();
+
+    // Two wildly different "too fast" manipulations -> same clamped result.
+    const unsigned int r1 = CalculateDogecoinNextWorkRequired(&pindexLast, pindexLast.nTime + 1000000, params);
+    const unsigned int r2 = CalculateDogecoinNextWorkRequired(&pindexLast, pindexLast.nTime + 1000000000, params);
+    BOOST_CHECK_EQUAL(r1, expected);
+    BOOST_CHECK_EQUAL(r1, r2);          // clamp is bounded, not proportional
+    BOOST_CHECK(r1 != 0);               // never produces a zero/degenerate target
+}
+
+BOOST_AUTO_TEST_CASE(get_next_work_digishield_clamp_high)
+{
+    SelectParams(CBaseChainParams::MAIN);
+    const Consensus::Params& params = Params().GetConsensus(145000);
+
+    CBlockIndex pindexLast;
+    pindexLast.nHeight = 145107;
+    pindexLast.nTime   = 1395101360;
+    pindexLast.nBits   = 0x1b3439cd;
+
+    // nMaxTimespan for digishield = timespan + timespan/2 = 90. Any pre-clamp
+    // modulated timespan > 90 (i.e. nActual > 300) must clamp to 90.
+    arith_uint256 bnPowLimit = UintToArith256(params.powLimit);
+    arith_uint256 bnExpected;
+    bnExpected.SetCompact(pindexLast.nBits);
+    bnExpected *= 90;
+    bnExpected /= 60;
+    if (bnExpected > bnPowLimit) bnExpected = bnPowLimit;
+    const unsigned int expected = bnExpected.GetCompact();
+
+    const unsigned int r1 = CalculateDogecoinNextWorkRequired(&pindexLast, pindexLast.nTime - 1000000, params);
+    const unsigned int r2 = CalculateDogecoinNextWorkRequired(&pindexLast, pindexLast.nTime - 1000000000, params);
+    BOOST_CHECK_EQUAL(r1, expected);
+    BOOST_CHECK_EQUAL(r1, r2);
+    BOOST_CHECK(r1 != 0);
+}
+
+// Overflow safety at the minimum-difficulty boundary: with nBits already at
+// powLimit, the *90/60 upscale would exceed powLimit; the result must clamp to
+// exactly powLimit's compact (and the 256-bit multiply must not wrap).
+BOOST_AUTO_TEST_CASE(get_next_work_clamp_to_powlimit)
+{
+    SelectParams(CBaseChainParams::MAIN);
+    const Consensus::Params& params = Params().GetConsensus(145000);
+
+    const arith_uint256 bnPowLimit = UintToArith256(params.powLimit);
+    CBlockIndex pindexLast;
+    pindexLast.nHeight = 200000;
+    pindexLast.nTime   = 1395101360;
+    pindexLast.nBits   = bnPowLimit.GetCompact(); // already easiest allowed target
+
+    // A "too slow" timespan wants to raise the target above powLimit -> clamp.
+    const unsigned int r = CalculateDogecoinNextWorkRequired(&pindexLast, pindexLast.nTime - 1000000, params);
+    BOOST_CHECK_EQUAL(r, bnPowLimit.GetCompact());
+
+    // Result decodes back to <= powLimit (no wrap past the limit).
+    arith_uint256 bnResult;
+    bnResult.SetCompact(r);
+    BOOST_CHECK(bnResult <= bnPowLimit);
+}
+
+// Pre-digishield clamp branch (nHeight > 10000): min = timespan/4, max =
+// timespan*4. Same bounded-adjustment property with the 4h timespan.
+BOOST_AUTO_TEST_CASE(get_next_work_pre_digishield_clamp)
+{
+    SelectParams(CBaseChainParams::MAIN);
+    const Consensus::Params& params = Params().GetConsensus(0); // pre-digishield: timespan 14400
+    BOOST_CHECK_EQUAL(params.nPowTargetTimespan, 14400);
+
+    CBlockIndex pindexLast;
+    pindexLast.nHeight = 20000;      // > 10000 -> min = timespan/4, max = timespan*4
+    pindexLast.nTime   = 1386954113;
+    pindexLast.nBits   = 0x1c1a1206;
+
+    // too fast -> clamp to nMinTimespan = 14400/4 = 3600
+    arith_uint256 bnLow; bnLow.SetCompact(pindexLast.nBits); bnLow *= 3600; bnLow /= 14400;
+    const unsigned int rLow1 = CalculateDogecoinNextWorkRequired(&pindexLast, pindexLast.nTime + 1000000, params);
+    const unsigned int rLow2 = CalculateDogecoinNextWorkRequired(&pindexLast, pindexLast.nTime + 5000000, params);
+    BOOST_CHECK_EQUAL(rLow1, bnLow.GetCompact());
+    BOOST_CHECK_EQUAL(rLow1, rLow2);
+
+    // too slow -> clamp to nMaxTimespan = 14400*4 = 57600
+    arith_uint256 bnPowLimit = UintToArith256(params.powLimit);
+    arith_uint256 bnHigh; bnHigh.SetCompact(pindexLast.nBits); bnHigh *= 57600; bnHigh /= 14400;
+    if (bnHigh > bnPowLimit) bnHigh = bnPowLimit;
+    const unsigned int rHigh1 = CalculateDogecoinNextWorkRequired(&pindexLast, pindexLast.nTime - 1000000, params);
+    const unsigned int rHigh2 = CalculateDogecoinNextWorkRequired(&pindexLast, pindexLast.nTime - 5000000, params);
+    BOOST_CHECK_EQUAL(rHigh1, bnHigh.GetCompact());
+    BOOST_CHECK_EQUAL(rHigh1, rHigh2);
+}
+
+// Subsidy halving-edge exactness at the phase-switch boundaries (Thread-C).
+// The existing subsidy_* tests sum ranges; this pins the exact per-height value
+// on both sides of the halving/phase edges where an off-by-one would bite.
+BOOST_AUTO_TEST_CASE(subsidy_halving_edges)
+{
+    const CChainParams& mainParams = Params(CBaseChainParams::MAIN);
+    const uint256 h = uint256S("0");
+
+    // Simplified-reward phase: value = (500000 >> (height/100000)) * COIN until
+    // height >= 6*interval, then constant 10000 * COIN.
+    struct { int height; CAmount expect; } cases[] = {
+        {145000, (CAmount)(500000 >> 1) * COIN},   // halvings=1
+        {199999, (CAmount)(500000 >> 1) * COIN},   // still halvings=1
+        {200000, (CAmount)(500000 >> 2) * COIN},   // halvings=2 (edge)
+        {599999, (CAmount)(500000 >> 5) * COIN},   // halvings=5 -> 15625
+        {600000, (CAmount)10000 * COIN},           // 6*interval -> constant (edge)
+        {600001, (CAmount)10000 * COIN},
+    };
+    for (const auto& c : cases) {
+        CAmount s = GetDogecoinBlockSubsidy(c.height, mainParams.GetConsensus(c.height), h);
+        BOOST_CHECK_MESSAGE(s == c.expect,
+            "height " << c.height << ": got " << s << " expected " << c.expect);
+        BOOST_CHECK(MoneyRange(s));
+    }
+}
+
 BOOST_AUTO_TEST_CASE(hardfork_parameters)
 {
     SelectParams(CBaseChainParams::MAIN);
