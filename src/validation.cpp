@@ -3075,8 +3075,13 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
 
     // Dogecoin: Disallow AuxPow blocks before it is activated.
     // TODO: Remove this test, as checkpoints will enforce this for us now
-    // NOTE: Previously this had its own fAllowAuxPoW flag, but that's always the opposite of fAllowLegacyBlocks
-    if (consensusParams.fAllowLegacyBlocks
+    // NOTE: This was historically gated on fAllowLegacyBlocks (always the
+    // opposite of AuxPoW being active). It now keys off the explicit
+    // nAuxPowVersion epoch value (forward-ported from patricklodder PR #1344):
+    // nAuxPowVersion < 1 is exactly the set of epochs where fAllowLegacyBlocks
+    // is true, so this is behaviour-preserving today while giving the future
+    // versionbits epoch (nAuxPowVersion >= 2) a distinct lever.
+    if (consensusParams.nAuxPowVersion < 1
         && block.IsAuxpow())
         return state.DoS(100, error("%s : auxpow blocks are not allowed at height %d, parameters effective from %d",
                                     __func__, pindexPrev->nHeight + 1, consensusParams.nHeightEffective),

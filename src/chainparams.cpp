@@ -120,6 +120,7 @@ public:
         consensus.nAuxpowChainId = 0x0062; // 98 - Josh Wise!
         consensus.fStrictChainId = true;
         consensus.fAllowLegacyBlocks = true;
+        consensus.nAuxPowVersion = 0; // pre-AuxPoW: legacy PoW only
         consensus.nHeightEffective = 0;
 
         // Blocks 145000 - 371336 are Digishield without AuxPoW
@@ -134,6 +135,7 @@ public:
         auxpowConsensus = digishieldConsensus;
         auxpowConsensus.nHeightEffective = 371337;
         auxpowConsensus.fAllowLegacyBlocks = false;
+        auxpowConsensus.nAuxPowVersion = 1; // AuxPoW active; chain ID in nVersion
 
         // Assemble the binary search tree of consensus parameters
         pConsensusRoot = &digishieldConsensus;
@@ -279,6 +281,7 @@ public:
         consensus.fStrictChainId = false;
         consensus.nHeightEffective = 0;
         consensus.fAllowLegacyBlocks = true;
+        consensus.nAuxPowVersion = 0; // pre-AuxPoW: legacy PoW only
 
         // Blocks 145000 - 157499 are Digishield without minimum difficulty on all blocks
         digishieldConsensus = consensus;
@@ -300,6 +303,7 @@ public:
         auxpowConsensus.nHeightEffective = 158100;
         auxpowConsensus.fPowAllowDigishieldMinDifficultyBlocks = true;
         auxpowConsensus.fAllowLegacyBlocks = false;
+        auxpowConsensus.nAuxPowVersion = 1; // AuxPoW active; chain ID in nVersion
 
         // Assemble the binary search tree of parameters
         pConsensusRoot = &digishieldConsensus;
@@ -421,6 +425,7 @@ public:
         consensus.nAuxpowChainId = 0x0062; // 98 - Josh Wise!
         consensus.fStrictChainId = true;
         consensus.fAllowLegacyBlocks = true;
+        consensus.nAuxPowVersion = 0; // pre-AuxPoW: legacy PoW only
 
         // Dogecoin parameters
         consensus.fSimplifiedRewards = true;
@@ -433,6 +438,7 @@ public:
 
         auxpowConsensus = digishieldConsensus;
         auxpowConsensus.fAllowLegacyBlocks = false;
+        auxpowConsensus.nAuxPowVersion = 1; // AuxPoW active; chain ID in nVersion
         auxpowConsensus.nHeightEffective = 20;
 
         // Assemble the binary search tree of parameters

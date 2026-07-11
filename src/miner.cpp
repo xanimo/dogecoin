@@ -152,10 +152,22 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 
     const Consensus::Params& consensus = chainparams.GetConsensus(nHeight);
     const int32_t nChainId = consensus.nAuxpowChainId;
-    // FIXME: Active version bits after the always-auxpow fork!
-    // const int32_t nVersion = ComputeBlockVersion(pindexPrev, consensus);
-    const int32_t nVersion = VERSIONBITS_LAST_OLD_BLOCK_VERSION;
-    pblock->SetBaseVersion(nVersion, nChainId);
+    if (consensus.nAuxPowVersion >= 2) {
+        // AuxPoW v2: the chain ID no longer occupies block nVersion bits 16-31
+        // (it is committed/validated out-of-band), so the whole version field is
+        // available to BIP9 versionbits. This is the path that actually lets
+        // segwit signal. It is inert until an epoch sets nAuxPowVersion >= 2 via
+        // a DIP-approved activation (see DIP dip-xanimo-auxpow-versionbits).
+        pblock->nVersion = ComputeBlockVersion(pindexPrev, consensus);
+    } else {
+        // AuxPoW v1: chain ID is packed into nVersion via SetBaseVersion(), which
+        // asserts baseVersion < 256 and forces bits 16-31 to the chain ID. BIP9
+        // signalling is therefore impossible here (chain ID 0x0062 leaves the
+        // versionbits top-3-bit selector as 000, never the required 001), which
+        // is why ComputeBlockVersion cannot be used in this epoch.
+        const int32_t nVersion = VERSIONBITS_LAST_OLD_BLOCK_VERSION;
+        pblock->SetBaseVersion(nVersion, nChainId);
+    }
     // -regtest only: allow overriding block.nVersion with
     // -blockversion=N to test forking scenarios
     if (chainparams.MineBlocksOnDemand())
