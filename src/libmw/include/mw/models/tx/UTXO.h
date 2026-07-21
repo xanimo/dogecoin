@@ -40,9 +40,11 @@ public:
     // ISerializable
     //
     std::vector<uint8_t> Serialized() const override {
-        CDataStream ss(SER_DISK, PROTOCOL_VERSION);
-        ss << *this;
-        return std::vector<uint8_t>(ss.begin(), ss.end());
+        // CVectorWriter (not CDataStream) to keep the secure allocator's
+        // memory_cleanse out of this vtable; see mw::Transaction::Serialized.
+        std::vector<uint8_t> vch;
+        CVectorWriter(SER_DISK, PROTOCOL_VERSION, vch, 0) << *this;
+        return vch;
     }
 
     template<typename Stream>

@@ -115,12 +115,18 @@ public:
 
 END_NAMESPACE
 
-/// Macro to implement Serialized() and static Deserialize() from SERIALIZE_METHODS
+/// Macro to implement Serialized() and static Deserialize() from SERIALIZE_METHODS.
+/// Serialized() uses CVectorWriter (default allocator) rather than CDataStream so
+/// it does not pull the zero_after_free_allocator -> memory_cleanse -> OPENSSL_cleanse
+/// chain into callers. This matters because Serialized() is a virtual override, so
+/// its body is emitted wherever the object's vtable is instantiated -- including the
+/// minimal consensus library (CTransaction/CBlock embed MWEB types), which links as a
+/// mingw DLL with -no-undefined and does not carry OpenSSL. Byte output is identical.
 #define IMPL_SERIALIZED(T) \
     std::vector<uint8_t> Serialized() const { \
-        CDataStream ss(SER_DISK, PROTOCOL_VERSION); \
-        ss << *this; \
-        return std::vector<uint8_t>(ss.begin(), ss.end()); \
+        std::vector<uint8_t> vch; \
+        CVectorWriter(SER_DISK, PROTOCOL_VERSION, vch, 0) << *this; \
+        return vch; \
     } \
     static T Deserialize(const std::vector<uint8_t>& bytes) { \
         CDataStream ss(bytes, SER_DISK, PROTOCOL_VERSION); \
