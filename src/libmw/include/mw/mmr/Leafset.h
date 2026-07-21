@@ -44,6 +44,27 @@ public:
         return (m_bits[leafIndex / 8] >> (leafIndex % 8)) & 1u;
     }
 
+    // Roll the bitmap back to `numLeaves` leaves: clear every bit at or above
+    // numLeaves and drop the now-unused trailing bytes. Used on block disconnect to
+    // remove the outputs a block appended; outputs the block *spent* (which live at
+    // lower indices, added by earlier blocks) are re-marked unspent separately from
+    // undo data.
+    void Rewind(uint64_t numLeaves)
+    {
+        const size_t fullBytes = static_cast<size_t>(numLeaves / 8);
+        const unsigned rem = static_cast<unsigned>(numLeaves % 8);
+
+        // Clear the partial byte's high bits (leaves numLeaves .. fullBytes*8+7).
+        if (rem != 0 && fullBytes < m_bits.size()) {
+            m_bits[fullBytes] &= static_cast<uint8_t>((1u << rem) - 1);
+        }
+
+        const size_t keep = (rem != 0) ? fullBytes + 1 : fullBytes;
+        if (m_bits.size() > keep) {
+            m_bits.resize(keep);
+        }
+    }
+
     // Number of unspent leaves.
     uint64_t Size() const
     {
