@@ -121,6 +121,29 @@ public:
             && NumKernels() == header.GetNumKernels();
     }
 
+    // Rebuild the whole accumulator from a persisted append-only log: the output
+    // and kernel IDs in leaf order, plus the leafset bitmap. Replaying the adds
+    // reconstructs the permanent MMRs and the output index (every leaf initially
+    // unspent); the persisted leafset then restores which outputs are spent. This
+    // is how a node reconstructs MWEB state on startup, since the output MMR is a
+    // permanent accumulator that needs the full history, not just the unspent set.
+    void Load(const std::vector<mw::Hash>& outputIDs,
+              const std::vector<mw::Hash>& kernelIDs,
+              const std::vector<uint8_t>& leafsetBytes)
+    {
+        m_outputMMR = mmr::MMR();
+        m_kernelMMR = mmr::MMR();
+        m_leafset = mmr::Leafset();
+        m_outputIndex.clear();
+
+        for (const mw::Hash& id : outputIDs) AddOutput(id);
+        for (const mw::Hash& id : kernelIDs) AddKernel(id);
+        m_leafset.LoadBytes(leafsetBytes);
+    }
+
+    // The leafset bitmap, for persistence.
+    const std::vector<uint8_t>& GetLeafsetBytes() const { return m_leafset.ToBytes(); }
+
     bool IsUnspent(uint64_t leafIndex) const { return m_leafset.Contains(leafIndex); }
     uint64_t NumUnspent() const { return m_leafset.Size(); }
     uint64_t NumOutputs() const { return m_outputMMR.NumLeaves(); }

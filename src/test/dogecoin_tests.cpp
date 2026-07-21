@@ -23,6 +23,7 @@
 
 #include "mweb/mweb_node.h"
 #include "mweb/mweb_wallet.h"
+#include "mweb/mweb_db.h"
 #include "script/standard.h"
 #include "consensus/validation.h"
 
@@ -950,6 +951,92 @@ BOOST_AUTO_TEST_CASE(mweb_blockbuilder_matches_validator)
     BOOST_REQUIRE(chainState.ApplyBlock(*block2));
     BOOST_CHECK(chainState.MatchesHeader(*block2->GetHeader()));
     BOOST_CHECK_NO_THROW(block2->Validate());
+}
+
+// MWEB: the accumulator rebuilds exactly from its persisted append-only log. A
+// state loaded from (output IDs, kernel IDs, leafset) reproduces the live state's
+// roots -- including which outputs are spent, since the permanent output MMR is
+// replayed and the leafset restores the spent bits.
+BOOST_AUTO_TEST_CASE(mweb_state_load_reconstructs)
+{
+    auto oh = [](uint8_t b) { return mw::Hash(std::vector<uint8_t>(32, b)); };
+    auto kh = [](uint8_t b) { return mw::Hash(std::vector<uint8_t>(32, 0x80 | b)); };
+
+    mw::MWEBState live;
+    std::vector<mw::Hash> outIDs, kerIDs;
+    std::vector<uint64_t> leaves;
+    for (uint8_t i = 1; i <= 5; i++) { outIDs.push_back(oh(i)); leaves.push_back(live.AddOutput(oh(i)).Get()); }
+    for (uint8_t i = 1; i <= 2; i++) { kerIDs.push_back(kh(i)); live.AddKernel(kh(i)); }
+    BOOST_REQUIRE(live.SpendByOutputID(oh(2)));
+    BOOST_REQUIRE(live.SpendByOutputID(oh(4)));
+
+    // Rebuild purely from the persisted log + leafset bytes.
+    mw::MWEBState loaded;
+    loaded.Load(outIDs, kerIDs, live.GetLeafsetBytes());
+
+    BOOST_CHECK(loaded.OutputRoot() == live.OutputRoot());
+    BOOST_CHECK(loaded.KernelRoot() == live.KernelRoot());
+    BOOST_CHECK(loaded.LeafsetRoot() == live.LeafsetRoot());
+    BOOST_CHECK(loaded.NumOutputs() == live.NumOutputs());
+    BOOST_CHECK(loaded.NumKernels() == live.NumKernels());
+    BOOST_CHECK(loaded.NumUnspent() == live.NumUnspent());
+    BOOST_CHECK(!loaded.IsUnspent(leaves[1]) && !loaded.IsUnspent(leaves[3])); // oh(2), oh(4) spent
+    BOOST_CHECK(loaded.IsUnspent(leaves[0]) && loaded.IsUnspent(leaves[4]));   // others unspent
+    // A reloaded output can still be re-spent by ID (the output index rebuilt).
+    BOOST_CHECK(loaded.SpendByOutputID(oh(1)));
+}
+
+// MWEB: the state DB survives a restart. Connecting blocks through one CMWEBStateDB
+// persists the accumulator; a second instance opened on the same directory rebuilds
+// an identical accumulator from disk (matching the last block's header roots).
+BOOST_AUTO_TEST_CASE(mweb_state_db_persistence)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    // Two peg-in blocks, built so their headers match the accumulator.
+    mw::MWEBState seed;
+    const mw::Transaction tx1 =
+        mw::wallet::TxBuilder::Build({}, {{90, blind(0x81)}}, 10, /*pegin=*/100, blind(0x82));
+    auto b1 = mw::BlockBuilder::Create(1, nullptr, seed);
+    BOOST_REQUIRE(b1->AddTransaction(std::make_shared<mw::Transaction>(tx1), tx1.GetPegIns()));
+    mw::Block::Ptr block1 = b1->Build();
+    BOOST_REQUIRE(block1 && seed.ApplyBlock(*block1));
+
+    const mw::Transaction tx2 =
+        mw::wallet::TxBuilder::Build({}, {{40, blind(0x83)}}, 10, /*pegin=*/50, blind(0x84));
+    auto b2 = mw::BlockBuilder::Create(2, block1->GetHeader(), seed);
+    BOOST_REQUIRE(b2->AddTransaction(std::make_shared<mw::Transaction>(tx2), tx2.GetPegIns()));
+    mw::Block::Ptr block2 = b2->Build();
+    BOOST_REQUIRE(block2 != nullptr);
+
+    mw::Hash outRoot, kerRoot, leafRoot;
+    uint64_t nOut, nKer;
+    {
+        // Fresh DB: connect both blocks (drives + persists the accumulator).
+        CMWEBStateDB db(1 << 20, /*fMemory=*/false, /*fWipe=*/true);
+        std::vector<UTXO> spent;
+        std::vector<mw::Hash> added;
+        BOOST_REQUIRE(db.ConnectBlock(*block1, nullptr, spent, added));
+        BOOST_REQUIRE(db.ConnectBlock(*block2, block1->GetHeader(), spent, added));
+        BOOST_CHECK(db.State().MatchesHeader(*block2->GetHeader()));
+        outRoot = db.State().OutputRoot();
+        kerRoot = db.State().KernelRoot();
+        leafRoot = db.State().LeafsetRoot();
+        nOut = db.State().NumOutputs();
+        nKer = db.State().NumKernels();
+        BOOST_REQUIRE(db.Flush());
+    } // db destroyed -> leveldb lock released
+
+    {
+        // Reopen the same directory without wiping: the accumulator must rebuild.
+        CMWEBStateDB db2(1 << 20, /*fMemory=*/false, /*fWipe=*/false);
+        BOOST_CHECK(db2.State().NumOutputs() == nOut);
+        BOOST_CHECK(db2.State().NumKernels() == nKer);
+        BOOST_CHECK(db2.State().OutputRoot() == outRoot);
+        BOOST_CHECK(db2.State().KernelRoot() == kerRoot);
+        BOOST_CHECK(db2.State().LeafsetRoot() == leafRoot);
+        BOOST_CHECK(db2.State().MatchesHeader(*block2->GetHeader()));
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()
