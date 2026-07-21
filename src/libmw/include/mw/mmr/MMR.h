@@ -27,6 +27,17 @@ namespace mmr {
 class MMR
 {
 public:
+    // Inclusion proof for a single leaf: the sibling hashes from the leaf up to
+    // its peak (with the side each sibling sits on), plus every peak hash so the
+    // reconstructed peak can be bagged back into the root.
+    struct Proof {
+        uint64_t leafIndex = 0;
+        std::vector<mw::Hash> path;    // sibling hashes, leaf -> peak
+        std::vector<bool> siblingLeft; // true if that sibling is the LEFT node
+        std::vector<mw::Hash> peaks;   // all peak hashes, in MMR order
+        size_t peakIndex = 0;          // which peak this leaf reconstructs to
+    };
+
     // Append an already-hashed leaf. Returns its leaf index.
     LeafIndex Add(const mw::Hash& leafHash)
     {
@@ -77,12 +88,97 @@ public:
         return acc;
     }
 
+    // Build an inclusion proof for the leaf at `leafIndex`.
+    Proof ProveLeaf(uint64_t leafIndex) const
+    {
+        Proof proof;
+        proof.leafIndex = leafIndex;
+
+        uint64_t pos = LeafPos(leafIndex);
+        uint8_t height = 0;
+        while (!IsPeak(pos)) {
+            const uint64_t span = (uint64_t(1) << (height + 1)) - 1;
+            uint64_t siblingPos;
+            if (Height(pos + 1) > height) {
+                // `pos` is a right child: its sibling is to the left, parent is pos+1.
+                siblingPos = pos - span;
+                proof.siblingLeft.push_back(true);
+                pos = pos + 1;
+            } else {
+                // `pos` is a left child: sibling to the right, parent is pos + 2^(h+1).
+                siblingPos = pos + span;
+                proof.siblingLeft.push_back(false);
+                pos = pos + span + 1;
+            }
+            proof.path.push_back(m_nodes[siblingPos]);
+            ++height;
+        }
+
+        for (size_t i = 0; i < m_peaks.size(); ++i) {
+            proof.peaks.push_back(m_nodes[m_peaks[i]]);
+            if (m_peaks[i] == pos) proof.peakIndex = i;
+        }
+        return proof;
+    }
+
+    // Verify that `leafHash` is included in an MMR with the given `root`.
+    static bool Verify(const mw::Hash& leafHash, const Proof& proof, const mw::Hash& root)
+    {
+        if (proof.path.size() != proof.siblingLeft.size()) return false;
+        if (proof.peaks.empty() || proof.peakIndex >= proof.peaks.size()) return false;
+
+        mw::Hash computed = leafHash;
+        for (size_t i = 0; i < proof.path.size(); ++i) {
+            computed = proof.siblingLeft[i] ? HashParent(proof.path[i], computed)
+                                            : HashParent(computed, proof.path[i]);
+        }
+
+        std::vector<mw::Hash> peaks = proof.peaks;
+        peaks[proof.peakIndex] = computed;
+
+        mw::Hash acc = peaks.back();
+        for (size_t i = peaks.size() - 1; i-- > 0;) {
+            acc = HashParent(peaks[i], acc);
+        }
+        return acc == root;
+    }
+
 private:
     static mw::Hash HashParent(const mw::Hash& left, const mw::Hash& right)
     {
         CHashWriter ss(SER_GETHASH, 0);
         ss << left << right;
         return mw::Hash(ss.GetHash());
+    }
+
+    // Position (0-based, post-order) of the i-th leaf: 2*i - popcount(i).
+    static uint64_t LeafPos(uint64_t leafIndex)
+    {
+        uint64_t bits = 0;
+        for (uint64_t x = leafIndex; x; x &= (x - 1)) ++bits;
+        return 2 * leafIndex - bits;
+    }
+
+    // Height of the node at 0-based post-order position `pos`.
+    static uint8_t Height(uint64_t pos)
+    {
+        uint64_t p = pos + 1; // 1-based
+        while ((p & (p + 1)) != 0) { // while p is not all-ones (2^k - 1)
+            uint64_t msb = 1;
+            while ((msb << 1) <= p) msb <<= 1;
+            p -= (msb - 1);
+        }
+        uint8_t h = 0;
+        for (uint64_t t = p + 1; t > 1; t >>= 1) ++h;
+        return static_cast<uint8_t>(h - 1);
+    }
+
+    bool IsPeak(uint64_t pos) const
+    {
+        for (uint64_t pk : m_peaks) {
+            if (pk == pos) return true;
+        }
+        return false;
     }
 
     std::vector<mw::Hash> m_nodes;      // every node, in creation order

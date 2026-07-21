@@ -478,4 +478,29 @@ BOOST_AUTO_TEST_CASE(mweb_mmr_root)
     BOOST_CHECK(c.Root() != a.Root());
 }
 
+// MWEB: MMR inclusion proofs. Every leaf proves against the root; a wrong leaf,
+// a wrong root, or a tampered proof must all fail.
+BOOST_AUTO_TEST_CASE(mweb_mmr_membership_proof)
+{
+    auto leaf = [](uint8_t b) { return mw::Hash(std::vector<uint8_t>(32, b)); };
+
+    mmr::MMR m;
+    std::vector<mw::Hash> leaves;
+    for (uint8_t i = 1; i <= 5; i++) { leaves.push_back(leaf(i)); m.Add(leaf(i)); }
+    const mw::Hash root = m.Root();
+
+    for (uint64_t i = 0; i < 5; i++) {
+        mmr::MMR::Proof proof = m.ProveLeaf(i);
+        BOOST_CHECK(mmr::MMR::Verify(leaves[i], proof, root));          // genuine inclusion
+        BOOST_CHECK(!mmr::MMR::Verify(leaf(200), proof, root));         // wrong leaf
+        BOOST_CHECK(!mmr::MMR::Verify(leaves[i], proof, leaf(123)));    // wrong root
+    }
+
+    // A tampered sibling in the path breaks verification.
+    mmr::MMR::Proof tampered = m.ProveLeaf(2);
+    BOOST_REQUIRE(!tampered.path.empty());
+    tampered.path[0] = leaf(250);
+    BOOST_CHECK(!mmr::MMR::Verify(leaves[2], tampered, root));
+}
+
 BOOST_AUTO_TEST_SUITE_END()
