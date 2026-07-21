@@ -109,7 +109,9 @@ public:
     const Commitment& GetCommitment() const { return m_commitment; }
     const PublicKey& GetSenderPubKey() const { return m_senderPubKey; }
     const PublicKey& GetReceiverPubKey() const { return m_receiverPubKey; }
-    const OutputMessage& GetMessage() const { return m_message; }
+    // Named GetOutputMessage, not GetMessage, to avoid the windows.h GetMessage
+    // macro (GetMessage -> GetMessageA/W) which breaks the mingw build.
+    const OutputMessage& GetOutputMessage() const { return m_message; }
     const RangeProof::CPtr& GetRangeProof() const { return m_pRangeProof; }
     const Signature& GetSignature() const { return m_signature; }
 
