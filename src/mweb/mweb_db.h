@@ -19,9 +19,12 @@
 
 /// Database key prefixes for MWEB state storage
 namespace MWEBDBKeys {
-    static const char UTXO       = 'u';   // UTXO by output_id
+    static const char UTXO       = 'u';   // unspent full output by output_id
     static const char LEAFSET    = 'l';   // leafset bitmap
     static const char BEST_HASH  = 'B';   // best block hash
+    static const char OUTPUT_LOG = 'O';   // output_id by leaf index (append-only history)
+    static const char KERNEL_LOG = 'K';   // kernel_id by index (append-only history)
+    static const char COUNTS     = 'C';   // (num outputs, num kernels) accumulated
 }
 
 /// Persistent MWEB state database backed by LevelDB.
@@ -82,6 +85,12 @@ public:
     /// is a follow-up (the output MMR is a permanent accumulator, so it needs the
     /// full output history, not just the unspent set the DB currently keeps).
     const mw::MWEBState& State() const { return m_state; }
+
+    /// Rebuild the in-memory accumulator from the persisted append-only output/
+    /// kernel logs and leafset bitmap. Called on construction so the accumulator is
+    /// ready before the node connects further blocks; a no-op if nothing is stored
+    /// (fresh or wiped database).
+    void LoadState();
 
 private:
     CDBWrapper db;

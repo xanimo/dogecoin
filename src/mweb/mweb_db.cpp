@@ -11,6 +11,39 @@ std::unique_ptr<CMWEBStateDB> g_mweb_state;
 CMWEBStateDB::CMWEBStateDB(size_t nCacheSize, bool fMemory, bool fWipe)
     : db(GetDataDir() / "mwebstate", nCacheSize, fMemory, fWipe, true)
 {
+    LoadState();
+}
+
+void CMWEBStateDB::LoadState()
+{
+    std::pair<uint64_t, uint64_t> counts;
+    if (!db.Read(MWEBDBKeys::COUNTS, counts)) {
+        // Nothing accumulated yet (fresh or wiped database).
+        return;
+    }
+
+    std::vector<mw::Hash> outputIDs;
+    outputIDs.reserve(counts.first);
+    for (uint64_t i = 0; i < counts.first; i++) {
+        mw::Hash id;
+        if (db.Read(std::make_pair(MWEBDBKeys::OUTPUT_LOG, i), id)) {
+            outputIDs.push_back(id);
+        }
+    }
+
+    std::vector<mw::Hash> kernelIDs;
+    kernelIDs.reserve(counts.second);
+    for (uint64_t j = 0; j < counts.second; j++) {
+        mw::Hash id;
+        if (db.Read(std::make_pair(MWEBDBKeys::KERNEL_LOG, j), id)) {
+            kernelIDs.push_back(id);
+        }
+    }
+
+    std::vector<uint8_t> leafsetBytes;
+    db.Read(MWEBDBKeys::LEAFSET, leafsetBytes); // absent -> empty (all unspent)
+
+    m_state.Load(outputIDs, kernelIDs, leafsetBytes);
 }
 
 bool CMWEBStateDB::AddOutput(const mw::Output& output)
@@ -73,6 +106,11 @@ bool CMWEBStateDB::ConnectBlock(const mw::Block& block,
     const uint64_t prevNumOutputs = prevHeader ? prevHeader->GetNumTXOs() : 0;
     const uint64_t prevNumKernels = prevHeader ? prevHeader->GetNumKernels() : 0;
 
+    // Leaf indices this block's outputs/kernels will occupy in the append-only
+    // history, captured before the accumulator advances.
+    const uint64_t baseNumOutputs = m_state.NumOutputs();
+    const uint64_t baseNumKernels = m_state.NumKernels();
+
     // Output/input IDs this block touches, gathered once so a reject can roll the
     // accumulator back to its pre-block state.
     std::vector<mw::Hash> blockAddedIDs;
@@ -120,6 +158,24 @@ bool CMWEBStateDB::ConnectBlock(const mw::Block& block,
         addedOutputIDs.push_back(output.GetOutputID());
     }
 
+    // Persist the append-only output/kernel history plus the leafset and accumulated
+    // counts, so the full accumulator (including the permanent output MMR) can be
+    // rebuilt on restart. The 'u' entries above are only the unspent set and are
+    // erased on spend, so they cannot reconstruct the permanent MMR on their own.
+    const auto& newOutputs = block.GetOutputs();
+    for (size_t i = 0; i < newOutputs.size(); i++) {
+        batch.Write(std::make_pair(MWEBDBKeys::OUTPUT_LOG, baseNumOutputs + i),
+                    newOutputs[i].GetOutputID());
+    }
+    const auto& newKernels = block.GetKernels();
+    for (size_t j = 0; j < newKernels.size(); j++) {
+        batch.Write(std::make_pair(MWEBDBKeys::KERNEL_LOG, baseNumKernels + j),
+                    newKernels[j].GetKernelID());
+    }
+    batch.Write(MWEBDBKeys::LEAFSET, m_state.GetLeafsetBytes());
+    batch.Write(MWEBDBKeys::COUNTS,
+                std::make_pair(m_state.NumOutputs(), m_state.NumKernels()));
+
     return db.WriteBatch(batch, true);
 }
 
@@ -131,6 +187,10 @@ bool CMWEBStateDB::DisconnectBlock(const mw::BlockUndo& undo)
     const mw::Header::CPtr& prevHeader = undo.GetPreviousHeader();
     const uint64_t prevNumOutputs = prevHeader ? prevHeader->GetNumTXOs() : 0;
     const uint64_t prevNumKernels = prevHeader ? prevHeader->GetNumKernels() : 0;
+
+    // Leaf-index ranges the block appended, captured before the accumulator rewinds.
+    const uint64_t oldNumOutputs = m_state.NumOutputs();
+    const uint64_t oldNumKernels = m_state.NumKernels();
 
     std::vector<mw::Hash> spentIDs;
     for (const auto& utxo : undo.GetCoinsSpent()) {
@@ -149,6 +209,18 @@ bool CMWEBStateDB::DisconnectBlock(const mw::BlockUndo& undo)
     for (const auto& utxo : undo.GetCoinsSpent()) {
         batch.Write(std::make_pair(MWEBDBKeys::UTXO, utxo.GetOutputID()), utxo.GetOutput());
     }
+
+    // Roll back the append-only history for the outputs/kernels this block added,
+    // and rewrite the leafset and counts to their pre-block values.
+    for (uint64_t i = prevNumOutputs; i < oldNumOutputs; i++) {
+        batch.Erase(std::make_pair(MWEBDBKeys::OUTPUT_LOG, i));
+    }
+    for (uint64_t j = prevNumKernels; j < oldNumKernels; j++) {
+        batch.Erase(std::make_pair(MWEBDBKeys::KERNEL_LOG, j));
+    }
+    batch.Write(MWEBDBKeys::LEAFSET, m_state.GetLeafsetBytes());
+    batch.Write(MWEBDBKeys::COUNTS,
+                std::make_pair(m_state.NumOutputs(), m_state.NumKernels()));
 
     return db.WriteBatch(batch, true);
 }
