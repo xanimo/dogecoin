@@ -18,6 +18,7 @@
 #include <mw/mmr/Leafset.h>
 #include <mw/node/MWEBState.h>
 #include <mw/wallet/TxBuilder.h>
+#include <mw/wallet/Stealth.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -654,6 +655,35 @@ BOOST_AUTO_TEST_CASE(mweb_txbuilder_build_and_validate)
     const std::vector<mw::wallet::Coin> badOut = {{95, blind(0x22)}};
     BOOST_CHECK_THROW(mw::wallet::TxBuilder::Build(ins, badOut, 10, blind(0x33)).Validate(),
                       std::runtime_error);
+}
+
+// MWEB: stealth (one-sided) payments. A sender pays a published address with no
+// recipient interaction; the recipient detects the output and recovers the
+// blind and one-time spend key, while a stranger cannot.
+BOOST_AUTO_TEST_CASE(mweb_stealth_payment)
+{
+    auto sk = [](uint8_t b) { return mw::SecretKey(std::vector<uint8_t>(32, b)); };
+
+    // Recipient publishes (scanPub, spendPub).
+    const mw::SecretKey scanKey = sk(0x11), spendKey = sk(0x22);
+    const mw::wallet::StealthAddress addr{
+        mw::Keys::PublicKeyFrom(scanKey), mw::Keys::PublicKeyFrom(spendKey) };
+
+    // Sender pays 500 using an ephemeral key, without contacting the recipient.
+    const mw::wallet::StealthResult sent = mw::wallet::Stealth::Send(addr, 500, sk(0x33));
+
+    // Recipient detects it; a different recipient does not.
+    BOOST_CHECK(mw::wallet::Stealth::IsMine(sent.output, scanKey, mw::Keys::PublicKeyFrom(spendKey)));
+    BOOST_CHECK(!mw::wallet::Stealth::IsMine(sent.output, sk(0x44), mw::Keys::PublicKeyFrom(sk(0x55))));
+
+    // Recipient recovers the blind and can rebuild the exact commitment.
+    const mw::BlindingFactor recovered = mw::wallet::Stealth::RecoverBlind(sent.output, scanKey);
+    BOOST_CHECK(recovered == sent.blind);
+    BOOST_CHECK(mw::Pedersen::Commit(500, recovered) == sent.output.GetCommitment());
+
+    // Recipient holds the one-time private key that can spend the output.
+    const mw::SecretKey spend = mw::wallet::Stealth::RecoverSpendKey(sent.output, scanKey, spendKey);
+    BOOST_CHECK(mw::Keys::PublicKeyFrom(spend) == sent.output.GetReceiverPubKey());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
