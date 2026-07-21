@@ -181,7 +181,8 @@ test_test_dogecoin_fuzzy_LDADD = \
   $(LIBDOGECOIN_UTIL) \
   $(LIBDOGECOIN_CONSENSUS) \
   $(LIBDOGECOIN_CRYPTO) \
-  $(LIBSECP256K1)
+  $(LIBSECP256K1) \
+  $(LIBSECP256K1_ZKP)
 
 test_test_dogecoin_fuzzy_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
 #

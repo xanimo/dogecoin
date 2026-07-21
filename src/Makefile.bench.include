@@ -43,6 +43,7 @@ bench_bench_dogecoin_LDADD = \
   $(LIBLEVELDB) \
   $(LIBMEMENV) \
   $(LIBSECP256K1) \
+  $(LIBSECP256K1_ZKP) \
   $(LIBUNIVALUE)
 
 if ENABLE_ZMQ
