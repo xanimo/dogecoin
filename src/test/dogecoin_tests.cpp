@@ -576,4 +576,59 @@ BOOST_AUTO_TEST_CASE(mweb_state_accumulator)
     BOOST_CHECK(mmr::MMR::Verify(oh(3), state.ProveOutput(leaves[2]), state.OutputRoot()));
 }
 
+// MWEB: driving the state from a real block and matching its header roots -- the
+// stateful connect-path logic that verifies a block's outputRoot/kernelRoot/
+// leafsetRoot.
+BOOST_AUTO_TEST_CASE(mweb_state_apply_block)
+{
+    auto mkOutput = [](uint8_t v) {
+        const mw::BlindingFactor b(std::vector<uint8_t>(32, v));
+        auto proof = std::make_shared<mw::RangeProof>(mw::Bulletproof::Prove(v, b));
+        return mw::Output(mw::Pedersen::Commit(v, b), mw::PublicKey(), mw::PublicKey(),
+                          mw::OutputMessage(), proof, mw::Signature());
+    };
+    const mw::Output o1 = mkOutput(10);
+    const mw::Output o2 = mkOutput(20);
+
+    auto makeBody = [&]() {
+        std::vector<mw::Input> ins;
+        std::vector<mw::Output> outs; outs.push_back(o1); outs.push_back(o2);
+        std::vector<mw::Kernel> kers; kers.emplace_back();
+        return mw::TxBody(std::move(ins), std::move(outs), std::move(kers));
+    };
+    auto dummyHeader = []() {
+        return std::make_shared<mw::Header>(1, mw::Hash(), mw::Hash(), mw::Hash(),
+            mw::BlindingFactor(), mw::BlindingFactor(), 0, 0);
+    };
+
+    // Compute the correct roots by applying the body to a scratch state.
+    mw::MWEBState scratch;
+    BOOST_CHECK(scratch.ApplyBlock(mw::Block(dummyHeader(), makeBody())));
+
+    // Build the real header committing to those roots, and the block.
+    auto header = std::make_shared<mw::Header>(1,
+        scratch.OutputRoot(), scratch.KernelRoot(), scratch.LeafsetRoot(),
+        mw::BlindingFactor(), mw::BlindingFactor(),
+        scratch.NumOutputs(), scratch.NumKernels());
+    const mw::Block block(header, makeBody());
+
+    // A fresh state that applies the block matches the header it commits to.
+    mw::MWEBState state;
+    BOOST_CHECK(state.ApplyBlock(block));
+    BOOST_CHECK(state.MatchesHeader(*block.GetHeader()));
+
+    // A header with a wrong output root must not match.
+    const mw::Header badHeader(1, mw::Hash(std::vector<uint8_t>(32, 0xEE)),
+        scratch.KernelRoot(), scratch.LeafsetRoot(),
+        mw::BlindingFactor(), mw::BlindingFactor(),
+        scratch.NumOutputs(), scratch.NumKernels());
+    BOOST_CHECK(!state.MatchesHeader(badHeader));
+
+    // Spending an output by its ID clears it; an unknown ID is rejected.
+    const mw::Hash leafBefore = state.LeafsetRoot();
+    BOOST_CHECK(state.SpendByOutputID(o1.GetOutputID()));
+    BOOST_CHECK(state.LeafsetRoot() != leafBefore);
+    BOOST_CHECK(!state.SpendByOutputID(mw::Hash(std::vector<uint8_t>(32, 0x99))));
+}
+
 BOOST_AUTO_TEST_SUITE_END()
