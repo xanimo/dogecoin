@@ -69,6 +69,24 @@ public:
         return index;
     }
 
+    // Roll the MMR back to `targetLeaves` leaves. Because Add() only ever appends
+    // nodes and never mutates earlier ones, the node array for N leaves is a strict
+    // prefix of the array for any larger count, so a rewind is just a truncation to
+    // the node count for `targetLeaves` followed by recomputing the peaks. This is
+    // how a block disconnect (reorg) undoes the outputs/kernels the block appended.
+    void Rewind(uint64_t targetLeaves)
+    {
+        if (targetLeaves >= m_numLeaves) return;
+
+        // Node count for N leaves in this construction is 2N - popcount(N):
+        // every leaf contributes one node and every merge (an internal node) one
+        // more, and the number of merges to reach N leaves is N - popcount(N).
+        const uint64_t nodeCount = 2 * targetLeaves - PopCount(targetLeaves);
+        m_nodes.resize(static_cast<size_t>(nodeCount));
+        m_numLeaves = targetLeaves;
+        RecomputePeaks();
+    }
+
     uint64_t NumLeaves() const noexcept { return m_numLeaves; }
     uint64_t NumNodes() const noexcept { return m_nodes.size(); }
     size_t NumPeaks() const noexcept { return m_peaks.size(); }
@@ -149,6 +167,33 @@ private:
         CHashWriter ss(SER_GETHASH, 0);
         ss << left << right;
         return mw::Hash(ss.GetHash());
+    }
+
+    static uint64_t PopCount(uint64_t x)
+    {
+        uint64_t bits = 0;
+        for (; x; x &= (x - 1)) ++bits;
+        return bits;
+    }
+
+    // Rebuild m_peaks/m_peakHeights for the current m_numLeaves from scratch. The
+    // peaks correspond to the set bits of m_numLeaves: one perfect tree of 2^h
+    // leaves per set bit, largest (leftmost) first. A perfect tree of 2^h leaves
+    // occupies 2^(h+1)-1 consecutive nodes, so walking those spans left to right
+    // lands each peak on the last node of its subtree.
+    void RecomputePeaks()
+    {
+        m_peaks.clear();
+        m_peakHeights.clear();
+        uint64_t offset = 0;
+        for (int h = 63; h >= 0; --h) {
+            if (m_numLeaves & (uint64_t(1) << h)) {
+                const uint64_t subtreeNodes = (uint64_t(2) << h) - 1; // 2^(h+1)-1
+                offset += subtreeNodes;
+                m_peaks.push_back(offset - 1);
+                m_peakHeights.push_back(static_cast<uint8_t>(h));
+            }
+        }
     }
 
     // Position (0-based, post-order) of the i-th leaf: 2*i - popcount(i).

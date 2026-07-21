@@ -13,6 +13,7 @@
 #include <mw/mmr/Leafset.h>
 
 #include <map>
+#include <vector>
 
 MW_NAMESPACE
 
@@ -77,6 +78,37 @@ public:
             }
         }
         return true;
+    }
+
+    // Undo a previously-applied block, rolling the accumulated state back to what
+    // it was before that block connected. The MMRs rewind to the pre-block leaf
+    // counts (dropping the outputs/kernels the block appended); the block's own
+    // outputs are dropped from the index; and the outputs the block spent — which
+    // were added by earlier blocks and so survive the rewind — are re-marked
+    // unspent from the undo data. Returns false if a spent output is unknown (undo
+    // data inconsistent with state).
+    bool UndoBlock(uint64_t prevNumOutputs,
+                   uint64_t prevNumKernels,
+                   const std::vector<mw::Hash>& addedOutputIDs,
+                   const std::vector<mw::Hash>& spentOutputIDs)
+    {
+        m_outputMMR.Rewind(prevNumOutputs);
+        m_kernelMMR.Rewind(prevNumKernels);
+        m_leafset.Rewind(prevNumOutputs);
+
+        for (const mw::Hash& id : addedOutputIDs) {
+            m_outputIndex.erase(id);
+        }
+        // Restore every spent output we can (continue past any unknown ID rather
+        // than aborting mid-rollback, so a reject-path undo still leaves the state
+        // consistent); report false if any ID was unknown.
+        bool ok = true;
+        for (const mw::Hash& id : spentOutputIDs) {
+            auto it = m_outputIndex.find(id);
+            if (it == m_outputIndex.end()) { ok = false; continue; }
+            m_leafset.Add(it->second);
+        }
+        return ok;
     }
 
     // Does the accumulated state match what a block header commits to?

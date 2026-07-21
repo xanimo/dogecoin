@@ -636,6 +636,94 @@ BOOST_AUTO_TEST_CASE(mweb_state_apply_block)
     BOOST_CHECK(!state.SpendByOutputID(mw::Hash(std::vector<uint8_t>(32, 0x99))));
 }
 
+// MWEB: rewinding the accumulators. An MMR/leafset rewound to N leaves must be
+// byte-for-byte the state an independent instance reaches by adding exactly N
+// leaves -- this is what makes a block disconnect exact. Covers every shape
+// across the binary-counter boundaries (1..8 peaks reshaping).
+BOOST_AUTO_TEST_CASE(mweb_mmr_leafset_rewind)
+{
+    auto leaf = [](uint8_t b) { return mw::Hash(std::vector<uint8_t>(32, b)); };
+
+    // For each target count, a full MMR rewound to it matches one built to it.
+    for (uint8_t target = 0; target <= 8; target++) {
+        mmr::MMR full;
+        for (uint8_t i = 1; i <= 8; i++) full.Add(leaf(i));
+        full.Rewind(target);
+
+        mmr::MMR ref;
+        for (uint8_t i = 1; i <= target; i++) ref.Add(leaf(i));
+
+        BOOST_CHECK(full.NumLeaves() == ref.NumLeaves());
+        BOOST_CHECK(full.NumNodes() == ref.NumNodes());
+        BOOST_CHECK(full.NumPeaks() == ref.NumPeaks());
+        BOOST_CHECK(full.Root() == ref.Root());
+    }
+
+    // A rewound MMR keeps growing correctly (peaks were rebuilt, not just sliced).
+    mmr::MMR grow; for (uint8_t i = 1; i <= 6; i++) grow.Add(leaf(i));
+    grow.Rewind(3);
+    for (uint8_t i = 4; i <= 6; i++) grow.Add(leaf(i));
+    mmr::MMR plain; for (uint8_t i = 1; i <= 6; i++) plain.Add(leaf(i));
+    BOOST_CHECK(grow.Root() == plain.Root());
+
+    // Leafset rewind drops the high leaves and trims capacity so the root matches
+    // an instance that only ever held the low leaves.
+    mmr::Leafset ls; for (uint64_t i = 0; i < 12; i++) ls.Add(i);
+    ls.Rewind(5);
+    mmr::Leafset ref5; for (uint64_t i = 0; i < 5; i++) ref5.Add(i);
+    BOOST_CHECK(ls.Size() == 5);
+    BOOST_CHECK(!ls.Contains(5) && ls.Contains(4));
+    BOOST_CHECK(ls.Root() == ref5.Root());
+}
+
+// MWEB: block disconnect via UndoBlock. Connecting a block then undoing it must
+// restore the exact prior accumulator state -- including re-marking as unspent
+// the earlier-block outputs the undone block had spent.
+BOOST_AUTO_TEST_CASE(mweb_state_undo_block)
+{
+    auto oh = [](uint8_t b) { return mw::Hash(std::vector<uint8_t>(32, b)); };
+    auto kh = [](uint8_t b) { return mw::Hash(std::vector<uint8_t>(32, 0x80 | b)); };
+
+    mw::MWEBState state;
+    // Block 1: three outputs, one kernel.
+    state.AddOutput(oh(1));
+    state.AddOutput(oh(2));
+    state.AddOutput(oh(3));
+    state.AddKernel(kh(1));
+
+    const uint64_t numOutAfter1 = state.NumOutputs();
+    const uint64_t numKerAfter1 = state.NumKernels();
+    const mw::Hash outRoot1 = state.OutputRoot();
+    const mw::Hash kerRoot1 = state.KernelRoot();
+    const mw::Hash leafRoot1 = state.LeafsetRoot();
+
+    // Block 2: adds two outputs and a kernel, and spends output oh(2) from block 1.
+    state.AddOutput(oh(4));
+    state.AddOutput(oh(5));
+    state.AddKernel(kh(2));
+    BOOST_CHECK(state.SpendByOutputID(oh(2)));
+
+    // Sanity: block 2 really changed every root and the spent bit.
+    BOOST_CHECK(state.NumOutputs() == numOutAfter1 + 2);
+    BOOST_CHECK(state.OutputRoot() != outRoot1);
+    BOOST_CHECK(state.KernelRoot() != kerRoot1);
+    BOOST_CHECK(state.LeafsetRoot() != leafRoot1);
+
+    // Undo block 2: rewind to block-1 counts, drop oh(4)/oh(5), re-mark oh(2) unspent.
+    const std::vector<mw::Hash> added2 = {oh(4), oh(5)};
+    const std::vector<mw::Hash> spent2 = {oh(2)};
+    BOOST_CHECK(state.UndoBlock(numOutAfter1, numKerAfter1, added2, spent2));
+
+    // Every root and count is back to exactly the post-block-1 state.
+    BOOST_CHECK(state.NumOutputs() == numOutAfter1);
+    BOOST_CHECK(state.NumKernels() == numKerAfter1);
+    BOOST_CHECK(state.OutputRoot() == outRoot1);
+    BOOST_CHECK(state.KernelRoot() == kerRoot1);
+    BOOST_CHECK(state.LeafsetRoot() == leafRoot1);
+    BOOST_CHECK(state.NumUnspent() == 3);
+    BOOST_CHECK(state.IsUnspent(0) && state.IsUnspent(1) && state.IsUnspent(2));
+}
+
 // MWEB: the wallet builds transactions that the consensus validator accepts --
 // the build -> validate loop. Balanced values pass; unbalanced values are
 // caught by Validate.
