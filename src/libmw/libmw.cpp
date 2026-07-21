@@ -16,6 +16,71 @@
 
 MW_NAMESPACE
 
+// Verifies the cryptographic soundness properties shared by transaction and
+// block bodies: every output's range proof, every kernel's signature, and that
+// commitments balance (no inflation). Structural checks (sort/dedup/weight) are
+// left to the callers.
+static void ValidateBodyCrypto(const TxBody& body, const BlindingFactor& kernelOffset)
+{
+    // Range proofs: each output commits to a value in [0, 2^64).
+    for (const Output& output : body.GetOutputs()) {
+        if (!output.GetRangeProof()) {
+            throw std::runtime_error("Output missing range proof");
+        }
+        if (!Bulletproof::Verify(*output.GetRangeProof(), output.GetCommitment())) {
+            throw std::runtime_error("Invalid range proof");
+        }
+    }
+
+    // Kernel signatures: the excess (a commitment to zero, excess*G) is also the
+    // public key the signature must verify against.
+    for (const Kernel& kernel : body.GetKernels()) {
+        const PublicKey excessPubKey = Pedersen::ToPublicKey(kernel.GetExcess());
+        const mw::Hash message = kernel.GetSignatureMessage();
+        if (!Schnorr::Verify(kernel.GetSignature(), excessPubKey, message.data())) {
+            throw std::runtime_error("Invalid kernel signature");
+        }
+    }
+
+    // Commitment balance (no inflation):
+    //   Sum(outputs) + (fees + pegouts)*H
+    //     == Sum(inputs) + Sum(kernel excesses) + pegins*H + offset*G
+    // Checked as sum-to-zero. Fees/pegs are non-negative, so the H value is split
+    // across both sides rather than committing a negative amount; zero terms are
+    // skipped (their commitment would be the point at infinity).
+    std::vector<Commitment> positive;
+    std::vector<Commitment> negative;
+
+    for (const Output& output : body.GetOutputs()) {
+        positive.push_back(output.GetCommitment());
+    }
+    for (const Input& input : body.GetInputs()) {
+        negative.push_back(input.GetCommitment());
+    }
+
+    uint64_t hPositive = 0; // fees + pegouts: value leaving the MWEB balance
+    uint64_t hNegative = 0; // pegins: value entering the MWEB balance
+    for (const Kernel& kernel : body.GetKernels()) {
+        negative.push_back(kernel.GetExcess());
+        hPositive += static_cast<uint64_t>(kernel.GetFee());
+        for (const PegOutCoin& pegout : kernel.GetPegOuts()) {
+            hPositive += static_cast<uint64_t>(pegout.GetAmount());
+        }
+        hNegative += static_cast<uint64_t>(kernel.GetPegIn());
+    }
+
+    const BlindingFactor zeroBlind;
+    if (hPositive > 0) positive.push_back(Pedersen::Commit(hPositive, zeroBlind));
+    if (hNegative > 0) negative.push_back(Pedersen::Commit(hNegative, zeroBlind));
+    if (!kernelOffset.IsNull()) {
+        negative.push_back(Pedersen::Commit(0, kernelOffset));
+    }
+
+    if (!Pedersen::VerifyBalance(positive, negative)) {
+        throw std::runtime_error("Body does not balance (inflation)");
+    }
+}
+
 void Block::Validate(const std::vector<PegInCoin>& pegins, const std::vector<PegOutCoin>& pegouts) const
 {
     if (!m_pHeader) {
@@ -117,12 +182,9 @@ void Block::Validate() const
         }
     }
 
-    // TODO: When full libmw crypto backend is available, verify:
-    // - All kernel signatures are valid
-    // - All range proofs are valid
-    // - Kernel sum balances (no inflation)
-    // - Owner sum balances (stealth offsets)
-    // - Commitment sums: (sum_outputs + sum_fees*H - sum_inputs) == (sum_kernel_excesses + kernel_offset*G)
+    // Cryptographic soundness: range proofs, kernel signatures, and commitment
+    // balance. (Owner/stealth-offset sum is verified elsewhere; TODO.)
+    ValidateBodyCrypto(m_body, GetKernelOffset());
 }
 
 END_NAMESPACE
@@ -155,72 +217,9 @@ void mw::Transaction::Validate() const
         }
     }
 
-    // Verify each output's range proof: proves the committed amount is in
-    // [0, 2^64) so an output cannot hide a negative/overflowing value.
-    for (const Output& output : m_body.GetOutputs()) {
-        if (!output.GetRangeProof()) {
-            throw std::runtime_error("Output missing range proof");
-        }
-        if (!Bulletproof::Verify(*output.GetRangeProof(), output.GetCommitment())) {
-            throw std::runtime_error("Invalid range proof");
-        }
-    }
-
-    // Verify each kernel signature: the excess is a commitment to zero
-    // (excess*G), so it doubles as the public key the signature must verify
-    // against, proving the signer knows the excess blinding factor.
-    for (const Kernel& kernel : m_body.GetKernels()) {
-        const PublicKey excessPubKey = Pedersen::ToPublicKey(kernel.GetExcess());
-        const mw::Hash message = kernel.GetSignatureMessage();
-        if (!Schnorr::Verify(kernel.GetSignature(), excessPubKey, message.data())) {
-            throw std::runtime_error("Invalid kernel signature");
-        }
-    }
-
-    // Commitment balance (no inflation). A commitment is value*H + blind*G, so
-    // the transaction balances iff:
-    //
-    //   Sum(outputs) + (fees + pegouts)*H
-    //     == Sum(inputs) + Sum(kernel excesses) + pegins*H + offset*G
-    //
-    // The H terms carry the value that enters/leaves via fees and pegs; the
-    // offset*G accounts for the kernel offset. We check this as sum-to-zero
-    // (positive - negative == 0). Fees/pegs are non-negative, so we split the
-    // H value between the two sides rather than commit a negative amount, and
-    // skip any zero term (its commitment would be the point at infinity).
-    {
-        std::vector<Commitment> positive;
-        std::vector<Commitment> negative;
-
-        for (const Output& output : m_body.GetOutputs()) {
-            positive.push_back(output.GetCommitment());
-        }
-        for (const Input& input : m_body.GetInputs()) {
-            negative.push_back(input.GetCommitment());
-        }
-
-        uint64_t hPositive = 0; // fees + pegouts: value that leaves the MWEB balance
-        uint64_t hNegative = 0; // pegins: value that enters the MWEB balance
-        for (const Kernel& kernel : m_body.GetKernels()) {
-            negative.push_back(kernel.GetExcess());
-            hPositive += static_cast<uint64_t>(kernel.GetFee());
-            for (const PegOutCoin& pegout : kernel.GetPegOuts()) {
-                hPositive += static_cast<uint64_t>(pegout.GetAmount());
-            }
-            hNegative += static_cast<uint64_t>(kernel.GetPegIn());
-        }
-
-        const BlindingFactor zeroBlind;
-        if (hPositive > 0) positive.push_back(Pedersen::Commit(hPositive, zeroBlind)); // (fees+pegouts)*H
-        if (hNegative > 0) negative.push_back(Pedersen::Commit(hNegative, zeroBlind)); // pegins*H
-        if (!m_kernelOffset.IsNull()) {
-            negative.push_back(Pedersen::Commit(0, m_kernelOffset)); // offset*G
-        }
-
-        if (!Pedersen::VerifyBalance(positive, negative)) {
-            throw std::runtime_error("Transaction does not balance (inflation)");
-        }
-    }
+    // Cryptographic soundness: range proofs, kernel signatures, and commitment
+    // balance (shared with Block::Validate).
+    mw::ValidateBodyCrypto(m_body, m_kernelOffset);
 }
 
 //

@@ -12,6 +12,8 @@
 #include <mw/crypto/Bulletproof.h>
 #include <mw/crypto/Keys.h>
 #include <mw/models/tx/Transaction.h>
+#include <mw/models/block/Block.h>
+#include <mw/models/block/Header.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -353,7 +355,7 @@ BOOST_AUTO_TEST_CASE(mweb_ec_keys_and_ecdh)
 // `proofValue`, and a fee-10 kernel whose excess is outBlind*G, signed by
 // `signKey`. Kernel offset is 0, so the excess equals the output blind and the
 // tx balances when commitValue == 90 (100 == 90 + 10 fee).
-static mw::Transaction BuildMWEBTx(uint64_t commitValue, uint64_t proofValue, const mw::SecretKey& signKey)
+static mw::TxBody BuildMWEBBody(uint64_t commitValue, uint64_t proofValue, const mw::SecretKey& signKey)
 {
     const mw::BlindingFactor outBlind(std::vector<uint8_t>(32, 0x44));
 
@@ -373,8 +375,14 @@ static mw::Transaction BuildMWEBTx(uint64_t commitValue, uint64_t proofValue, co
     std::vector<mw::Input> ins;  ins.push_back(input);
     std::vector<mw::Output> outs; outs.push_back(output);
     std::vector<mw::Kernel> kers; kers.push_back(kernel);
+    return mw::TxBody(std::move(ins), std::move(outs), std::move(kers));
+}
+
+// Kernel offset is 0, matching the excess = output blind convention above.
+static mw::Transaction BuildMWEBTx(uint64_t commitValue, uint64_t proofValue, const mw::SecretKey& signKey)
+{
     return mw::Transaction(mw::BlindingFactor(), mw::BlindingFactor(),
-        mw::TxBody(std::move(ins), std::move(outs), std::move(kers)));
+        BuildMWEBBody(commitValue, proofValue, signKey));
 }
 
 // The excess key for a balanced tx is the output blind (outBlind above).
@@ -408,6 +416,22 @@ BOOST_AUTO_TEST_CASE(mweb_transaction_bad_kernel_signature)
 BOOST_AUTO_TEST_CASE(mweb_transaction_balance)
 {
     BOOST_CHECK_THROW(BuildMWEBTx(91, 91, CorrectExcessKey()).Validate(), std::runtime_error);
+}
+
+// MWEB: Block::Validate applies the same crypto checks as Transaction::Validate
+// (they share ValidateBodyCrypto). A balanced block passes; an inflated one is
+// rejected at block scope too.
+BOOST_AUTO_TEST_CASE(mweb_block_validation)
+{
+    auto makeBlock = [](uint64_t commitValue, uint64_t proofValue, const mw::SecretKey& key) {
+        auto header = std::make_shared<mw::Header>(
+            1, mw::Hash(), mw::Hash(), mw::Hash(),
+            mw::BlindingFactor(), mw::BlindingFactor(), 0, 0); // kernel offset 0
+        return mw::Block(header, BuildMWEBBody(commitValue, proofValue, key));
+    };
+
+    BOOST_CHECK_NO_THROW(makeBlock(90, 90, CorrectExcessKey()).Validate());
+    BOOST_CHECK_THROW(makeBlock(91, 91, CorrectExcessKey()).Validate(), std::runtime_error);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
