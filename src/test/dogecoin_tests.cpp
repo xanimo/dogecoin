@@ -7,6 +7,8 @@
 #include "dogecoin.h"
 #include "test/test_bitcoin.h"
 
+#include <mw/crypto/Pedersen.h>
+
 #include <boost/test/unit_test.hpp>
 
 BOOST_FIXTURE_TEST_SUITE(dogecoin_tests, TestingSetup)
@@ -243,6 +245,32 @@ BOOST_AUTO_TEST_CASE(hardfork_parameters)
     BOOST_CHECK_EQUAL(auxpowHighParams.nPowTargetTimespan, 60);
     BOOST_CHECK_EQUAL(auxpowHighParams.fAllowLegacyBlocks, false);
     BOOST_CHECK_EQUAL(auxpowHighParams.fDigishieldDifficultyCalculation, true);
+}
+
+// MWEB: real Pedersen commitment crypto, backed by the isolated secp256k1-zkp.
+// Guards the balance / no-inflation primitive that peg and kernel checks rely on.
+BOOST_AUTO_TEST_CASE(mweb_pedersen_commitment_balance)
+{
+    const mw::BlindingFactor blindA(std::vector<uint8_t>(32, 0x11));
+    const mw::BlindingFactor blindB(std::vector<uint8_t>(32, 0x22));
+
+    // Identical value and blind -> commitments cancel: 100 - 100 == 0.
+    const mw::Commitment c100a = mw::Pedersen::Commit(100, blindA);
+    const mw::Commitment c100a2 = mw::Pedersen::Commit(100, blindA);
+    BOOST_CHECK(mw::Pedersen::VerifyBalance({c100a}, {c100a2}));
+
+    // Inflation must be rejected: 100 - 101 != 0.
+    const mw::Commitment c101 = mw::Pedersen::Commit(101, blindA);
+    BOOST_CHECK(!mw::Pedersen::VerifyBalance({c100a}, {c101}));
+
+    // Same value but different blinding factor must not spuriously balance.
+    const mw::Commitment c100b = mw::Pedersen::Commit(100, blindB);
+    BOOST_CHECK(!mw::Pedersen::VerifyBalance({c100a}, {c100b}));
+
+    // Homomorphic sum yields a usable (non-null) commitment.
+    const mw::Commitment sum = mw::Pedersen::AddCommitments({c100a}, {});
+    BOOST_CHECK(!sum.IsNull());
+    BOOST_CHECK(sum == c100a);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
