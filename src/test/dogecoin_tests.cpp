@@ -16,6 +16,7 @@
 #include <mw/models/block/Header.h>
 #include <mw/mmr/MMR.h>
 #include <mw/mmr/Leafset.h>
+#include <mw/node/MWEBState.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -537,6 +538,42 @@ BOOST_AUTO_TEST_CASE(mweb_leafset)
     BOOST_CHECK(empty.Size() == 0);
     BOOST_CHECK(empty.Root() != fullRoot);
     BOOST_CHECK(empty.Root() == mmr::Leafset().Root());
+}
+
+// MWEB: the accumulated chain state (output MMR + kernel MMR + leafset). Covers
+// accumulation, proof against the running output root, and the defining spend
+// property: the output MMR is permanent, only the leafset changes.
+BOOST_AUTO_TEST_CASE(mweb_state_accumulator)
+{
+    auto oh = [](uint8_t b) { return mw::Hash(std::vector<uint8_t>(32, b)); };
+    auto kh = [](uint8_t b) { return mw::Hash(std::vector<uint8_t>(32, 0x80 | b)); };
+
+    mw::MWEBState state;
+    std::vector<uint64_t> leaves;
+    for (uint8_t i = 1; i <= 5; i++) leaves.push_back(state.AddOutput(oh(i)).Get());
+    state.AddKernel(kh(1));
+    state.AddKernel(kh(2));
+
+    BOOST_CHECK(state.NumOutputs() == 5);
+    BOOST_CHECK(state.NumKernels() == 2);
+    BOOST_CHECK(state.NumUnspent() == 5);
+    BOOST_CHECK(!state.OutputRoot().IsNull());
+    BOOST_CHECK(!state.KernelRoot().IsNull());
+    BOOST_CHECK(state.OutputRoot() != state.KernelRoot());
+
+    // An early output proves against the accumulated output MMR root.
+    BOOST_CHECK(mmr::MMR::Verify(oh(2), state.ProveOutput(leaves[1]), state.OutputRoot()));
+
+    // Spend: output root is unchanged (append-only MMR), leafset root changes,
+    // and the spent output is still provably in the MMR.
+    const mw::Hash beforeOutRoot = state.OutputRoot();
+    const mw::Hash beforeLeafRoot = state.LeafsetRoot();
+    state.SpendOutput(leaves[2]);
+    BOOST_CHECK(!state.IsUnspent(leaves[2]));
+    BOOST_CHECK(state.NumUnspent() == 4);
+    BOOST_CHECK(state.OutputRoot() == beforeOutRoot);
+    BOOST_CHECK(state.LeafsetRoot() != beforeLeafRoot);
+    BOOST_CHECK(mmr::MMR::Verify(oh(3), state.ProveOutput(leaves[2]), state.OutputRoot()));
 }
 
 BOOST_AUTO_TEST_SUITE_END()
