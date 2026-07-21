@@ -226,12 +226,12 @@ void mw::Transaction::Validate() const
 // BlockBuilder implementation
 //
 
-mw::BlockBuilder::BlockBuilder(int32_t height, const mw::Header::CPtr& prevHeader)
-    : m_height(height), m_prevHeader(prevHeader) {}
+mw::BlockBuilder::BlockBuilder(int32_t height, const mw::Header::CPtr& prevHeader, const mw::MWEBState& prevState)
+    : m_height(height), m_prevHeader(prevHeader), m_prevState(prevState) {}
 
-mw::BlockBuilder::Ptr mw::BlockBuilder::Create(int32_t height, const mw::Header::CPtr& prevHeader)
+mw::BlockBuilder::Ptr mw::BlockBuilder::Create(int32_t height, const mw::Header::CPtr& prevHeader, const mw::MWEBState& prevState)
 {
-    return mw::BlockBuilder::Ptr(new mw::BlockBuilder(height, prevHeader));
+    return mw::BlockBuilder::Ptr(new mw::BlockBuilder(height, prevHeader, prevState));
 }
 
 bool mw::BlockBuilder::AddTransaction(const mw::Transaction::CPtr& pTransaction,
@@ -253,19 +253,6 @@ mw::BlindingFactor mw::BlockBuilder::CombineOffsets(const mw::BlindingFactor& a,
         result[i] = a.data()[i] ^ b.data()[i];
     }
     return mw::BlindingFactor(result);
-}
-
-mw::Hash mw::BlockBuilder::AggregateHash(std::vector<mw::Hash> hashes)
-{
-    if (hashes.empty()) return mw::Hash();
-
-    std::sort(hashes.begin(), hashes.end());
-
-    CHashWriter hasher(SER_GETHASH, 0);
-    for (const auto& h : hashes) {
-        hasher << h;
-    }
-    return mw::Hash(hasher.GetHash());
 }
 
 mw::Block::Ptr mw::BlockBuilder::Build()
@@ -301,25 +288,28 @@ mw::Block::Ptr mw::BlockBuilder::Build()
     std::sort(allKernels.begin(), allKernels.end(),
               [](const mw::Kernel& a, const mw::Kernel& b) { return a.GetHash() < b.GetHash(); });
 
-    // Compute Merkle roots as aggregate hashes of the sorted element hashes
-    // (placeholder for real MMR/PMMR roots)
-    std::vector<mw::Hash> outputHashes, kernelHashes;
+    // Compute the header roots by advancing the previous accumulator over this
+    // block's elements, in the exact order they are stored in the body. This is
+    // the same sequence the validator applies when it connects the block
+    // (MWEBState::ApplyBlock), so the resulting roots satisfy MatchesHeader.
+    mw::MWEBState state = m_prevState;
     for (const auto& output : allOutputs)
-        outputHashes.push_back(output.GetHash());
+        state.AddOutput(output.GetOutputID());
     for (const auto& kernel : allKernels)
-        kernelHashes.push_back(kernel.GetHash());
+        state.AddKernel(kernel.GetKernelID());
+    for (const auto& input : allInputs) {
+        if (!state.SpendByOutputID(input.GetOutputID())) {
+            // An input spends an output the accumulator does not know: the block
+            // cannot be built consistently.
+            return nullptr;
+        }
+    }
 
-    mw::Hash outputRoot = AggregateHash(outputHashes);
-    mw::Hash kernelRoot = AggregateHash(kernelHashes);
-
-    // Leafset root: hash of the output hashes (simplified)
-    mw::Hash leafsetRoot = outputRoot; // placeholder
-
-    // Compute TXO and kernel counts
-    uint64_t prevNumTXOs = m_prevHeader ? m_prevHeader->GetNumTXOs() : 0;
-    uint64_t prevNumKernels = m_prevHeader ? m_prevHeader->GetNumKernels() : 0;
-    uint64_t numTXOs = prevNumTXOs + allOutputs.size();
-    uint64_t numKernels = prevNumKernels + allKernels.size();
+    mw::Hash outputRoot = state.OutputRoot();
+    mw::Hash kernelRoot = state.KernelRoot();
+    mw::Hash leafsetRoot = state.LeafsetRoot();
+    uint64_t numTXOs = state.NumOutputs();
+    uint64_t numKernels = state.NumKernels();
 
     // Build the header
     auto pHeader = std::make_shared<mw::Header>(

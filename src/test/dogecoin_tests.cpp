@@ -17,6 +17,7 @@
 #include <mw/mmr/MMR.h>
 #include <mw/mmr/Leafset.h>
 #include <mw/node/MWEBState.h>
+#include <mw/node/BlockBuilder.h>
 #include <mw/wallet/TxBuilder.h>
 #include <mw/wallet/Stealth.h>
 
@@ -910,6 +911,45 @@ BOOST_AUTO_TEST_CASE(mweb_wallet_pegin_transaction)
     mtxMissing.vout.clear();
     CValidationState s3;
     BOOST_CHECK(!MWEB::Node::CheckTransaction(CTransaction(mtxMissing), s3));
+}
+
+// MWEB: the miner's BlockBuilder and the validator's accumulator agree. A block
+// the builder produces must carry exactly the header roots the validator computes
+// when it applies that block onto the same starting state -- across two blocks, so
+// the second builds correctly on top of the first (seeded from prior state).
+BOOST_AUTO_TEST_CASE(mweb_blockbuilder_matches_validator)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    // The validator's running accumulator; the miner is seeded from a copy of it.
+    mw::MWEBState chainState;
+
+    // --- Block 1: peg in 100 -> one output of 90 + fee 10. ---
+    const mw::Transaction tx1 =
+        mw::wallet::TxBuilder::Build({}, {{90, blind(0x71)}}, 10, /*pegin=*/100, blind(0x72));
+    auto builder1 = mw::BlockBuilder::Create(1, /*prevHeader=*/nullptr, chainState);
+    BOOST_REQUIRE(builder1->AddTransaction(std::make_shared<mw::Transaction>(tx1), tx1.GetPegIns()));
+    mw::Block::Ptr block1 = builder1->Build();
+    BOOST_REQUIRE(block1 != nullptr);
+
+    // The validator accumulates the same block and the miner's header matches.
+    BOOST_REQUIRE(chainState.ApplyBlock(*block1));
+    BOOST_CHECK(chainState.MatchesHeader(*block1->GetHeader()));
+    BOOST_CHECK_NO_THROW(block1->Validate());
+
+    // --- Block 2: another peg-in, built ON TOP of the post-block-1 state. ---
+    const mw::Transaction tx2 =
+        mw::wallet::TxBuilder::Build({}, {{40, blind(0x73)}}, 10, /*pegin=*/50, blind(0x74));
+    auto builder2 = mw::BlockBuilder::Create(2, block1->GetHeader(), chainState);
+    BOOST_REQUIRE(builder2->AddTransaction(std::make_shared<mw::Transaction>(tx2), tx2.GetPegIns()));
+    mw::Block::Ptr block2 = builder2->Build();
+    BOOST_REQUIRE(block2 != nullptr);
+
+    // Counts advanced from block 1, and the roots still match the validator.
+    BOOST_CHECK(block2->GetHeader()->GetNumTXOs() == block1->GetHeader()->GetNumTXOs() + 1);
+    BOOST_REQUIRE(chainState.ApplyBlock(*block2));
+    BOOST_CHECK(chainState.MatchesHeader(*block2->GetHeader()));
+    BOOST_CHECK_NO_THROW(block2->Validate());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

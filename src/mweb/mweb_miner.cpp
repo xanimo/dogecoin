@@ -5,6 +5,7 @@
 
 #include "mweb/mweb_miner.h"
 
+#include "mweb/mweb_db.h"
 #include "chain.h"
 #include "consensus/consensus.h"
 #include "consensus/validation.h"
@@ -25,8 +26,11 @@ void Miner::NewBlock(const uint64_t nHeight, const mw::Header::CPtr& prevHeader)
     hogex_inputs.clear();
     hogex_outputs.clear();
 
-    // Create the block builder
-    mweb_builder = mw::BlockBuilder::Create(static_cast<int32_t>(nHeight), prevHeader);
+    // Create the block builder, seeded with the current accumulated MWEB state so
+    // the header roots it computes match what the validator will accumulate when it
+    // connects the block. Falls back to an empty accumulator if state is unavailable.
+    const mw::MWEBState prevState = g_mweb_state ? g_mweb_state->State() : mw::MWEBState();
+    mweb_builder = mw::BlockBuilder::Create(static_cast<int32_t>(nHeight), prevHeader, prevState);
 }
 
 bool Miner::ValidatePegIns(const CTransactionRef& pTx,
