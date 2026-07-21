@@ -23,6 +23,7 @@ BITCOIN_INCLUDES=-I$(builddir) -I$(builddir)/obj $(BDB_CPPFLAGS) $(BOOST_CPPFLAG
 
 BITCOIN_INCLUDES += -I$(srcdir)/secp256k1/include
 BITCOIN_INCLUDES += -I$(srcdir)/libmw/include
+BITCOIN_INCLUDES += -I$(srcdir)/secp256k1-zkp/include
 BITCOIN_INCLUDES += $(UNIVALUE_CFLAGS)
 
 LIBDOGECOIN_SERVER=libdogecoin_server.a
@@ -33,6 +34,7 @@ LIBDOGECOIN_UTIL=libdogecoin_util.a
 LIBDOGECOIN_CRYPTO=crypto/libdogecoin_crypto.a
 LIBDOGECOINQT=qt/libdogecoinqt.a
 LIBSECP256K1=secp256k1/libsecp256k1.la
+LIBSECP256K1_ZKP=secp256k1-zkp/libsecp256k1.la
 
 if ENABLE_ZMQ
 LIBDOGECOIN_ZMQ=libdogecoin_zmq.a
@@ -45,6 +47,9 @@ LIBDOGECOIN_WALLET=libdogecoin_wallet.a
 endif
 
 $(LIBSECP256K1): $(wildcard secp256k1/src/*) $(wildcard secp256k1/include/*)
+	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C $(@D) $(@F)
+
+$(LIBSECP256K1_ZKP): $(wildcard secp256k1-zkp/src/*) $(wildcard secp256k1-zkp/include/*) secp256k1-zkp/prefix.h
 	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C $(@D) $(@F)
 
 # Make is not made aware of per-object dependencies to avoid limiting building parallelization
@@ -419,7 +424,8 @@ dogecoind_LDADD = \
   $(LIBDOGECOIN_CRYPTO) \
   $(LIBLEVELDB) \
   $(LIBMEMENV) \
-  $(LIBSECP256K1)
+  $(LIBSECP256K1) \
+  $(LIBSECP256K1_ZKP)
 
 dogecoind_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS)
 
