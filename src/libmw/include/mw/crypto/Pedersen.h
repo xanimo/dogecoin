@@ -8,6 +8,7 @@
 #include <mw/common/Macros.h>
 #include <mw/models/crypto/Commitment.h>
 #include <mw/models/crypto/BlindingFactor.h>
+#include <mw/models/crypto/PublicKey.h>
 #include <cstdint>
 #include <vector>
 
@@ -34,6 +35,10 @@ namespace Pedersen {
     bool VerifyBalance(
         const std::vector<Commitment>& positive,
         const std::vector<Commitment>& negative);
+
+    // Interpret a commitment as a public key. A kernel excess is a commitment
+    // to zero (excess*G), so this yields the key its signature verifies against.
+    PublicKey ToPublicKey(const Commitment& commit);
 
 }
 

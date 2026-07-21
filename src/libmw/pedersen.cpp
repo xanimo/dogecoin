@@ -100,5 +100,20 @@ bool VerifyBalance(
         neg_ptrs.data(), neg_ptrs.size()) == 1;
 }
 
+PublicKey ToPublicKey(const Commitment& commit)
+{
+    secp256k1_pedersen_commitment parsed = Parse(commit);
+
+    secp256k1_pubkey pubkey;
+    if (!secp256k1_pedersen_commitment_to_pubkey(Ctx(), &pubkey, &parsed)) {
+        throw std::runtime_error("Pedersen: commitment_to_pubkey failed");
+    }
+
+    unsigned char out[PublicKey::SIZE];
+    size_t len = PublicKey::SIZE;
+    secp256k1_ec_pubkey_serialize(Ctx(), out, &len, &pubkey, SECP256K1_EC_COMPRESSED);
+    return PublicKey(out);
+}
+
 }
 END_NAMESPACE
