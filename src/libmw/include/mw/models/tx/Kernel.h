@@ -39,6 +39,11 @@ public:
 
     Kernel() : m_features(0), m_fee(0), m_pegin(0), m_lockHeight(0) {}
 
+    Kernel(uint8_t features, CAmount fee, CAmount pegin, int32_t lockHeight,
+           Commitment excess, Signature signature)
+        : m_features(features), m_fee(fee), m_pegin(pegin), m_lockHeight(lockHeight),
+          m_excess(std::move(excess)), m_signature(std::move(signature)) {}
+
     // Getters
     uint8_t GetFeatures() const { return m_features; }
     CAmount GetFee() const { return m_fee; }
@@ -74,8 +79,11 @@ public:
         return m_hash;
     }
 
+    // Serializes the signed portion of the kernel: every committed field except
+    // the excess commitment and the signature itself. This is what the kernel's
+    // signature covers, and what GetSignatureMessage() hashes.
     template<typename Stream>
-    void Serialize(Stream& s) const {
+    void SerializeSigMessage(Stream& s) const {
         s << m_features;
         if (m_features & FEE_FEATURE_BIT) ser_writedata64(s, m_fee);
         if (m_features & PEGIN_FEATURE_BIT) ser_writedata64(s, m_pegin);
@@ -91,6 +99,18 @@ public:
             WriteCompactSize(s, m_extraData.size());
             s.write((const char*)m_extraData.data(), m_extraData.size());
         }
+    }
+
+    /// The 32-byte message signed by the kernel's excess key.
+    mw::Hash GetSignatureMessage() const {
+        CHashWriter ss(SER_GETHASH, 0);
+        SerializeSigMessage(ss);
+        return mw::Hash(ss.GetHash());
+    }
+
+    template<typename Stream>
+    void Serialize(Stream& s) const {
+        SerializeSigMessage(s);
         s << m_excess;
         s << m_signature;
     }

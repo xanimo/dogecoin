@@ -8,6 +8,8 @@
 #include <mw/consensus/Weight.h>
 #include <mw/node/BlockBuilder.h>
 #include <mw/crypto/Bulletproof.h>
+#include <mw/crypto/Pedersen.h>
+#include <mw/crypto/Schnorr.h>
 
 #include <algorithm>
 #include <set>
@@ -164,8 +166,19 @@ void mw::Transaction::Validate() const
         }
     }
 
-    // TODO (next wiring increments): verify kernel signatures, and that
-    // commitment sums balance (no inflation).
+    // Verify each kernel signature: the excess is a commitment to zero
+    // (excess*G), so it doubles as the public key the signature must verify
+    // against, proving the signer knows the excess blinding factor.
+    for (const Kernel& kernel : m_body.GetKernels()) {
+        const PublicKey excessPubKey = Pedersen::ToPublicKey(kernel.GetExcess());
+        const mw::Hash message = kernel.GetSignatureMessage();
+        if (!Schnorr::Verify(kernel.GetSignature(), excessPubKey, message.data())) {
+            throw std::runtime_error("Invalid kernel signature");
+        }
+    }
+
+    // TODO (next wiring increment): verify that commitment sums balance
+    // (no inflation).
 }
 
 //
