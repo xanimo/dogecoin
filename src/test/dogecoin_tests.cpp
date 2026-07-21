@@ -10,6 +10,7 @@
 #include <mw/crypto/Pedersen.h>
 #include <mw/crypto/Schnorr.h>
 #include <mw/crypto/Bulletproof.h>
+#include <mw/crypto/Keys.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -318,6 +319,31 @@ BOOST_AUTO_TEST_CASE(mweb_bulletproof_rangeproof)
     const mw::Commitment zeroCommit = mw::Pedersen::Commit(0, blind);
     const mw::RangeProof zeroProof = mw::Bulletproof::Prove(0, blind);
     BOOST_CHECK(mw::Bulletproof::Verify(zeroProof, zeroCommit));
+}
+
+// MWEB: EC key operations + ECDH, backed by secp256k1-zkp. Underpins stealth
+// addresses. Checks the two properties MWEB relies on: key homomorphism and
+// ECDH symmetry.
+BOOST_AUTO_TEST_CASE(mweb_ec_keys_and_ecdh)
+{
+    const mw::SecretKey a(std::vector<uint8_t>(32, 0x41));
+    const mw::SecretKey b(std::vector<uint8_t>(32, 0x62));
+
+    const mw::PublicKey pubA = mw::Keys::PublicKeyFrom(a);
+    const mw::PublicKey pubB = mw::Keys::PublicKeyFrom(b);
+    BOOST_CHECK(!pubA.IsNull());
+    BOOST_CHECK(pubA != pubB);
+
+    // Homomorphism: pub(a + b) == pub(a) + pub(b).
+    const mw::SecretKey sumSec = mw::Keys::AddSecretKeys(a, b);
+    const mw::PublicKey sumFromSec = mw::Keys::PublicKeyFrom(sumSec);
+    const mw::PublicKey sumOfPubs = mw::Keys::AddPublicKeys(pubA, pubB);
+    BOOST_CHECK(sumFromSec == sumOfPubs);
+
+    // ECDH symmetry: ECDH(a, pub(b)) == ECDH(b, pub(a)).
+    const mw::SecretKey sharedAB = mw::Keys::ECDH(a, pubB);
+    const mw::SecretKey sharedBA = mw::Keys::ECDH(b, pubA);
+    BOOST_CHECK(sharedAB == sharedBA);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
