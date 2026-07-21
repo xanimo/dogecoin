@@ -30,6 +30,20 @@ public:
 
     Input() : m_features(0) {}
 
+    Input(
+        uint8_t features,
+        mw::Hash outputID,
+        Commitment commitment,
+        PublicKey inputPubKey,
+        PublicKey outputPubKey,
+        Signature signature)
+        : m_features(features),
+          m_outputID(std::move(outputID)),
+          m_commitment(std::move(commitment)),
+          m_inputPubKey(std::move(inputPubKey)),
+          m_outputPubKey(std::move(outputPubKey)),
+          m_signature(std::move(signature)) {}
+
     // Getters
     uint8_t GetFeatures() const { return m_features; }
     const mw::Hash& GetOutputID() const { return m_outputID; }
