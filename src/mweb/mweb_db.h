@@ -11,6 +11,7 @@
 #include <mw/models/block/BlockUndo.h>
 #include <mw/models/tx/Output.h>
 #include <mw/models/tx/UTXO.h>
+#include <mw/node/MWEBState.h>
 
 #include <memory>
 #include <set>
@@ -74,8 +75,17 @@ public:
     /// Flush the database.
     bool Flush() { return db.Flush(); }
 
+    /// Read-only access to the in-memory accumulator (MMR roots + leafset) that
+    /// tracks the current MWEB chain state. Driven forward by ConnectBlock and
+    /// rolled back by DisconnectBlock. Note: this accumulator lives only for the
+    /// process lifetime; reconstructing it from the persisted UTXO set on startup
+    /// is a follow-up (the output MMR is a permanent accumulator, so it needs the
+    /// full output history, not just the unspent set the DB currently keeps).
+    const mw::MWEBState& State() const { return m_state; }
+
 private:
     CDBWrapper db;
+    mw::MWEBState m_state;
 };
 
 /// Global MWEB state database instance (initialized in init.cpp)

@@ -67,9 +67,38 @@ bool CMWEBStateDB::ConnectBlock(const mw::Block& block,
                                  std::vector<UTXO>& spentUTXOs,
                                  std::vector<mw::Hash>& addedOutputIDs)
 {
-    CDBBatch batch(db);
     spentUTXOs.clear();
     addedOutputIDs.clear();
+
+    const uint64_t prevNumOutputs = prevHeader ? prevHeader->GetNumTXOs() : 0;
+    const uint64_t prevNumKernels = prevHeader ? prevHeader->GetNumKernels() : 0;
+
+    // Output/input IDs this block touches, gathered once so a reject can roll the
+    // accumulator back to its pre-block state.
+    std::vector<mw::Hash> blockAddedIDs;
+    std::vector<mw::Hash> blockSpentIDs;
+    for (const auto& output : block.GetOutputs()) {
+        blockAddedIDs.push_back(output.GetOutputID());
+    }
+    for (const auto& input : block.GetInputs()) {
+        blockSpentIDs.push_back(input.GetOutputID());
+    }
+
+    // Drive the in-memory accumulator forward, then confirm the resulting roots are
+    // exactly what this block's header commits to. This is the consensus check that
+    // the MWEB body actually produces the advertised output/kernel/leafset roots and
+    // that every input spends a known unspent output.
+    if (!m_state.ApplyBlock(block)) {
+        m_state.UndoBlock(prevNumOutputs, prevNumKernels, blockAddedIDs, blockSpentIDs);
+        return false;
+    }
+    if (block.GetHeader() && !m_state.MatchesHeader(*block.GetHeader())) {
+        m_state.UndoBlock(prevNumOutputs, prevNumKernels, blockAddedIDs, blockSpentIDs);
+        return false;
+    }
+
+    // Accumulator agrees with the header — commit the persistent UTXO set changes.
+    CDBBatch batch(db);
 
     // Remove spent inputs and build undo data
     for (const auto& input : block.GetInputs()) {
@@ -96,6 +125,19 @@ bool CMWEBStateDB::ConnectBlock(const mw::Block& block,
 
 bool CMWEBStateDB::DisconnectBlock(const mw::BlockUndo& undo)
 {
+    // Roll the in-memory accumulator back to the pre-block state first, using the
+    // pre-block leaf counts from the stored previous header plus the added/spent
+    // output IDs the undo data carries.
+    const mw::Header::CPtr& prevHeader = undo.GetPreviousHeader();
+    const uint64_t prevNumOutputs = prevHeader ? prevHeader->GetNumTXOs() : 0;
+    const uint64_t prevNumKernels = prevHeader ? prevHeader->GetNumKernels() : 0;
+
+    std::vector<mw::Hash> spentIDs;
+    for (const auto& utxo : undo.GetCoinsSpent()) {
+        spentIDs.push_back(utxo.GetOutputID());
+    }
+    m_state.UndoBlock(prevNumOutputs, prevNumKernels, undo.GetCoinsAdded(), spentIDs);
+
     CDBBatch batch(db);
 
     // Remove outputs that were added by this block
