@@ -14,6 +14,7 @@
 #include <mw/models/tx/Transaction.h>
 #include <mw/models/block/Block.h>
 #include <mw/models/block/Header.h>
+#include <mw/mmr/MMR.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -432,6 +433,49 @@ BOOST_AUTO_TEST_CASE(mweb_block_validation)
 
     BOOST_CHECK_NO_THROW(makeBlock(90, 90, CorrectExcessKey()).Validate());
     BOOST_CHECK_THROW(makeBlock(91, 91, CorrectExcessKey()).Validate(), std::runtime_error);
+}
+
+// MWEB: the Merkle Mountain Range accumulator. Known-answer checks on structure
+// (node/peak counts) and roots (folded from the same parent hash), plus
+// determinism and sensitivity.
+BOOST_AUTO_TEST_CASE(mweb_mmr_root)
+{
+    auto leaf = [](uint8_t b) { return mw::Hash(std::vector<uint8_t>(32, b)); };
+    auto parent = [](const mw::Hash& l, const mw::Hash& r) {
+        CHashWriter ss(SER_GETHASH, 0); ss << l << r; return mw::Hash(ss.GetHash());
+    };
+
+    // Empty.
+    mmr::MMR empty;
+    BOOST_CHECK(empty.NumLeaves() == 0);
+    BOOST_CHECK(empty.Root().IsNull());
+
+    // 1 leaf -> the leaf is the root; 1 node, 1 peak.
+    mmr::MMR m1; m1.Add(leaf(1));
+    BOOST_CHECK(m1.NumNodes() == 1 && m1.NumPeaks() == 1);
+    BOOST_CHECK(m1.Root() == leaf(1));
+
+    // 2 leaves -> l0,l1,parent = 3 nodes, 1 peak.
+    mmr::MMR m2; m2.Add(leaf(1)); m2.Add(leaf(2));
+    BOOST_CHECK(m2.NumNodes() == 3 && m2.NumPeaks() == 1);
+    BOOST_CHECK(m2.Root() == parent(leaf(1), leaf(2)));
+
+    // 3 leaves -> parent(l0,l1) + l2 = 4 nodes, 2 peaks; root bags them.
+    mmr::MMR m3; m3.Add(leaf(1)); m3.Add(leaf(2)); m3.Add(leaf(3));
+    BOOST_CHECK(m3.NumNodes() == 4 && m3.NumPeaks() == 2);
+    BOOST_CHECK(m3.Root() == parent(parent(leaf(1), leaf(2)), leaf(3)));
+
+    // 4 leaves -> full tree: 7 nodes, 1 peak.
+    mmr::MMR m4; for (uint8_t b = 1; b <= 4; b++) m4.Add(leaf(b));
+    BOOST_CHECK(m4.NumNodes() == 7 && m4.NumPeaks() == 1);
+    BOOST_CHECK(m4.Root() == parent(parent(leaf(1), leaf(2)), parent(leaf(3), leaf(4))));
+
+    // Determinism and sensitivity.
+    mmr::MMR a, b;
+    for (uint8_t i = 1; i <= 5; i++) { a.Add(leaf(i)); b.Add(leaf(i)); }
+    BOOST_CHECK(a.Root() == b.Root());
+    mmr::MMR c; for (uint8_t i = 1; i <= 5; i++) c.Add(leaf(i == 3 ? 99 : i));
+    BOOST_CHECK(c.Root() != a.Root());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
