@@ -20,6 +20,9 @@
 #include <mw/wallet/TxBuilder.h>
 #include <mw/wallet/Stealth.h>
 
+#include "mweb/mweb_node.h"
+#include "consensus/validation.h"
+
 #include <boost/test/unit_test.hpp>
 
 BOOST_FIXTURE_TEST_SUITE(dogecoin_tests, TestingSetup)
@@ -746,6 +749,32 @@ BOOST_AUTO_TEST_CASE(mweb_stealth_receive_and_spend)
     const std::vector<mw::wallet::Coin> ins  = {{received, recovered}};
     const std::vector<mw::wallet::Coin> outs = {{received - 10, blind(0x99)}}; // 500 = 490 + 10 fee
     BOOST_CHECK_NO_THROW(mw::wallet::TxBuilder::Build(ins, outs, 10, blind(0xAB)).Validate());
+}
+
+// MWEB (2f bridge): a transaction built by the wallet, wrapped into a
+// CTransaction, is accepted by the node's actual validation entry point
+// (MWEB::Node::CheckTransaction, called from validation.cpp) -- not just by the
+// libmw Validate() directly.
+BOOST_AUTO_TEST_CASE(mweb_node_accepts_builder_tx)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+    auto wrap = [](const mw::Transaction& t) {
+        CMutableTransaction mtx;
+        mtx.mweb_tx = MWEB::Tx(std::make_shared<mw::Transaction>(t));
+        return CTransaction(mtx);
+    };
+
+    // A valid wallet-built transfer passes the node's transaction check.
+    const mw::Transaction good =
+        mw::wallet::TxBuilder::Build({{100, blind(0x11)}}, {{90, blind(0x22)}}, 10, blind(0x33));
+    CValidationState s1;
+    BOOST_CHECK(MWEB::Node::CheckTransaction(wrap(good), s1));
+
+    // An unbalanced one is rejected by the node.
+    const mw::Transaction bad =
+        mw::wallet::TxBuilder::Build({{100, blind(0x11)}}, {{95, blind(0x22)}}, 10, blind(0x33));
+    CValidationState s2;
+    BOOST_CHECK(!MWEB::Node::CheckTransaction(wrap(bad), s2));
 }
 
 BOOST_AUTO_TEST_SUITE_END()
