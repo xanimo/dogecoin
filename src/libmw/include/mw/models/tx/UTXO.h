@@ -32,7 +32,7 @@ public:
     const mw::Commitment& GetCommitment() const noexcept { return m_output.GetCommitment(); }
     const mw::PublicKey& GetSenderPubKey() const noexcept { return m_output.GetSenderPubKey(); }
     const mw::PublicKey& GetReceiverPubKey() const noexcept { return m_output.GetReceiverPubKey(); }
-    const mw::OutputMessage& GetOutputMessage() const noexcept { return m_output.GetMessage(); }
+    const mw::OutputMessage& GetOutputMessage() const noexcept { return m_output.GetOutputMessage(); }
     const mw::RangeProof::CPtr& GetRangeProof() const noexcept { return m_output.GetRangeProof(); }
     const mw::Signature& GetSignature() const noexcept { return m_output.GetSignature(); }
 
