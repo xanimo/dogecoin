@@ -30,14 +30,40 @@ struct Coin {
 // commitments, range proofs, and a correctly-signed, balanced kernel.
 class TxBuilder {
 public:
-    // Build a transaction that spends `inputs`, creates `outputs`, pays `fee`,
-    // and uses kernel offset `offset`. The caller must provide balanced values:
-    //   Sum(input values) == Sum(output values) + fee.
-    // The result passes Transaction::Validate. Requires at least one output.
+    // Build a transaction spending `inputs`, creating `outputs`, paying `fee`.
+    // Convenience overload with no peg-in (a pure in-MWEB transfer).
     static Transaction Build(
         const std::vector<Coin>& inputs,
         const std::vector<Coin>& outputs,
         uint64_t fee,
+        const BlindingFactor& offset)
+    {
+        return Build(inputs, outputs, fee, /*pegin=*/0, offset);
+    }
+
+    // Build with a peg-in but no peg-out.
+    static Transaction Build(
+        const std::vector<Coin>& inputs,
+        const std::vector<Coin>& outputs,
+        uint64_t fee,
+        uint64_t pegin,
+        const BlindingFactor& offset)
+    {
+        return Build(inputs, outputs, fee, pegin, std::vector<PegOutCoin>{}, offset);
+    }
+
+    // Build a transaction that spends `inputs`, creates `outputs`, pays `fee`,
+    // pegs in `pegin` and pegs out `pegouts`, using kernel offset `offset`.
+    // Balanced values required:
+    //   Sum(input values) + pegin == Sum(output values) + fee + Sum(pegout amounts).
+    // The result passes Transaction::Validate. Needs at least one output or input
+    // (a pure peg-out may have no MWEB outputs).
+    static Transaction Build(
+        const std::vector<Coin>& inputs,
+        const std::vector<Coin>& outputs,
+        uint64_t fee,
+        uint64_t pegin,
+        std::vector<PegOutCoin> pegouts,
         const BlindingFactor& offset)
     {
         // Inputs: commit to each spent coin.
@@ -63,11 +89,15 @@ public:
         const SecretKey excess = ComputeExcess(inputs, outputs, offset);
         const Commitment excessCommit = Pedersen::Commit(0, ToBlind(excess));
 
-        const uint8_t features = Kernel::FEE_FEATURE_BIT;
+        uint8_t features = Kernel::FEE_FEATURE_BIT;
+        if (pegin > 0) features |= Kernel::PEGIN_FEATURE_BIT;
+        if (!pegouts.empty()) features |= Kernel::PEGOUT_FEATURE_BIT;
+        const CAmount feeAmt = static_cast<CAmount>(fee);
+        const CAmount peginAmt = static_cast<CAmount>(pegin);
         const mw::Hash message =
-            Kernel(features, static_cast<CAmount>(fee), 0, 0, excessCommit, Signature())
+            Kernel(features, feeAmt, peginAmt, pegouts, 0, excessCommit, Signature())
                 .GetSignatureMessage();
-        Kernel kernel(features, static_cast<CAmount>(fee), 0, 0, excessCommit,
+        Kernel kernel(features, feeAmt, peginAmt, std::move(pegouts), 0, excessCommit,
                       Schnorr::Sign(excess, message.data()));
 
         // Bodies must be sorted by hash for Validate to accept them.
@@ -91,22 +121,29 @@ private:
         return BlindingFactor(std::vector<uint8_t>(s.data(), s.data() + SecretKey::SIZE));
     }
 
+    // excess = Sum(output blinds) - Sum(input blinds) - offset. Folds robustly so
+    // it works with no outputs (a pure peg-out) as long as there is some term.
     static SecretKey ComputeExcess(
         const std::vector<Coin>& inputs,
         const std::vector<Coin>& outputs,
         const BlindingFactor& offset)
     {
-        SecretKey excess = ToSecret(outputs[0].blind);
-        for (size_t i = 1; i < outputs.size(); ++i) {
-            excess = Keys::AddSecretKeys(excess, ToSecret(outputs[i].blind));
-        }
-        for (const Coin& c : inputs) {
-            excess = Keys::AddSecretKeys(excess, Keys::NegateSecretKey(ToSecret(c.blind)));
-        }
-        if (!offset.IsNull()) {
-            excess = Keys::AddSecretKeys(excess, Keys::NegateSecretKey(ToSecret(offset)));
-        }
-        return excess;
+        bool have = false;
+        SecretKey acc;
+        auto addPositive = [&](const SecretKey& s) {
+            acc = have ? Keys::AddSecretKeys(acc, s) : s;
+            have = true;
+        };
+        auto addNegative = [&](const SecretKey& s) {
+            const SecretKey neg = Keys::NegateSecretKey(s);
+            acc = have ? Keys::AddSecretKeys(acc, neg) : neg;
+            have = true;
+        };
+
+        for (const Coin& c : outputs) addPositive(ToSecret(c.blind));
+        for (const Coin& c : inputs)  addNegative(ToSecret(c.blind));
+        if (!offset.IsNull()) addNegative(ToSecret(offset));
+        return acc;
     }
 };
 

@@ -44,6 +44,11 @@ public:
         : m_features(features), m_fee(fee), m_pegin(pegin), m_lockHeight(lockHeight),
           m_excess(std::move(excess)), m_signature(std::move(signature)) {}
 
+    Kernel(uint8_t features, CAmount fee, CAmount pegin, std::vector<PegOutCoin> pegouts,
+           int32_t lockHeight, Commitment excess, Signature signature)
+        : m_features(features), m_fee(fee), m_pegin(pegin), m_pegouts(std::move(pegouts)),
+          m_lockHeight(lockHeight), m_excess(std::move(excess)), m_signature(std::move(signature)) {}
+
     // Getters
     uint8_t GetFeatures() const { return m_features; }
     CAmount GetFee() const { return m_fee; }
