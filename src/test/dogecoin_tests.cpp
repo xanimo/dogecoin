@@ -15,6 +15,7 @@
 #include <mw/models/block/Block.h>
 #include <mw/models/block/Header.h>
 #include <mw/mmr/MMR.h>
+#include <mw/mmr/Leafset.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -501,6 +502,41 @@ BOOST_AUTO_TEST_CASE(mweb_mmr_membership_proof)
     BOOST_REQUIRE(!tampered.path.empty());
     tampered.path[0] = leaf(250);
     BOOST_CHECK(!mmr::MMR::Verify(leaves[2], tampered, root));
+}
+
+// MWEB: the leafset bitmap (spent-output tracking -> leafsetRoot).
+BOOST_AUTO_TEST_CASE(mweb_leafset)
+{
+    mmr::Leafset ls;
+    for (uint64_t i : {0u, 1u, 2u, 3u, 4u, 20u}) ls.Add(i);
+    BOOST_CHECK(ls.Size() == 6);
+    BOOST_CHECK(ls.Contains(2) && ls.Contains(20));
+    BOOST_CHECK(!ls.Contains(5));
+
+    const mw::Hash fullRoot = ls.Root();
+
+    // Spending clears the bit and changes the root.
+    ls.Spend(2);
+    BOOST_CHECK(!ls.Contains(2));
+    BOOST_CHECK(ls.Size() == 5);
+    BOOST_CHECK(ls.Root() != fullRoot);
+
+    // Re-adding restores the exact prior set and root.
+    ls.Add(2);
+    BOOST_CHECK(ls.Root() == fullRoot);
+
+    // Root depends only on the set of unspent leaves, not insertion order or
+    // capacity: build the same set differently and via a larger initial index.
+    mmr::Leafset other;
+    other.Add(20); // forces a larger backing buffer first
+    for (uint64_t i : {4u, 3u, 2u, 1u, 0u}) other.Add(i);
+    BOOST_CHECK(other.Root() == fullRoot);
+
+    // An empty leafset has a stable, distinct root.
+    mmr::Leafset empty;
+    BOOST_CHECK(empty.Size() == 0);
+    BOOST_CHECK(empty.Root() != fullRoot);
+    BOOST_CHECK(empty.Root() == mmr::Leafset().Root());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
