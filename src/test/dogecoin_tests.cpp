@@ -657,6 +657,44 @@ BOOST_AUTO_TEST_CASE(mweb_txbuilder_build_and_validate)
                       std::runtime_error);
 }
 
+// MWEB: peg-in. Value enters MWEB from the canonical chain via the kernel's
+// pegin amount and becomes a new MWEB output (no MWEB inputs).
+BOOST_AUTO_TEST_CASE(mweb_txbuilder_pegin)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+    const std::vector<mw::wallet::Coin> noInputs;
+    const std::vector<mw::wallet::Coin> outs = {{90, blind(0x61)}};
+
+    // pegin 100 == output 90 + fee 10 -> balances.
+    BOOST_CHECK_NO_THROW(mw::wallet::TxBuilder::Build(noInputs, outs, 10, 100, blind(0x62)).Validate());
+
+    // A pegin that doesn't cover output + fee (99 != 90 + 10) is rejected.
+    BOOST_CHECK_THROW(mw::wallet::TxBuilder::Build(noInputs, outs, 10, 99, blind(0x62)).Validate(),
+                      std::runtime_error);
+}
+
+// MWEB: peg-out. Value leaves MWEB to the canonical chain via the kernel's
+// pegout, spending an MWEB input with no MWEB outputs.
+BOOST_AUTO_TEST_CASE(mweb_txbuilder_pegout)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+    const std::vector<mw::wallet::Coin> ins = {{100, blind(0x71)}};
+    const std::vector<mw::wallet::Coin> noOutputs;
+
+    CScript script; script << OP_TRUE; // dummy canonical destination
+
+    // input 100 == fee 10 + pegout 90 -> balances.
+    std::vector<mw::PegOutCoin> pegouts = { mw::PegOutCoin(90, script) };
+    BOOST_CHECK_NO_THROW(
+        mw::wallet::TxBuilder::Build(ins, noOutputs, 10, 0, pegouts, blind(0x72)).Validate());
+
+    // A pegout that doesn't match the input minus fee (89 != 100 - 10) is rejected.
+    std::vector<mw::PegOutCoin> badPegouts = { mw::PegOutCoin(89, script) };
+    BOOST_CHECK_THROW(
+        mw::wallet::TxBuilder::Build(ins, noOutputs, 10, 0, badPegouts, blind(0x72)).Validate(),
+        std::runtime_error);
+}
+
 // MWEB: stealth (one-sided) payments. A sender pays a published address with no
 // recipient interaction; the recipient detects the output and recovers the
 // blind and one-time spend key, while a stranger cannot.
