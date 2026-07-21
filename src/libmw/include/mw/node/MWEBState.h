@@ -1,0 +1,74 @@
+// Copyright (c) 2026 The Dogecoin Core developers
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#ifndef MW_NODE_MWEBSTATE_H
+#define MW_NODE_MWEBSTATE_H
+
+#include <mw/common/Macros.h>
+#include <mw/models/crypto/Hash.h>
+#include <mw/mmr/MMR.h>
+#include <mw/mmr/Leafset.h>
+
+MW_NAMESPACE
+
+// The accumulated MWEB chain state: the append-only output and kernel MMRs plus
+// the leafset of unspent outputs. Block connection drives this forward, one
+// block at a time, and the three roots it exposes are exactly what a block
+// header commits to (outputRoot / kernelRoot / leafsetRoot). Verifying a block's
+// header roots means applying its body here and comparing.
+//
+// Key MWEB property: outputs are never removed from the output MMR (it is a
+// permanent accumulator). Spending an output only clears its bit in the
+// leafset, so a spend changes the leafset root but not the output root.
+class MWEBState
+{
+public:
+    // Add a new output (by its hash). Returns the leaf index it was assigned in
+    // the output MMR, which also indexes it in the leafset.
+    mmr::LeafIndex AddOutput(const mw::Hash& outputHash)
+    {
+        const mmr::LeafIndex index = m_outputMMR.Add(outputHash);
+        m_leafset.Add(index.Get());
+        return index;
+    }
+
+    // Add a kernel (by its hash) to the kernel MMR.
+    void AddKernel(const mw::Hash& kernelHash)
+    {
+        m_kernelMMR.Add(kernelHash);
+    }
+
+    // Mark a previously-added output spent. Leaves the output MMR untouched.
+    void SpendOutput(uint64_t leafIndex)
+    {
+        m_leafset.Spend(leafIndex);
+    }
+
+    bool IsUnspent(uint64_t leafIndex) const { return m_leafset.Contains(leafIndex); }
+    uint64_t NumUnspent() const { return m_leafset.Size(); }
+    uint64_t NumOutputs() const { return m_outputMMR.NumLeaves(); }
+    uint64_t NumKernels() const { return m_kernelMMR.NumLeaves(); }
+
+    mw::Hash OutputRoot() const { return m_outputMMR.Root(); }
+    mw::Hash KernelRoot() const { return m_kernelMMR.Root(); }
+    mw::Hash LeafsetRoot() const { return m_leafset.Root(); }
+
+    // Inclusion proof that an output leaf is in the current output MMR.
+    mmr::MMR::Proof ProveOutput(uint64_t leafIndex) const
+    {
+        return m_outputMMR.ProveLeaf(leafIndex);
+    }
+
+    const mmr::MMR& OutputMMR() const { return m_outputMMR; }
+    const mmr::MMR& KernelMMR() const { return m_kernelMMR; }
+
+private:
+    mmr::MMR m_outputMMR;
+    mmr::MMR m_kernelMMR;
+    mmr::Leafset m_leafset;
+};
+
+END_NAMESPACE
+
+#endif // MW_NODE_MWEBSTATE_H
