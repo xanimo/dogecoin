@@ -52,6 +52,27 @@ struct Params {
     /** Block height at which BIP66 becomes active */
     int BIP66Height;
     /**
+     * SegWit (BIP141/143/147) activation via AuxPoW-safe version-5 supermajority.
+     * Phase 0 activation substrate (DIP dip-xanimo-auxpow-versionbits): SegWit
+     * activates when nSegwitEnforceVersion (>=5) base-version blocks reach a
+     * supermajority within nMajorityWindow, at or after nSegwitStartHeight.
+     * Uses IsSuperMajority (BIP34/65 mechanism), which reads GetBaseVersion()
+     * (nVersion % VERSION_AUXPOW) and therefore never touches the AuxPoW chain
+     * ID in nVersion bits 16-31 -- no versionbits, no nVersion collision.
+     */
+    int nSegwitStartHeight;
+    int nSegwitEnforceVersion;
+    /**
+     * Whether SegWit is scheduled on this chain at all, i.e. whether the
+     * version-5 gate can ever activate. Sites that need "is segwit part of
+     * this chain's rules" (witness commitment generation, NODE_WITNESS
+     * advertisement) must use this rather than the BIP9 DEPLOYMENT_SEGWIT
+     * timeout, which is 0 (disabled) on mainnet and testnet and says nothing
+     * about the version-5 gate. Distinct from IsWitnessEnabled(), which
+     * answers whether segwit has already activated at a given block.
+     */
+    bool IsSegwitConfigured() const { return nSegwitEnforceVersion > 0; }
+    /**
      * Minimum blocks including miner confirmation of the total of 2016 blocks in a retargeting period,
      * (nPowTargetTimespan / nPowTargetSpacing) which is also used for BIP9 deployments.
      * Examples: 1916 for 95%, 1512 for testchains.
