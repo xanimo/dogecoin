@@ -177,8 +177,50 @@ void mw::Transaction::Validate() const
         }
     }
 
-    // TODO (next wiring increment): verify that commitment sums balance
-    // (no inflation).
+    // Commitment balance (no inflation). A commitment is value*H + blind*G, so
+    // the transaction balances iff:
+    //
+    //   Sum(outputs) + (fees + pegouts)*H
+    //     == Sum(inputs) + Sum(kernel excesses) + pegins*H + offset*G
+    //
+    // The H terms carry the value that enters/leaves via fees and pegs; the
+    // offset*G accounts for the kernel offset. We check this as sum-to-zero
+    // (positive - negative == 0). Fees/pegs are non-negative, so we split the
+    // H value between the two sides rather than commit a negative amount, and
+    // skip any zero term (its commitment would be the point at infinity).
+    {
+        std::vector<Commitment> positive;
+        std::vector<Commitment> negative;
+
+        for (const Output& output : m_body.GetOutputs()) {
+            positive.push_back(output.GetCommitment());
+        }
+        for (const Input& input : m_body.GetInputs()) {
+            negative.push_back(input.GetCommitment());
+        }
+
+        uint64_t hPositive = 0; // fees + pegouts: value that leaves the MWEB balance
+        uint64_t hNegative = 0; // pegins: value that enters the MWEB balance
+        for (const Kernel& kernel : m_body.GetKernels()) {
+            negative.push_back(kernel.GetExcess());
+            hPositive += static_cast<uint64_t>(kernel.GetFee());
+            for (const PegOutCoin& pegout : kernel.GetPegOuts()) {
+                hPositive += static_cast<uint64_t>(pegout.GetAmount());
+            }
+            hNegative += static_cast<uint64_t>(kernel.GetPegIn());
+        }
+
+        const BlindingFactor zeroBlind;
+        if (hPositive > 0) positive.push_back(Pedersen::Commit(hPositive, zeroBlind)); // (fees+pegouts)*H
+        if (hNegative > 0) negative.push_back(Pedersen::Commit(hNegative, zeroBlind)); // pegins*H
+        if (!m_kernelOffset.IsNull()) {
+            negative.push_back(Pedersen::Commit(0, m_kernelOffset)); // offset*G
+        }
+
+        if (!Pedersen::VerifyBalance(positive, negative)) {
+            throw std::runtime_error("Transaction does not balance (inflation)");
+        }
+    }
 }
 
 //
