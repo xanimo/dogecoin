@@ -2998,12 +2998,70 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     return true;
 }
 
+/**
+ * Latched version-5 SegWit activation.
+ *
+ * IsSuperMajority() answers "is the threshold met in the window ending here",
+ * which is a rolling predicate: it goes false again as soon as signalling drops
+ * below the threshold. Consensus activation must be monotonic, so the rolling
+ * answer is latched -- once the supermajority is met at or after the start
+ * height, every descendant of that block is active regardless of later
+ * signalling. This is per-branch state, so a reorg to a chain that never met
+ * the threshold correctly reports inactive.
+ *
+ * The result is cached on the block index and inherited from the parent, so
+ * each block is evaluated at most once. Chains that never configure segwit
+ * (nSegwitEnforceVersion == 0) never reach here.
+ */
+static bool IsSegwitLatched(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+{
+    AssertLockHeld(cs_main);
+
+    // Walk back to the nearest ancestor whose latch state is already known,
+    // remembering the blocks we passed.
+    std::vector<const CBlockIndex*> vPending;
+    const CBlockIndex* pindex = pindexPrev;
+    while (pindex != NULL && !pindex->fSegwitLatchComputed) {
+        vPending.push_back(pindex);
+        pindex = pindex->pprev;
+    }
+
+    bool fLatched = (pindex != NULL) ? pindex->fSegwitLatched : false;
+
+    // Fill forward, oldest first, so each block inherits the latch and only
+    // blocks at or after the start height that have not already activated pay
+    // for a supermajority scan.
+    for (std::vector<const CBlockIndex*>::reverse_iterator it = vPending.rbegin(); it != vPending.rend(); ++it) {
+        const CBlockIndex* p = *it;
+        if (!fLatched && p->nHeight + 1 >= params.nSegwitStartHeight) {
+            fLatched = IsSuperMajority(params.nSegwitEnforceVersion, p,
+                                       params.nMajorityEnforceBlockUpgrade, params);
+        }
+        p->fSegwitLatched = fLatched;
+        p->fSegwitLatchComputed = true;
+    }
+
+    return fLatched;
+}
+
 bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
 {
-    // Dogecoin: Disable SegWit
-    return false;
-    // LOCK(cs_main);
-    // return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE);
+    // Dogecoin Phase 0: activate SegWit via an AuxPoW-safe version-5
+    // supermajority (BIP34/65 IsSuperMajority mechanism) instead of BIP9
+    // versionbits. IsSuperMajority reads GetBaseVersion() = nVersion %
+    // VERSION_AUXPOW, so it never inspects the AuxPoW chain ID packed in
+    // nVersion bits 16-31 -- no versionbits collision, no chain-ID
+    // relocation hard fork. See DIP dip-xanimo-auxpow-versionbits.
+    if (pindexPrev == NULL)
+        return false;
+    // Disabled unless an activation version is configured for this chain.
+    if (!params.IsSegwitConfigured())
+        return false;
+    // Not before the configured start height.
+    if (pindexPrev->nHeight + 1 < params.nSegwitStartHeight)
+        return false;
+    LOCK(cs_main);
+    return IsSegwitLatched(pindexPrev, params);
 }
 
 // Compute at which vout of the block's coinbase transaction the witness
@@ -3038,7 +3096,11 @@ std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBloc
     std::vector<unsigned char> commitment;
     int commitpos = GetWitnessCommitmentIndex(block);
     std::vector<unsigned char> ret(32, 0x00);
-    if (consensusParams.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout != 0) {
+    // Dogecoin Phase 0: emit the commitment whenever segwit is scheduled on
+    // this chain, not when the (unused) BIP9 deployment is defined. Keyed off
+    // the versionbits timeout, mainnet would activate the version-5 gate while
+    // never producing a commitment, making every block we mine invalid.
+    if (consensusParams.IsSegwitConfigured()) {
         if (commitpos == -1) {
             uint256 witnessroot = BlockWitnessMerkleRoot(block, NULL);
             CHash256().Write(witnessroot.begin(), 32).Write(&ret[0], 32).Finalize(witnessroot.begin());
@@ -3160,7 +3222,7 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const CB
     //   {0xaa, 0x21, 0xa9, 0xed}, and the following 32 bytes are SHA256^2(witness root, witness nonce). In case there are
     //   multiple, the last one is used.
     bool fHaveWitness = false;
-    if (VersionBitsState(pindexPrev, consensusParams, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE) {
+    if (IsWitnessEnabled(pindexPrev, consensusParams)) {
         int commitpos = GetWitnessCommitmentIndex(block);
         if (commitpos != -1) {
             bool malleated = false;

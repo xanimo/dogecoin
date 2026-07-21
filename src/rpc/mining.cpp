@@ -601,7 +601,10 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     pblock->nNonce = 0;
 
     // NOTE: If at some point we support pre-segwit miners post-segwit-activation, this needs to take segwit support into consideration
-    const bool fPreSegWit = (THRESHOLD_ACTIVE != VersionBitsState(pindexPrev, consensusParams, Consensus::DEPLOYMENT_SEGWIT, versionbitscache));
+    // Dogecoin Phase 0: segwit activation is governed by IsWitnessEnabled
+    // (version-5 supermajority), not versionbits. Keep this consistent with
+    // the validation/miner/net sites so all layers agree on activation.
+    const bool fPreSegWit = !IsWitnessEnabled(pindexPrev, consensusParams);
 
     UniValue aCaps(UniValue::VARR); aCaps.push_back("proposal");
 
