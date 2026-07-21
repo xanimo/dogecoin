@@ -8,6 +8,7 @@
 #include "test/test_bitcoin.h"
 
 #include <mw/crypto/Pedersen.h>
+#include <mw/crypto/Schnorr.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -271,6 +272,28 @@ BOOST_AUTO_TEST_CASE(mweb_pedersen_commitment_balance)
     const mw::Commitment sum = mw::Pedersen::AddCommitments({c100a}, {});
     BOOST_CHECK(!sum.IsNull());
     BOOST_CHECK(sum == c100a);
+}
+
+// MWEB: real Schnorr (aggsig) kernel-signature crypto, backed by secp256k1-zkp.
+BOOST_AUTO_TEST_CASE(mweb_schnorr_sign_verify)
+{
+    const mw::SecretKey key(std::vector<uint8_t>(32, 0x2a));
+    const mw::PublicKey pubkey = mw::Schnorr::BuildPublicKey(key);
+
+    std::vector<uint8_t> msg(32, 0x07);
+    const mw::Signature sig = mw::Schnorr::Sign(key, msg.data());
+
+    // Valid signature verifies against the matching public key.
+    BOOST_CHECK(mw::Schnorr::Verify(sig, pubkey, msg.data()));
+
+    // Tampered message must fail.
+    std::vector<uint8_t> badmsg = msg; badmsg[0] ^= 0xff;
+    BOOST_CHECK(!mw::Schnorr::Verify(sig, pubkey, badmsg.data()));
+
+    // Wrong public key must fail.
+    const mw::SecretKey otherKey(std::vector<uint8_t>(32, 0x3b));
+    const mw::PublicKey otherPub = mw::Schnorr::BuildPublicKey(otherKey);
+    BOOST_CHECK(!mw::Schnorr::Verify(sig, otherPub, msg.data()));
 }
 
 BOOST_AUTO_TEST_SUITE_END()
