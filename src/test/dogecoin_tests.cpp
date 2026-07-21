@@ -347,6 +347,19 @@ BOOST_AUTO_TEST_CASE(mweb_ec_keys_and_ecdh)
     BOOST_CHECK(sharedAB == sharedBA);
 }
 
+// Build a kernel whose signature is valid for excess key `excessKey`. The
+// excess commitment is excess*G (a commitment to zero), which is also the key
+// the signature verifies against.
+static mw::Kernel MakeSignedKernel(const mw::SecretKey& excessKey)
+{
+    const mw::BlindingFactor excessBlind(std::vector<uint8_t>(excessKey.data(), excessKey.data() + 32));
+    const mw::Commitment excessCommit = mw::Pedersen::Commit(0, excessBlind);
+    const mw::Kernel unsignedKernel(0, 0, 0, 0, excessCommit, mw::Signature());
+    const mw::Hash message = unsignedKernel.GetSignatureMessage();
+    const mw::Signature sig = mw::Schnorr::Sign(excessKey, message.data());
+    return mw::Kernel(0, 0, 0, 0, excessCommit, sig);
+}
+
 // MWEB: the crypto is now WIRED into consensus. Transaction::Validate must
 // accept an output whose range proof matches its commitment and reject one
 // whose proof is for a different value.
@@ -358,7 +371,8 @@ BOOST_AUTO_TEST_CASE(mweb_transaction_rangeproof_validation)
     auto makeTx = [](const mw::Output& output) {
         std::vector<mw::Input> inputs;
         std::vector<mw::Output> outputs; outputs.push_back(output);
-        std::vector<mw::Kernel> kernels; kernels.emplace_back(); // Validate needs >=1 kernel
+        std::vector<mw::Kernel> kernels;
+        kernels.push_back(MakeSignedKernel(mw::SecretKey(std::vector<uint8_t>(32, 0x77))));
         return mw::Transaction(
             mw::BlindingFactor(), mw::BlindingFactor(),
             mw::TxBody(std::move(inputs), std::move(outputs), std::move(kernels)));
@@ -375,6 +389,39 @@ BOOST_AUTO_TEST_CASE(mweb_transaction_rangeproof_validation)
     auto badProof = std::make_shared<mw::RangeProof>(mw::Bulletproof::Prove(value + 1, blind));
     mw::Output badOutput(commit, mw::PublicKey(), mw::PublicKey(), mw::OutputMessage(), badProof, mw::Signature());
     BOOST_CHECK_THROW(makeTx(badOutput).Validate(), std::runtime_error);
+}
+
+// MWEB: Transaction::Validate must accept a correctly-signed kernel and reject
+// a kernel whose signature is by the wrong key.
+BOOST_AUTO_TEST_CASE(mweb_transaction_kernel_signature)
+{
+    // A valid output, so validation reaches (and turns on) the kernel checks.
+    const mw::BlindingFactor blind(std::vector<uint8_t>(32, 0x11));
+    const uint64_t value = 42;
+    const mw::Commitment commit = mw::Pedersen::Commit(value, blind);
+    auto proof = std::make_shared<mw::RangeProof>(mw::Bulletproof::Prove(value, blind));
+    const mw::Output output(commit, mw::PublicKey(), mw::PublicKey(), mw::OutputMessage(), proof, mw::Signature());
+
+    auto makeTx = [&](const mw::Kernel& kernel) {
+        std::vector<mw::Input> inputs;
+        std::vector<mw::Output> outputs; outputs.push_back(output);
+        std::vector<mw::Kernel> kernels; kernels.push_back(kernel);
+        return mw::Transaction(
+            mw::BlindingFactor(), mw::BlindingFactor(),
+            mw::TxBody(std::move(inputs), std::move(outputs), std::move(kernels)));
+    };
+
+    // Correctly signed kernel validates.
+    const mw::SecretKey excessKey(std::vector<uint8_t>(32, 0x29));
+    BOOST_CHECK_NO_THROW(makeTx(MakeSignedKernel(excessKey)).Validate());
+
+    // Same excess, but the signature is by a different key -> rejected.
+    const mw::BlindingFactor excessBlind(std::vector<uint8_t>(excessKey.data(), excessKey.data() + 32));
+    const mw::Commitment excessCommit = mw::Pedersen::Commit(0, excessBlind);
+    const mw::Hash message = mw::Kernel(0, 0, 0, 0, excessCommit, mw::Signature()).GetSignatureMessage();
+    const mw::Signature wrongSig = mw::Schnorr::Sign(mw::SecretKey(std::vector<uint8_t>(32, 0x30)), message.data());
+    const mw::Kernel badKernel(0, 0, 0, 0, excessCommit, wrongSig);
+    BOOST_CHECK_THROW(makeTx(badKernel).Validate(), std::runtime_error);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
