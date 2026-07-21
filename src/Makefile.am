@@ -220,6 +220,7 @@ libdogecoin_server_a_SOURCES = \
   libmw/pedersen.cpp \
   libmw/schnorr.cpp \
   libmw/bulletproof.cpp \
+  libmw/keys.cpp \
   net.cpp \
   net_processing.cpp \
   noui.cpp \
