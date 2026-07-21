@@ -65,6 +65,13 @@ public:
         }
     }
 
+    // Raw bitmap bytes, for persistence. Trailing zero bytes may be present; the
+    // root trims them, so a reloaded leafset hashes identically.
+    const std::vector<uint8_t>& ToBytes() const { return m_bits; }
+
+    // Replace the bitmap with persisted bytes (used when rebuilding from disk).
+    void LoadBytes(const std::vector<uint8_t>& bytes) { m_bits = bytes; }
+
     // Number of unspent leaves.
     uint64_t Size() const
     {
