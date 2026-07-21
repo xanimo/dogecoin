@@ -24,6 +24,10 @@ namespace Keys {
     // Scalar sum (a + b) mod n. Used to combine blinding factors / derive keys.
     SecretKey AddSecretKeys(const SecretKey& a, const SecretKey& b);
 
+    // Scalar negation (-a) mod n. With AddSecretKeys this gives subtraction,
+    // needed to compute a kernel excess (Sum(out blinds) - Sum(in blinds) - offset).
+    SecretKey NegateSecretKey(const SecretKey& a);
+
     // Point sum A + B. Homomorphic partner of AddSecretKeys:
     // PublicKeyFrom(AddSecretKeys(a,b)) == AddPublicKeys(PublicKeyFrom(a), PublicKeyFrom(b)).
     PublicKey AddPublicKeys(const PublicKey& a, const PublicKey& b);
