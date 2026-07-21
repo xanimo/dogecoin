@@ -207,6 +207,15 @@ public:
     //! (memory only) Maximum nTime in the chain upto and including this block.
     unsigned int nTimeMax;
 
+    //! (memory only) Latched version-5 SegWit activation state for this block,
+    //! i.e. whether the supermajority has been met here or at any ancestor.
+    //! Activation must never revert once reached, so this is computed once per
+    //! block index and inherited by descendants rather than re-derived from the
+    //! rolling signalling window on every query. See IsWitnessEnabled().
+    //! Mutable because it is a pure cache of ancestor state.
+    mutable bool fSegwitLatched;
+    mutable bool fSegwitLatchComputed;
+
     void SetNull()
     {
         phashBlock = NULL;
@@ -222,6 +231,8 @@ public:
         nStatus = 0;
         nSequenceId = 0;
         nTimeMax = 0;
+        fSegwitLatched = false;
+        fSegwitLatchComputed = false;
 
         nVersion = 0;
         hashMerkleRoot = uint256();
