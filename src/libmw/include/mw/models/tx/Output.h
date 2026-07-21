@@ -91,6 +91,20 @@ public:
 
     Output() = default;
 
+    Output(
+        Commitment commitment,
+        PublicKey senderPubKey,
+        PublicKey receiverPubKey,
+        OutputMessage message,
+        RangeProof::CPtr pRangeProof,
+        Signature signature)
+        : m_commitment(std::move(commitment)),
+          m_senderPubKey(std::move(senderPubKey)),
+          m_receiverPubKey(std::move(receiverPubKey)),
+          m_message(std::move(message)),
+          m_pRangeProof(std::move(pRangeProof)),
+          m_signature(std::move(signature)) {}
+
     // Getters
     const Commitment& GetCommitment() const { return m_commitment; }
     const PublicKey& GetSenderPubKey() const { return m_senderPubKey; }
