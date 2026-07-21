@@ -218,6 +218,7 @@ libdogecoin_server_a_SOURCES = \
   mweb/mweb_db.cpp \
   libmw/libmw.cpp \
   libmw/pedersen.cpp \
+  libmw/schnorr.cpp \
   net.cpp \
   net_processing.cpp \
   noui.cpp \
