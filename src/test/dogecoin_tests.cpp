@@ -724,4 +724,28 @@ BOOST_AUTO_TEST_CASE(mweb_stealth_payment)
     BOOST_CHECK(mw::Keys::PublicKeyFrom(spend) == sent.output.GetReceiverPubKey());
 }
 
+// MWEB: the full wallet lifecycle -- a coin received via a stealth payment can
+// be recovered and re-spent in a valid transaction.
+BOOST_AUTO_TEST_CASE(mweb_stealth_receive_and_spend)
+{
+    auto sk = [](uint8_t b) { return mw::SecretKey(std::vector<uint8_t>(32, b)); };
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    // Recipient receives a 500-value stealth payment.
+    const mw::SecretKey scanKey = sk(0x11), spendKey = sk(0x22);
+    const mw::wallet::StealthAddress addr{
+        mw::Keys::PublicKeyFrom(scanKey), mw::Keys::PublicKeyFrom(spendKey) };
+    const uint64_t received = 500;
+    const mw::wallet::StealthResult sent = mw::wallet::Stealth::Send(addr, received, sk(0x33));
+
+    // It's theirs, and they recover the blind (value known out-of-band here).
+    BOOST_REQUIRE(mw::wallet::Stealth::IsMine(sent.output, scanKey, mw::Keys::PublicKeyFrom(spendKey)));
+    const mw::BlindingFactor recovered = mw::wallet::Stealth::RecoverBlind(sent.output, scanKey);
+
+    // Spend it: the received coin becomes an input worth `received`.
+    const std::vector<mw::wallet::Coin> ins  = {{received, recovered}};
+    const std::vector<mw::wallet::Coin> outs = {{received - 10, blind(0x99)}}; // 500 = 490 + 10 fee
+    BOOST_CHECK_NO_THROW(mw::wallet::TxBuilder::Build(ins, outs, 10, blind(0xAB)).Validate());
+}
+
 BOOST_AUTO_TEST_SUITE_END()
