@@ -11,6 +11,7 @@
 #include <mw/crypto/Schnorr.h>
 #include <mw/crypto/Bulletproof.h>
 #include <mw/crypto/Keys.h>
+#include <mw/models/tx/Transaction.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -344,6 +345,36 @@ BOOST_AUTO_TEST_CASE(mweb_ec_keys_and_ecdh)
     const mw::SecretKey sharedAB = mw::Keys::ECDH(a, pubB);
     const mw::SecretKey sharedBA = mw::Keys::ECDH(b, pubA);
     BOOST_CHECK(sharedAB == sharedBA);
+}
+
+// MWEB: the crypto is now WIRED into consensus. Transaction::Validate must
+// accept an output whose range proof matches its commitment and reject one
+// whose proof is for a different value.
+BOOST_AUTO_TEST_CASE(mweb_transaction_rangeproof_validation)
+{
+    const mw::BlindingFactor blind(std::vector<uint8_t>(32, 0x5c));
+    const uint64_t value = 5000;
+
+    auto makeTx = [](const mw::Output& output) {
+        std::vector<mw::Input> inputs;
+        std::vector<mw::Output> outputs; outputs.push_back(output);
+        std::vector<mw::Kernel> kernels; kernels.emplace_back(); // Validate needs >=1 kernel
+        return mw::Transaction(
+            mw::BlindingFactor(), mw::BlindingFactor(),
+            mw::TxBody(std::move(inputs), std::move(outputs), std::move(kernels)));
+    };
+
+    const mw::Commitment commit = mw::Pedersen::Commit(value, blind);
+
+    // Valid: proof matches the commitment's value.
+    auto goodProof = std::make_shared<mw::RangeProof>(mw::Bulletproof::Prove(value, blind));
+    mw::Output goodOutput(commit, mw::PublicKey(), mw::PublicKey(), mw::OutputMessage(), goodProof, mw::Signature());
+    BOOST_CHECK_NO_THROW(makeTx(goodOutput).Validate());
+
+    // Invalid: proof is for value+1 but the commitment is for value.
+    auto badProof = std::make_shared<mw::RangeProof>(mw::Bulletproof::Prove(value + 1, blind));
+    mw::Output badOutput(commit, mw::PublicKey(), mw::PublicKey(), mw::OutputMessage(), badProof, mw::Signature());
+    BOOST_CHECK_THROW(makeTx(badOutput).Validate(), std::runtime_error);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

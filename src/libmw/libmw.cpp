@@ -7,6 +7,7 @@
 #include <mw/models/tx/Transaction.h>
 #include <mw/consensus/Weight.h>
 #include <mw/node/BlockBuilder.h>
+#include <mw/crypto/Bulletproof.h>
 
 #include <algorithm>
 #include <set>
@@ -152,10 +153,19 @@ void mw::Transaction::Validate() const
         }
     }
 
-    // TODO: When full libmw crypto backend is available, verify:
-    // - All kernel signatures are valid
-    // - All range proofs are valid
-    // - Commitment sums balance (no inflation)
+    // Verify each output's range proof: proves the committed amount is in
+    // [0, 2^64) so an output cannot hide a negative/overflowing value.
+    for (const Output& output : m_body.GetOutputs()) {
+        if (!output.GetRangeProof()) {
+            throw std::runtime_error("Output missing range proof");
+        }
+        if (!Bulletproof::Verify(*output.GetRangeProof(), output.GetCommitment())) {
+            throw std::runtime_error("Invalid range proof");
+        }
+    }
+
+    // TODO (next wiring increments): verify kernel signatures, and that
+    // commitment sums balance (no inflation).
 }
 
 //
