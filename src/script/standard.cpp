@@ -335,3 +335,10 @@ CScript GetScriptForWitness(const CScript& redeemscript)
     ret << OP_0 << ToByteVector(hash);
     return ret;
 }
+
+CScript GetScriptForMWEBPegin(const mw::Hash& kernelID)
+{
+    // Witness program: version opcode + the 32-byte kernel ID as the program.
+    // Mirrors CScript::IsMWEBPegin, which decodes exactly this shape.
+    return CScript() << CScript::EncodeOP_N(MWEB_PEGIN_WITNESS_VERSION) << kernelID.vec();
+}
