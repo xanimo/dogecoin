@@ -17,6 +17,7 @@
 #include <mw/mmr/MMR.h>
 #include <mw/mmr/Leafset.h>
 #include <mw/node/MWEBState.h>
+#include <mw/wallet/TxBuilder.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -629,6 +630,30 @@ BOOST_AUTO_TEST_CASE(mweb_state_apply_block)
     BOOST_CHECK(state.SpendByOutputID(o1.GetOutputID()));
     BOOST_CHECK(state.LeafsetRoot() != leafBefore);
     BOOST_CHECK(!state.SpendByOutputID(mw::Hash(std::vector<uint8_t>(32, 0x99))));
+}
+
+// MWEB: the wallet builds transactions that the consensus validator accepts --
+// the build -> validate loop. Balanced values pass; unbalanced values are
+// caught by Validate.
+BOOST_AUTO_TEST_CASE(mweb_txbuilder_build_and_validate)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    // 1 input 100 -> 1 output 90 + fee 10, with a non-zero offset.
+    const std::vector<mw::wallet::Coin> ins  = {{100, blind(0x11)}};
+    const std::vector<mw::wallet::Coin> outs = {{90, blind(0x22)}};
+    BOOST_CHECK_NO_THROW(mw::wallet::TxBuilder::Build(ins, outs, 10, blind(0x33)).Validate());
+
+    // 2 inputs -> 2 outputs, balanced: 30 + 70 == 40 + 50 + 10 fee.
+    const std::vector<mw::wallet::Coin> ins2  = {{30, blind(0x41)}, {70, blind(0x42)}};
+    const std::vector<mw::wallet::Coin> outs2 = {{40, blind(0x43)}, {50, blind(0x44)}};
+    BOOST_CHECK_NO_THROW(mw::wallet::TxBuilder::Build(ins2, outs2, 10, blind(0x45)).Validate());
+
+    // Unbalanced values (100 != 95 + 10) still produce valid proofs and a valid
+    // signature, but must be rejected by the balance check.
+    const std::vector<mw::wallet::Coin> badOut = {{95, blind(0x22)}};
+    BOOST_CHECK_THROW(mw::wallet::TxBuilder::Build(ins, badOut, 10, blind(0x33)).Validate(),
+                      std::runtime_error);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
