@@ -1274,6 +1274,12 @@ fi
 ac_configure_args="${ac_configure_args} --disable-shared --with-pic --with-bignum=no --enable-module-recovery"
 AC_CONFIG_SUBDIRS([src/secp256k1])
 
+dnl MWEB: isolated secp256k1-zkp (symbol-prefixed, does not affect consensus secp above).
+dnl The extra --enable-module-* flags are unknown to the consensus secp and are harmlessly
+dnl ignored there; they enable the zkp modules for src/secp256k1-zkp.
+ac_configure_args="${ac_configure_args} --enable-experimental --enable-module-generator --enable-module-commitment --enable-module-bulletproof --enable-module-aggsig --enable-module-ecdh"
+AC_CONFIG_SUBDIRS([src/secp256k1-zkp])
+
 AC_OUTPUT
 
 dnl Taken from https://wiki.debian.org/RpathIssue
