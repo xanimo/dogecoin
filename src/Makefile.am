@@ -24,6 +24,7 @@ BITCOIN_INCLUDES=-I$(builddir) -I$(builddir)/obj $(BDB_CPPFLAGS) $(BOOST_CPPFLAG
 BITCOIN_INCLUDES += -I$(srcdir)/secp256k1/include
 BITCOIN_INCLUDES += -I$(srcdir)/libmw/include
 BITCOIN_INCLUDES += -I$(srcdir)/secp256k1-zkp/include
+BITCOIN_INCLUDES += -I$(srcdir)/secp256k1-zkp
 BITCOIN_INCLUDES += $(UNIVALUE_CFLAGS)
 
 LIBDOGECOIN_SERVER=libdogecoin_server.a
@@ -216,6 +217,7 @@ libdogecoin_server_a_SOURCES = \
   mweb/mweb_node.cpp \
   mweb/mweb_db.cpp \
   libmw/libmw.cpp \
+  libmw/pedersen.cpp \
   net.cpp \
   net_processing.cpp \
   noui.cpp \
