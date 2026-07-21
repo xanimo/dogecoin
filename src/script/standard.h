@@ -83,4 +83,10 @@ CScript GetScriptForRawPubKey(const CPubKey& pubkey);
 CScript GetScriptForMultisig(int nRequired, const std::vector<CPubKey>& keys);
 CScript GetScriptForWitness(const CScript& redeemscript);
 
+/** Build the canonical peg-in output script for an MWEB kernel: a witness
+ *  program at version MWEB_PEGIN_WITNESS_VERSION carrying the 32-byte kernel ID.
+ *  This is the inverse of CScript::IsMWEBPegin -- the value sent to this script
+ *  is what pegs into the MWEB from the canonical chain. */
+CScript GetScriptForMWEBPegin(const mw::Hash& kernelID);
+
 #endif // BITCOIN_SCRIPT_STANDARD_H

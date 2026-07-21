@@ -21,6 +21,8 @@
 #include <mw/wallet/Stealth.h>
 
 #include "mweb/mweb_node.h"
+#include "mweb/mweb_wallet.h"
+#include "script/standard.h"
 #include "consensus/validation.h"
 
 #include <boost/test/unit_test.hpp>
@@ -863,6 +865,51 @@ BOOST_AUTO_TEST_CASE(mweb_node_accepts_builder_tx)
         mw::wallet::TxBuilder::Build({{100, blind(0x11)}}, {{95, blind(0x22)}}, 10, blind(0x33));
     CValidationState s2;
     BOOST_CHECK(!MWEB::Node::CheckTransaction(wrap(bad), s2));
+}
+
+// MWEB: the wallet assembles a peg-in as a complete CTransaction -- an MWEB body
+// pegging value in, paired with the canonical peg-in output the consensus rules
+// require. The node accepts a well-formed one and rejects a canonical output that
+// disagrees with (or is missing for) the MWEB peg-in kernel.
+BOOST_AUTO_TEST_CASE(mweb_wallet_pegin_transaction)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    // Wallet builds the MWEB body: peg in 100 -> one output of 90 + fee 10.
+    const std::vector<mw::wallet::Coin> noInputs;
+    const std::vector<mw::wallet::Coin> outs = {{90, blind(0x61)}};
+    const mw::Transaction mwtx =
+        mw::wallet::TxBuilder::Build(noInputs, outs, 10, /*pegin=*/100, blind(0x62));
+    BOOST_REQUIRE(mwtx.GetPegIns().size() == 1);
+    BOOST_CHECK(mwtx.GetPegIns()[0].GetAmount() == 100);
+
+    // Assemble the full peg-in CTransaction (dummy funding input; coin
+    // selection/signing is out of scope for this structural check).
+    const std::vector<CTxIn> vin(1);
+    const CTransaction tx = MWEB::Wallet::CreatePegInTransaction(mwtx, vin);
+
+    // The canonical peg-in output is present, keyed by the kernel, with the amount.
+    BOOST_REQUIRE(tx.vout.size() == 1);
+    mw::Hash kid;
+    BOOST_CHECK(tx.vout[0].scriptPubKey.IsMWEBPegin(&kid));
+    BOOST_CHECK(kid == mwtx.GetPegIns()[0].GetKernelID());
+    BOOST_CHECK(tx.vout[0].nValue == 100);
+
+    // The node accepts the well-formed peg-in.
+    CValidationState s1;
+    BOOST_CHECK(MWEB::Node::CheckTransaction(tx, s1));
+
+    // A canonical peg-in output whose amount disagrees with the kernel is rejected.
+    CMutableTransaction mtxBad(tx);
+    mtxBad.vout[0].nValue = 99;
+    CValidationState s2;
+    BOOST_CHECK(!MWEB::Node::CheckTransaction(CTransaction(mtxBad), s2));
+
+    // A missing canonical peg-in output (kernel with no match) is rejected.
+    CMutableTransaction mtxMissing(tx);
+    mtxMissing.vout.clear();
+    CValidationState s3;
+    BOOST_CHECK(!MWEB::Node::CheckTransaction(CTransaction(mtxMissing), s3));
 }
 
 BOOST_AUTO_TEST_SUITE_END()
