@@ -1630,10 +1630,12 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
         }
     }
 
-    if (chainparams.GetConsensus(0).vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout != 0) {
-        // Only advertise witness capabilities if they have a reasonable start time.
-        // This allows us to have the code merged without a defined softfork, by setting its
-        // end time to 0.
+    if (chainparams.GetConsensus(0).IsSegwitConfigured()) {
+        // Dogecoin Phase 0: advertise witness capabilities when segwit is
+        // scheduled on this chain via the version-5 gate. The BIP9
+        // DEPLOYMENT_SEGWIT timeout is 0 on mainnet and testnet and does not
+        // track that gate, so keying off it would leave nodes without
+        // NODE_WITNESS after activation and witness data would never relay.
         // Note that setting NODE_WITNESS is never required: the only downside from not
         // doing so is that after activation, no upgraded nodes will fetch from you.
         nLocalServices = ServiceFlags(nLocalServices | NODE_WITNESS);
