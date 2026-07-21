@@ -9,6 +9,7 @@
 
 #include <mw/crypto/Pedersen.h>
 #include <mw/crypto/Schnorr.h>
+#include <mw/crypto/Bulletproof.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -294,6 +295,29 @@ BOOST_AUTO_TEST_CASE(mweb_schnorr_sign_verify)
     const mw::SecretKey otherKey(std::vector<uint8_t>(32, 0x3b));
     const mw::PublicKey otherPub = mw::Schnorr::BuildPublicKey(otherKey);
     BOOST_CHECK(!mw::Schnorr::Verify(sig, otherPub, msg.data()));
+}
+
+// MWEB: real bulletproof range proofs, backed by secp256k1-zkp. Verifies
+// against the matching Pedersen commitment (shared H/G generator convention).
+BOOST_AUTO_TEST_CASE(mweb_bulletproof_rangeproof)
+{
+    const mw::BlindingFactor blind(std::vector<uint8_t>(32, 0x5c));
+    const uint64_t value = 1234567;
+
+    const mw::Commitment commit = mw::Pedersen::Commit(value, blind);
+    const mw::RangeProof proof = mw::Bulletproof::Prove(value, blind);
+
+    // Proof verifies against its own commitment.
+    BOOST_CHECK(mw::Bulletproof::Verify(proof, commit));
+
+    // Proof must NOT verify against a different commitment.
+    const mw::Commitment otherCommit = mw::Pedersen::Commit(value + 1, blind);
+    BOOST_CHECK(!mw::Bulletproof::Verify(proof, otherCommit));
+
+    // A range proof for value 0 is valid and verifies.
+    const mw::Commitment zeroCommit = mw::Pedersen::Commit(0, blind);
+    const mw::RangeProof zeroProof = mw::Bulletproof::Prove(0, blind);
+    BOOST_CHECK(mw::Bulletproof::Verify(zeroProof, zeroCommit));
 }
 
 BOOST_AUTO_TEST_SUITE_END()
