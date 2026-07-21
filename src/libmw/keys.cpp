@@ -19,6 +19,8 @@
 extern "C" {
     int secp256k1_ec_privkey_tweak_add(
         const secp256k1_context* ctx, unsigned char* seckey, const unsigned char* tweak);
+    int secp256k1_ec_privkey_negate(
+        const secp256k1_context* ctx, unsigned char* seckey);
     int secp256k1_ecdh(
         const secp256k1_context* ctx, unsigned char* result,
         const secp256k1_pubkey* pubkey, const unsigned char* privkey);
@@ -72,6 +74,15 @@ SecretKey AddSecretKeys(const SecretKey& a, const SecretKey& b)
         throw std::runtime_error("Keys: secret key sum out of range");
     }
     return SecretKey(sum);
+}
+
+SecretKey NegateSecretKey(const SecretKey& a)
+{
+    std::vector<uint8_t> neg(a.data(), a.data() + SecretKey::SIZE);
+    if (!secp256k1_ec_privkey_negate(Ctx(), neg.data())) {
+        throw std::runtime_error("Keys: secret key negation failed");
+    }
+    return SecretKey(neg);
 }
 
 PublicKey AddPublicKeys(const PublicKey& a, const PublicKey& b)
