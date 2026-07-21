@@ -170,8 +170,16 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     }
     // -regtest only: allow overriding block.nVersion with
     // -blockversion=N to test forking scenarios
-    if (chainparams.MineBlocksOnDemand())
-        pblock->SetBaseVersion(GetArg("-blockversion", pblock->GetBaseVersion()), nChainId);
+    if (chainparams.MineBlocksOnDemand()) {
+        if (consensus.nAuxPowVersion >= 2) {
+            // v2: nVersion is a full versionbits value; SetBaseVersion would
+            // re-pack the chain ID and assert (base >= VERSION_AUXPOW). Set
+            // nVersion directly instead. (see DIP dip-xanimo-auxpow-versionbits)
+            pblock->nVersion = GetArg("-blockversion", pblock->nVersion);
+        } else {
+            pblock->SetBaseVersion(GetArg("-blockversion", pblock->GetBaseVersion()), nChainId);
+        }
+    }
 
     pblock->nTime = GetAdjustedTime();
     const int64_t nMedianTimePast = pindexPrev->GetMedianTimePast();

@@ -386,6 +386,7 @@ class CRegTestParams : public CChainParams {
 private:
     Consensus::Params digishieldConsensus;
     Consensus::Params auxpowConsensus;
+    Consensus::Params versionbitsConsensus;
 public:
     CRegTestParams() {
         strNetworkID = "regtest";
@@ -441,9 +442,19 @@ public:
         auxpowConsensus.nAuxPowVersion = 1; // AuxPoW active; chain ID in nVersion
         auxpowConsensus.nHeightEffective = 20;
 
+        // AuxPoW v2 epoch: chain ID validated out-of-band (per DIP), so the
+        // full nVersion is free for BIP9 versionbits and segwit can signal.
+        // Regtest-only, version-gating lever only (DIP dip-xanimo-auxpow-versionbits).
+        // Inherits auxpow (v1) settings; exercises the nAuxPowVersion lever,
+        // NOT the hard-fork chain-ID relocation.
+        versionbitsConsensus = auxpowConsensus;
+        versionbitsConsensus.nHeightEffective = 30;
+        versionbitsConsensus.nAuxPowVersion = 2;
+
         // Assemble the binary search tree of parameters
         digishieldConsensus.pLeft = &consensus;
         digishieldConsensus.pRight = &auxpowConsensus;
+        auxpowConsensus.pRight = &versionbitsConsensus;
         pConsensusRoot = &digishieldConsensus;
 
         pchMessageStart[0] = 0xfa;
