@@ -12,6 +12,7 @@
 #include <mw/models/tx/Transaction.h>
 #include <mw/models/tx/PegInCoin.h>
 #include <mw/models/crypto/BlindingFactor.h>
+#include <mw/node/MWEBState.h>
 
 #include <memory>
 #include <vector>
@@ -21,12 +22,17 @@ MW_NAMESPACE
 /// Accumulates MWEB transactions and builds an MWEB extension block.
 ///
 /// The builder collects individual transactions, merges their bodies,
-/// and produces a Block with a Header summarizing the aggregate state.
+/// and produces a Block whose Header commits to the accumulated chain
+/// state after this block. The header roots are computed by applying the
+/// block's elements to a copy of the previous accumulator (the output and
+/// kernel MMRs plus the leafset), exactly as the validator does when it
+/// connects the block -- so a block this builder produces satisfies
+/// MWEBState::MatchesHeader.
 ///
-/// NOTE: Without a full crypto backend, the header Merkle roots are
-/// computed as simple serial hashes of the sorted element hashes,
-/// and the aggregate offsets use XOR as a placeholder for proper
-/// elliptic curve addition.
+/// NOTE: the aggregate kernel/stealth offsets still use XOR as a placeholder
+/// for elliptic-curve scalar addition. For a single-transaction block this is
+/// identity-correct (XOR against the zero seed yields the transaction's own
+/// offset); aggregating multiple transactions' offsets needs real EC addition.
 class BlockBuilder {
 public:
     using Ptr = std::shared_ptr<BlockBuilder>;
@@ -34,7 +40,12 @@ public:
     /// Create a new BlockBuilder for the given height.
     /// @param height       The height of the block being built.
     /// @param prevHeader   The previous block's MWEB header (may be null for genesis).
-    static BlockBuilder::Ptr Create(int32_t height, const mw::Header::CPtr& prevHeader = nullptr);
+    /// @param prevState    The accumulated chain state as of the previous block, from
+    ///                     which this block's header roots are derived. Defaults to an
+    ///                     empty accumulator (the genesis case).
+    static BlockBuilder::Ptr Create(int32_t height,
+                                    const mw::Header::CPtr& prevHeader = nullptr,
+                                    const mw::MWEBState& prevState = mw::MWEBState());
 
     /// Add a transaction to the block being assembled.
     /// @return true if the transaction was accepted.
@@ -50,16 +61,14 @@ public:
     bool HasTransactions() const { return !m_transactions.empty(); }
 
 private:
-    BlockBuilder(int32_t height, const mw::Header::CPtr& prevHeader);
+    BlockBuilder(int32_t height, const mw::Header::CPtr& prevHeader, const mw::MWEBState& prevState);
 
     /// Combine blinding factors using XOR (placeholder for real ECC addition).
     static BlindingFactor CombineOffsets(const BlindingFactor& a, const BlindingFactor& b);
 
-    /// Compute a simple aggregate hash over a sorted list of hashes.
-    static mw::Hash AggregateHash(std::vector<mw::Hash> hashes);
-
     int32_t m_height;
     mw::Header::CPtr m_prevHeader;
+    mw::MWEBState m_prevState;
     std::vector<mw::Transaction::CPtr> m_transactions;
 };
 
