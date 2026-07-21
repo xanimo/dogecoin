@@ -4,6 +4,12 @@
  * file COPYING or http://www.opensource.org/licenses/mit-license.php.*
  **********************************************************************/
 
+/* MWEB: rename every secp256k1_ symbol to mw_secp256k1_ so this isolated zkp
+ * library never collides with the consensus src/secp256k1. This is included in
+ * the source (not only via a build flag) so the rename applies in every build
+ * environment; prefix.h is include-guarded, so a duplicate -include is harmless. */
+#include "../prefix.h"
+
 #include "include/secp256k1.h"
 
 #include "util.h"
