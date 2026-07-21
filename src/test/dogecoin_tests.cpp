@@ -26,6 +26,7 @@
 #include "mweb/mweb_db.h"
 #include "script/standard.h"
 #include "consensus/validation.h"
+#include "primitives/block.h"
 
 #include <boost/test/unit_test.hpp>
 
@@ -1037,6 +1038,53 @@ BOOST_AUTO_TEST_CASE(mweb_state_db_persistence)
         BOOST_CHECK(db2.State().LeafsetRoot() == leafRoot);
         BOOST_CHECK(db2.State().MatchesHeader(*block2->GetHeader()));
     }
+}
+
+// MWEB: a full block assembled the way the miner assembles one -- coinbase, a
+// canonical peg-in transaction, and a HogEx, with the MWEB extension block -- passes
+// the node's block-level MWEB validation (peg-in matching + MWEB block crypto). A
+// canonical peg-in output that disagrees with the MWEB kernel is rejected.
+BOOST_AUTO_TEST_CASE(mweb_node_validates_full_block)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    // Wallet builds the MWEB body (peg in 100 -> 90 out + 10 fee); miner builds the
+    // MWEB extension block from it.
+    const mw::Transaction mwtx =
+        mw::wallet::TxBuilder::Build({}, {{90, blind(0x91)}}, 10, /*pegin=*/100, blind(0x92));
+    auto builder = mw::BlockBuilder::Create(1, nullptr, mw::MWEBState());
+    BOOST_REQUIRE(builder->AddTransaction(std::make_shared<mw::Transaction>(mwtx), mwtx.GetPegIns()));
+    mw::Block::Ptr mwebBlock = builder->Build();
+    BOOST_REQUIRE(mwebBlock != nullptr);
+
+    // Canonical peg-in transaction carrying the peg-in output paired with the kernel.
+    const CTransaction peginTx =
+        MWEB::Wallet::CreatePegInTransaction(mwtx, std::vector<CTxIn>(1));
+
+    // Assemble the canonical block: coinbase, peg-in tx, HogEx (last), + MWEB block.
+    auto makeBlock = [&](const CTransaction& pegin) {
+        CBlock block;
+        CMutableTransaction coinbase;
+        coinbase.vin.resize(1);
+        coinbase.vin[0].prevout.SetNull();
+        coinbase.vout.resize(1);
+        block.vtx.push_back(MakeTransactionRef(coinbase));
+        block.vtx.push_back(MakeTransactionRef(pegin));
+        CMutableTransaction hogex;
+        hogex.m_hogEx = true;
+        hogex.vout.resize(1); // vout[0] is the HogAddr; no peg-outs here
+        block.vtx.push_back(MakeTransactionRef(std::move(hogex)));
+        block.mweb_block.m_block = mwebBlock;
+        return block;
+    };
+
+    // A well-formed block validates.
+    BOOST_CHECK(MWEB::Node::ValidateMWEBBlock(makeBlock(peginTx)));
+
+    // A canonical peg-in output whose amount disagrees with the MWEB kernel fails.
+    CMutableTransaction badPegin(peginTx);
+    badPegin.vout[0].nValue = 99;
+    BOOST_CHECK(!MWEB::Node::ValidateMWEBBlock(makeBlock(CTransaction(badPegin))));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

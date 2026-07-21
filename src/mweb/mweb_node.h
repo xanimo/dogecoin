@@ -51,7 +51,11 @@ public:
     /// Validates an MWEB transaction.
     static bool CheckTransaction(const CTransaction& tx, CValidationState& state);
 
-private:
+    /// Validates the MWEB extension block itself against the canonical block:
+    /// the peg-in outputs in the block's transactions and the peg-out outputs in
+    /// the HogEx must match the MWEB kernels, and the MWEB block's crypto (range
+    /// proofs, kernel signatures, commitment balance) must be sound. Context-
+    /// independent; ContextualCheckBlock calls this after its structural checks.
     static bool ValidateMWEBBlock(const CBlock& block);
 };
 
