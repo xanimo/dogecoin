@@ -103,6 +103,23 @@ bool CMWEBStateDB::ConnectBlock(const mw::Block& block,
     spentUTXOs.clear();
     addedOutputIDs.clear();
 
+    // Owner binding: every input must spend an output currently in the UTXO set
+    // and carry that output's exact commitment and one-time (receiver) public
+    // key. Combined with the input owner signature verified in Block::Validate,
+    // this proves the spender owns the specific output it references -- not merely
+    // that it knows some key. Checked before the accumulator advances so a bad
+    // spend rejects the block without leaving state half-applied.
+    for (const auto& input : block.GetInputs()) {
+        mw::Output spentOutput;
+        if (!GetOutput(input.GetOutputID(), spentOutput)) {
+            return false; // spends an unknown or already-spent output
+        }
+        if (input.GetCommitment() != spentOutput.GetCommitment() ||
+            input.GetOutputPubKey() != spentOutput.GetReceiverPubKey()) {
+            return false; // input does not match the output it claims to spend
+        }
+    }
+
     const uint64_t prevNumOutputs = prevHeader ? prevHeader->GetNumTXOs() : 0;
     const uint64_t prevNumKernels = prevHeader ? prevHeader->GetNumKernels() : 0;
 
