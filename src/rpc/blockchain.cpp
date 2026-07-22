@@ -1143,6 +1143,24 @@ static UniValue SoftForkDesc(const std::string &name, int version, CBlockIndex* 
     return rv;
 }
 
+// MWEB activates via the AuxPoW-safe version-6 supermajority latch, not
+// versionbits, so its status is reported from the actual activation state
+// (IsMWEBEnabled) rather than a BIP9 threshold.
+static UniValue MWEBSoftForkDesc(CBlockIndex* tip, const Consensus::Params& consensusParams)
+{
+    UniValue rv(UniValue::VOBJ);
+    rv.pushKV("id", "mweb");
+    if (!consensusParams.IsMwebConfigured()) {
+        rv.pushKV("status", "disabled");
+        return rv;
+    }
+    const bool active = IsMWEBEnabled(tip, consensusParams);
+    rv.pushKV("status", active ? "active" : "defined");
+    rv.pushKV("start_height", consensusParams.nMwebStartHeight);
+    rv.pushKV("enforce_version", consensusParams.nMwebEnforceVersion);
+    return rv;
+}
+
 static UniValue BIP9SoftForkDesc(const Consensus::Params& consensusParams, Consensus::DeploymentPos id)
 {
     UniValue rv(UniValue::VOBJ);
@@ -1257,6 +1275,7 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
     softforks.push_back(SoftForkDesc("bip34", 2, tip, consensusParams));
     softforks.push_back(SoftForkDesc("bip66", 3, tip, consensusParams));
     softforks.push_back(SoftForkDesc("bip65", 4, tip, consensusParams));
+    softforks.push_back(MWEBSoftForkDesc(tip, consensusParams));
     BIP9SoftForkDescPushBack(bip9_softforks, "csv", consensusParams, Consensus::DEPLOYMENT_CSV);
     BIP9SoftForkDescPushBack(bip9_softforks, "segwit", consensusParams, Consensus::DEPLOYMENT_SEGWIT);
     obj.pushKV("softforks",             softforks);
