@@ -11,8 +11,11 @@
 #include <random.h>
 #include <script/standard.h>
 #include <mw/models/tx/Transaction.h>
+#include <mw/models/tx/TxBody.h>
 #include <mw/models/crypto/BlindingFactor.h>
+#include <mw/models/crypto/SecretKey.h>
 #include <mw/wallet/TxBuilder.h>
+#include <mw/wallet/Stealth.h>
 
 #include <memory>
 #include <stdexcept>
@@ -101,6 +104,83 @@ inline PegInResult BuildPegIn(CAmount pegInAmount, CAmount mwebFee)
         mw::BlindingFactor(offsetBytes));
 
     return result;
+}
+
+/// Rebuild `tx` with its single output replaced by `stealthOutput`. Only the
+/// output's key-exchange fields change; its commitment (and so the kernel excess
+/// and the block balance) are unchanged because the stealth output was built with
+/// the same value and blinding factor. This lets us reuse TxBuilder to construct
+/// and sign the kernel, then swap in an output the recipient can recognise and
+/// open by scanning -- without teaching TxBuilder about stealth addresses.
+inline mw::Transaction WithStealthOutput(const mw::Transaction& tx, const mw::Output& stealthOutput)
+{
+    std::vector<mw::Input> inputs = tx.GetInputs();
+    std::vector<mw::Output> outputs = { stealthOutput };
+    std::vector<mw::Kernel> kernels = tx.GetKernels();
+    return mw::Transaction(tx.GetKernelOffset(), tx.GetStealthOffset(),
+                           mw::TxBody(std::move(inputs), std::move(outputs), std::move(kernels)));
+}
+
+/// Build the MWEB side of a peg-in whose output is a stealth output to `address`,
+/// so the wallet (or any recipient) can recover it by scanning the MWEB UTXO set
+/// -- no out-of-band secret needed. Equivalent to BuildPegIn but the created
+/// output carries the stealth key-exchange data. Requires pegInAmount > mwebFee.
+inline PegInResult BuildPegIn(CAmount pegInAmount, CAmount mwebFee,
+                              const mw::wallet::StealthAddress& address)
+{
+    if (pegInAmount <= mwebFee) {
+        throw std::runtime_error("peg-in amount must exceed the MWEB fee");
+    }
+    const CAmount outValue = pegInAmount - mwebFee;
+
+    std::vector<uint8_t> ephBytes(mw::SecretKey::SIZE);
+    std::vector<uint8_t> offsetBytes(mw::BlindingFactor::SIZE);
+    GetStrongRandBytes(ephBytes.data(), static_cast<int>(ephBytes.size()));
+    GetStrongRandBytes(offsetBytes.data(), static_cast<int>(offsetBytes.size()));
+
+    // The stealth output's blind is derived from the ECDH secret, so the recipient
+    // recovers it from the output alone.
+    const mw::wallet::StealthResult sr =
+        mw::wallet::Stealth::Send(address, static_cast<uint64_t>(outValue), mw::SecretKey(ephBytes));
+
+    const mw::Transaction plain = mw::wallet::TxBuilder::Build(
+        {}, { { static_cast<uint64_t>(outValue), sr.blind } },
+        static_cast<uint64_t>(mwebFee), static_cast<uint64_t>(pegInAmount),
+        mw::BlindingFactor(offsetBytes));
+
+    PegInResult result;
+    result.tx = WithStealthOutput(plain, sr.output);
+    result.outputBlind = sr.blind;
+    result.outputValue = outValue;
+    return result;
+}
+
+/// Build an MWEB-only spend of `input`, creating one stealth output worth
+/// (input value - mwebFee) to `address`, recoverable by scanning. The change (or
+/// payment) coin is thus a full spendable coin for the recipient without any
+/// out-of-band secret. Requires input.amount > mwebFee.
+inline mw::Transaction BuildStealthSpend(
+    const mw::wallet::Coin& input, CAmount mwebFee,
+    const mw::wallet::StealthAddress& address)
+{
+    if (input.value <= static_cast<uint64_t>(mwebFee)) {
+        throw std::runtime_error("MWEB input must exceed the MWEB fee");
+    }
+    const CAmount outValue = static_cast<CAmount>(input.value) - mwebFee;
+
+    std::vector<uint8_t> ephBytes(mw::SecretKey::SIZE);
+    std::vector<uint8_t> offsetBytes(mw::BlindingFactor::SIZE);
+    GetStrongRandBytes(ephBytes.data(), static_cast<int>(ephBytes.size()));
+    GetStrongRandBytes(offsetBytes.data(), static_cast<int>(offsetBytes.size()));
+
+    const mw::wallet::StealthResult sr =
+        mw::wallet::Stealth::Send(address, static_cast<uint64_t>(outValue), mw::SecretKey(ephBytes));
+
+    const mw::Transaction plain = mw::wallet::TxBuilder::Build(
+        { input }, { { static_cast<uint64_t>(outValue), sr.blind } },
+        static_cast<uint64_t>(mwebFee), mw::BlindingFactor(offsetBytes));
+
+    return WithStealthOutput(plain, sr.output);
 }
 
 } // namespace Wallet

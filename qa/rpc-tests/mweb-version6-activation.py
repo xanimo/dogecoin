@@ -124,18 +124,29 @@ class MwebVersion6ActivationTest(BitcoinTestFramework):
         assert txid in blocktxs
         print("peg-in %s confirmed in a [coinbase, peg-in, HogEx] block OK" % txid)
 
-        # 5b. Spend the pegged-in output inside the MWEB. mwebspend consumes the
-        #     tracked output and creates a new one; the transaction is MWEB-only,
-        #     so it confirms in the block's extension block (the canonical block
-        #     is just [coinbase, HogEx]).
+        # 5a2. Restart the node. The pegged-in coin lives only in the persistent
+        #      MWEB UTXO set, not in memory: the wallet recovers it after restart
+        #      by scanning that set for its own stealth outputs. The earlier
+        #      in-memory record of self-created outputs could not survive this.
+        stop_node(self.nodes[0], 0)
+        self.nodes[0] = start_node(0, self.options.tmpdir,
+                                   ["-blockversion=6", "-fallbackfee=0.001"])
+        node = self.nodes[0]
+        print("node restarted: pegged-in coin must be recovered by scanning OK")
+
+        # 5b. Spend the pegged-in output inside the MWEB. mwebspend recovers the
+        #     coin by scanning the UTXO set and creates a new stealth output; the
+        #     transaction is MWEB-only, so it confirms in the block's extension
+        #     block (the canonical block is just [coinbase, HogEx]).
         sp = node.mwebspend()
         assert_equal(sp["spent_output"], res["mweb_output_id"])
         assert sp["txid"] in node.getrawmempool(), "MWEB spend not accepted to mempool"
         node.generate(1)
         assert_equal(len(node.getblock(node.getbestblockhash())["tx"]), 2)  # coinbase + HogEx
-        # The change output is now a spendable tracked coin: spending again
-        # consumes it (not the already-spent peg-in output), proving both that the
-        # peg-in output was spent and that the new output was tracked and confirmed.
+        # The change output is now a spendable coin the wallet finds by scanning:
+        # spending again consumes it (not the already-spent peg-in output, which
+        # has left the UTXO set), proving both that the peg-in output was spent and
+        # that the new stealth output was recognised and confirmed.
         sp2 = node.mwebspend()
         assert_equal(sp2["spent_output"], sp["new_output"])
         node.generate(1)
