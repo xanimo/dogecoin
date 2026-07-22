@@ -115,6 +115,7 @@ testScripts = [
     'wallet-accounts.py',
     'segwit-version5-activation.py',
     'mweb-version6-activation.py',
+    'mweb-p2p-relay.py',
     # 'p2p-segwit.py',
     'wallet-dump.py',
     'listtransactions.py',
