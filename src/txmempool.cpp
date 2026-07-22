@@ -620,6 +620,32 @@ void CTxMemPool::removeForBlock(const std::vector<CTransactionRef>& vtx, unsigne
     blockSinceLastRollingFeeBump = true;
 }
 
+void CTxMemPool::removeForMWEBBlock(const std::set<mw::Hash>& blockKernelIDs)
+{
+    LOCK(cs);
+    if (blockKernelIDs.empty())
+        return;
+
+    setEntries toRemove;
+    for (indexed_transaction_set::iterator it = mapTx.begin(); it != mapTx.end(); ++it) {
+        const CTransactionRef& tx = it->GetSharedTx();
+        if (!tx->HasMWEBTx())
+            continue;
+        for (const auto& kernel : tx->mweb_tx.m_transaction->GetKernels()) {
+            if (blockKernelIDs.count(kernel.GetKernelID())) {
+                toRemove.insert(mapTx.project<0>(it));
+                break;
+            }
+        }
+    }
+
+    setEntries stage;
+    for (txiter it : toRemove) {
+        CalculateDescendants(it, stage);
+    }
+    RemoveStaged(stage, true, MemPoolRemovalReason::BLOCK);
+}
+
 void CTxMemPool::_clear()
 {
     mapLinks.clear();
