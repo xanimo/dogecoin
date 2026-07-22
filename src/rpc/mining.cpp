@@ -703,6 +703,14 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
             }
         }
     }
+    // MWEB activates via the AuxPoW-safe version-6 supermajority latch rather
+    // than versionbits, so it is not covered by the deployment loop above. Report
+    // it as a mandatory ('!') rule once active: every block must then carry the
+    // MWEB extension block, so a miner that does not understand it cannot produce
+    // valid blocks.
+    if (IsMWEBEnabled(pindexPrev, consensusParams)) {
+        aRules.push_back("!mweb");
+    }
     result.pushKV("version", pblock->nVersion);
     result.pushKV("rules", aRules);
     result.pushKV("vbavailable", vbavailable);
