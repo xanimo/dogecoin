@@ -21,12 +21,17 @@ namespace wallet {
 // A value committed under a blinding factor: an input being spent or an output
 // being created. When spending a specific existing output, `outputID` carries
 // that output's ID (Output::GetOutputID(), a hash of the whole output) so the
-// input references it and the accumulator can find and spend it. Left null for
-// outputs, and for inputs in tests that only exercise the value balance.
+// input references it and the accumulator can find and spend it. `spendKey` is
+// the output's one-time private key (the recipient recovers it via
+// Stealth::RecoverSpendKey); when set, the input is signed with it to prove
+// ownership. Both are left null for outputs, and for inputs in tests that only
+// exercise the value balance. All members zero-initialise, keeping Coin an
+// aggregate.
 struct Coin {
     uint64_t value;
     BlindingFactor blind;
-    mw::Hash outputID; // null by default (mw::Hash zero-initializes); keeps Coin an aggregate
+    mw::Hash outputID;
+    SecretKey spendKey;
 };
 
 // Constructs valid MWEB transactions -- the inverse of Transaction::Validate.
@@ -78,8 +83,20 @@ public:
         for (const Coin& c : inputs) {
             const Commitment commit = Pedersen::Commit(c.value, c.blind);
             const mw::Hash outID = c.outputID.IsNull() ? Hashed(commit) : c.outputID;
-            ins.emplace_back(0, outID, commit,
-                             PublicKey(), PublicKey(), Signature());
+            if (c.spendKey.IsNull()) {
+                // Value-balance-only input (tests): no owner key or signature.
+                ins.emplace_back(0, outID, commit,
+                                 PublicKey(), PublicKey(), Signature());
+            } else {
+                // Owner-signed input: the output's one-time public key is the
+                // verifying key, and we sign the input with its private key to
+                // prove the right to spend the referenced output.
+                const PublicKey ownerPubKey = Keys::PublicKeyFrom(c.spendKey);
+                const Input unsigned_in(0, outID, commit, PublicKey(), ownerPubKey, Signature());
+                const mw::Hash msg = unsigned_in.GetSignatureMessage();
+                ins.emplace_back(0, outID, commit, PublicKey(), ownerPubKey,
+                                 Schnorr::Sign(c.spendKey, msg.data()));
+            }
         }
 
         // Outputs: commit and range-prove each new coin.

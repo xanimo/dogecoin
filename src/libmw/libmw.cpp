@@ -32,6 +32,21 @@ static void ValidateBodyCrypto(const TxBody& body, const BlindingFactor& kernelO
         }
     }
 
+    // Input owner signatures: an input that carries an owner (output) public key
+    // must be signed by it, proving the spender controls the one-time key of the
+    // output being spent. Inputs with no owner key are value-balance-only (unit
+    // tests that do not reference on-chain outputs) and are not signed here; the
+    // stateful connect path binds a real spend's owner key to its output.
+    for (const Input& input : body.GetInputs()) {
+        if (input.GetOutputPubKey() == PublicKey()) {
+            continue;
+        }
+        const mw::Hash message = input.GetSignatureMessage();
+        if (!Schnorr::Verify(input.GetSignature(), input.GetOutputPubKey(), message.data())) {
+            throw std::runtime_error("Invalid input owner signature");
+        }
+    }
+
     // Kernel signatures: the excess (a commitment to zero, excess*G) is also the
     // public key the signature must verify against.
     for (const Kernel& kernel : body.GetKernels()) {
