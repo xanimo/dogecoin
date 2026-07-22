@@ -7,13 +7,12 @@
 # Multi-node MWEB relay: two peers relay MWEB blocks (which carry an extension
 # block) and MWEB transactions to each other.
 #
-# MWEB blocks cannot be represented by the BIP152 compact-block encoding
-# (CBlockHeaderAndShortTxIDs has no extension block), so they are relayed as full
-# blocks; the compact-block high-bandwidth path is skipped for them. Nodes
-# advertise NODE_MWEB so peers request MWEB blocks/txs (which carry the
-# extension) rather than mweb-stripped bodies. Ordinary transaction relay must
-# keep working once MWEB is active: MWEB-tagged fetches are gated on activation
-# and resolved by AlreadyHave.
+# MWEB blocks carry an extension block. The BIP152 compact-block encoding was
+# extended (sendcmpct version 3) to carry it, so MWEB blocks relay via compact
+# blocks (with full-block getdata as a fallback). Nodes advertise NODE_MWEB so
+# peers request MWEB blocks/txs (which carry the extension) rather than
+# mweb-stripped bodies. Ordinary transaction relay must keep working once MWEB is
+# active: MWEB-tagged fetches are gated on activation and resolved by AlreadyHave.
 #
 # What this checks:
 #   1. Post-activation blocks (each carrying a HogEx + extension block) relay
@@ -55,8 +54,8 @@ class MwebP2PRelayTest(BitcoinTestFramework):
 
         # 1. Mine past the supermajority threshold on node0 to activate MWEB, and
         #    let the blocks relay to node1. Every post-activation block carries a
-        #    HogEx and an extension block, so this exercises full-block MWEB relay
-        #    and validation on the receiving node.
+        #    HogEx and an extension block, so this exercises MWEB block relay
+        #    (compact blocks carrying the extension) and validation on the peer.
         node0.generate(MAJORITY_ENFORCE + 60)   # 810 -> comfortably past threshold
         sync_blocks(self.nodes)
         assert_equal(node0.getblockcount(), node1.getblockcount())
@@ -88,7 +87,7 @@ class MwebP2PRelayTest(BitcoinTestFramework):
 
         print("")
         print("PASS: MWEB blocks and transactions relay between nodes.")
-        print("  - post-activation extension blocks relay as full blocks and validate")
+        print("  - post-activation extension blocks relay via compact blocks and validate")
         print("  - MWEB transactions relay to peers' mempools (tx relay stays healthy)")
         print("  - a peg-in block confirms on both nodes")
 
