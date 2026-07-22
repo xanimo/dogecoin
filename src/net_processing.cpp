@@ -1157,13 +1157,18 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                     }
                     else if (IsMsgMWEBLeafset(inv.type))
                     {
-                        // Send MWEB leafset bitmap for this block
-                        // The leafset is a bitmap of which MWEB outputs are unspent.
-                        // For now, send a placeholder empty bitmap — full implementation
-                        // requires tracking the leafset in the MWEB state DB.
+                        // Send the MWEB leafset: the bitmap of which MWEB outputs are
+                        // unspent. Served from the current accumulator, like the UTXO
+                        // set that GETMWEBUTXOS returns, so it is the leafset as of the
+                        // tip (the MWEB state DB keeps only the current state, not a
+                        // per-block history).
                         std::vector<uint8_t> leafset_bitmap;
+                        if (g_mweb_state) {
+                            leafset_bitmap = g_mweb_state->State().GetLeafsetBytes();
+                        }
                         connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MWEBLEAFSET, inv.hash, leafset_bitmap));
-                        LogPrint("mweb", "Sent MWEB leafset for block %s to peer=%d\n", inv.hash.ToString(), pfrom->id);
+                        LogPrint("mweb", "Sent MWEB leafset (%d bytes) for block %s to peer=%d\n",
+                                 leafset_bitmap.size(), inv.hash.ToString(), pfrom->id);
                     }
                     else if (inv.type == MSG_FILTERED_BLOCK)
                     {
