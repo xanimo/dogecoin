@@ -201,6 +201,14 @@ bool CBlockTreeDB::LoadBlockIndexGuts(std::function<CBlockIndex*(const uint256&)
                 pindexNew->nStatus        = diskindex.nStatus;
                 pindexNew->nTx            = diskindex.nTx;
 
+                // MWEB fields (persisted in CDiskBlockIndex when BLOCK_HAVE_MWEB
+                // is set). Without restoring these, a node restarted after MWEB
+                // activation loses the previous HogAddr/header/amount and can no
+                // longer build or validate the next block's HogEx.
+                pindexNew->mweb_header    = diskindex.mweb_header;
+                pindexNew->hogex_hash     = diskindex.hogex_hash;
+                pindexNew->mweb_amount    = diskindex.mweb_amount;
+
                 /* Bitcoin checks the PoW here.  We don't do this because
                    the CDiskBlockIndex does not contain the auxpow.
                    This check isn't important, since the data on disk should
