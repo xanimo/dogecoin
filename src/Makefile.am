@@ -217,7 +217,7 @@ libdogecoin_server_a_SOURCES = \
   mweb/mweb_miner.cpp \
   mweb/mweb_node.cpp \
   mweb/mweb_db.cpp \
-  mweb/mweb_wallet.cpp \
+  mweb/mweb_rpc.cpp \
   libmw/libmw.cpp \
   libmw/pedersen.cpp \
   libmw/schnorr.cpp \
