@@ -123,6 +123,23 @@ class MwebVersion6ActivationTest(BitcoinTestFramework):
         assert txid in blocktxs
         print("peg-in %s confirmed in a [coinbase, peg-in, HogEx] block OK" % txid)
 
+        # 5b. Spend the pegged-in output inside the MWEB. mwebspend consumes the
+        #     tracked output and creates a new one; the transaction is MWEB-only,
+        #     so it confirms in the block's extension block (the canonical block
+        #     is just [coinbase, HogEx]).
+        sp = node.mwebspend()
+        assert_equal(sp["spent_output"], res["mweb_output_id"])
+        assert sp["txid"] in node.getrawmempool(), "MWEB spend not accepted to mempool"
+        node.generate(1)
+        assert_equal(len(node.getblock(node.getbestblockhash())["tx"]), 2)  # coinbase + HogEx
+        # The change output is now a spendable tracked coin: spending again
+        # consumes it (not the already-spent peg-in output), proving both that the
+        # peg-in output was spent and that the new output was tracked and confirmed.
+        sp2 = node.mwebspend()
+        assert_equal(sp2["spent_output"], sp["new_output"])
+        node.generate(1)
+        print("MWEB spend confirmed: pegged-in output spent, change re-spendable OK")
+
         # 6. Activation is LATCHED: it must not revert when signalling stops.
         #    IsSuperMajority() is a rolling-window predicate, so re-deriving it
         #    per block would deactivate MWEB here. Restart the miner on

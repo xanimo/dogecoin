@@ -10,6 +10,7 @@
 #include "primitives/block.h"
 #include "primitives/transaction.h"
 #include "script/script.h"
+#include "util.h"
 #include "validation.h"
 
 using namespace MWEB;
@@ -167,7 +168,9 @@ bool Node::ValidateMWEBBlock(const CBlock& block)
 
     try {
         block.mweb_block.m_block->Validate(block_pegins, block_pegouts);
-    } catch (const std::exception&) {
+    } catch (const std::exception& e) {
+        LogPrintf("MWEB::Node::ValidateMWEBBlock: mweb block invalid: %s (pegins=%d pegouts=%d)\n",
+                  e.what(), block_pegins.size(), block_pegouts.size());
         return false;
     }
 
