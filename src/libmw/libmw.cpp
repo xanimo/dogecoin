@@ -13,6 +13,7 @@
 #include <mw/crypto/Schnorr.h>
 
 #include <algorithm>
+#include <map>
 #include <set>
 
 MW_NAMESPACE
@@ -108,16 +109,25 @@ void Block::Validate(const std::vector<PegInCoin>& pegins, const std::vector<Peg
         throw std::runtime_error("Block exceeds maximum weight");
     }
 
-    // Verify that pegin amounts match between canonical chain and MWEB kernels
+    // Verify that pegin amounts match between canonical chain and MWEB kernels.
+    // Match by kernel ID, not by position: the canonical pegins are supplied in
+    // block order (the order the pegin transactions sit in block.vtx) while the
+    // kernel pegins are in the body's hash-sorted order, so the two lists need not
+    // line up when a block carries more than one peg-in.
     std::vector<PegInCoin> kernel_pegins = m_body.GetPegIns();
     if (pegins.size() != kernel_pegins.size()) {
         throw std::runtime_error("Pegin count mismatch");
     }
-
-    for (size_t i = 0; i < pegins.size(); i++) {
-        if (!(pegins[i] == kernel_pegins[i])) {
-            throw std::runtime_error("Pegin mismatch at index " + std::to_string(i));
+    std::map<mw::Hash, CAmount> kernel_pegin_amounts;
+    for (const PegInCoin& k : kernel_pegins) {
+        kernel_pegin_amounts[k.GetKernelID()] = k.GetAmount();
+    }
+    for (const PegInCoin& p : pegins) {
+        auto it = kernel_pegin_amounts.find(p.GetKernelID());
+        if (it == kernel_pegin_amounts.end() || it->second != p.GetAmount()) {
+            throw std::runtime_error("Pegin mismatch: no kernel for canonical peg-in output");
         }
+        kernel_pegin_amounts.erase(it);
     }
 
     // Verify that pegout amounts match between MWEB kernels and HogEx outputs
@@ -198,8 +208,8 @@ void Block::Validate() const
         }
     }
 
-    // Cryptographic soundness: range proofs, kernel signatures, and commitment
-    // balance. (Owner/stealth-offset sum is verified elsewhere; TODO.)
+    // Cryptographic soundness: range proofs, kernel + input owner signatures, and
+    // the value (kernel offset) commitment balance.
     ValidateBodyCrypto(m_body, GetKernelOffset());
 }
 
@@ -233,8 +243,8 @@ void mw::Transaction::Validate() const
         }
     }
 
-    // Cryptographic soundness: range proofs, kernel signatures, and commitment
-    // balance (shared with Block::Validate).
+    // Cryptographic soundness: range proofs, kernel + input owner signatures, and
+    // the value commitment balance (shared with Block::Validate).
     mw::ValidateBodyCrypto(m_body, m_kernelOffset);
 }
 
