@@ -89,6 +89,9 @@ public:
         // acceptance + coordinated deployment). Disabled: nSegwitEnforceVersion = 0.
         consensus.nSegwitStartHeight = 0;
         consensus.nSegwitEnforceVersion = 0;
+        // MWEB likewise not scheduled on mainnet.
+        consensus.nMwebStartHeight = 0;
+        consensus.nMwebEnforceVersion = 0;
         consensus.powLimit = uint256S("0x00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~uint256(0) >> 20;
         consensus.nPowTargetTimespan = 4 * 60 * 60; // pre-digishield: 4 hours
         consensus.nPowTargetSpacing = 60; // 1 minute
@@ -257,6 +260,9 @@ public:
         // SegWit version-5 activation not scheduled on testnet yet.
         consensus.nSegwitStartHeight = 0;
         consensus.nSegwitEnforceVersion = 0;
+        // MWEB likewise not scheduled on testnet yet.
+        consensus.nMwebStartHeight = 0;
+        consensus.nMwebEnforceVersion = 0;
         consensus.powLimit = uint256S("0x00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~uint256(0) >> 20;
         consensus.nPowTargetTimespan = 4 * 60 * 60; // pre-digishield: 4 hours
         consensus.nPowTargetSpacing = 60; // 1 minute
@@ -412,6 +418,11 @@ public:
         // / nMajorityWindow set below.
         consensus.nSegwitStartHeight = 100;
         consensus.nSegwitEnforceVersion = 5;
+        // MWEB one rung up the ladder at version 6 (requires SegWit v5, which
+        // version-6 blocks also signal). Same start height/window so mining at
+        // -blockversion=6 activates both for the functional peg-in tests.
+        consensus.nMwebStartHeight = 100;
+        consensus.nMwebEnforceVersion = 6;
         consensus.powLimit = uint256S("0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~uint256(0) >> 1;
         consensus.nPowTargetTimespan = 4 * 60 * 60; // pre-digishield: 4 hours
         consensus.nPowTargetSpacing = 1; // regtest: 1 second blocks
