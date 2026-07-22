@@ -29,6 +29,11 @@ public:
 
     OutputMessage() : m_features(0), m_viewTag(0), m_maskedValue(0), m_maskedNonce(0) {}
 
+    OutputMessage(uint8_t features, const PublicKey& keyExchangePubKey, uint8_t viewTag,
+                  uint64_t maskedValue, uint64_t maskedNonce)
+        : m_features(features), m_keyExchangePubKey(keyExchangePubKey), m_viewTag(viewTag),
+          m_maskedValue(maskedValue), m_maskedNonce(maskedNonce) {}
+
     uint8_t GetFeatures() const { return m_features; }
     const PublicKey& GetKeyExchangePubKey() const { return m_keyExchangePubKey; }
     uint8_t GetViewTag() const { return m_viewTag; }

@@ -56,7 +56,14 @@ public:
         const Commitment commit = Pedersen::Commit(value, blind);
         auto proof = std::make_shared<RangeProof>(Bulletproof::Prove(value, blind));
 
-        Output output(commit, R, oneTimeKey, OutputMessage(), proof, Signature());
+        // Carry the value, masked with a keystream from the shared secret, so the
+        // recipient can recover it by scanning alone -- without it a scanner can
+        // recognise the output and recover the blind but not the amount, and so
+        // cannot spend it. The view tag is a one-byte quick-reject for scanning.
+        const OutputMessage message(OutputMessage::STANDARD_FIELDS_FEATURE_BIT, R,
+                                    ViewTag(shared), value ^ ValueMask(shared), 0);
+
+        Output output(commit, R, oneTimeKey, message, proof, Signature());
         return StealthResult{ output, blind };
     }
 
@@ -64,8 +71,21 @@ public:
     static bool IsMine(const Output& output, const SecretKey& scanKey, const PublicKey& spendPubKey)
     {
         const SecretKey shared = Keys::ECDH(scanKey, output.GetSenderPubKey()); // a*R = e*A
+        // Quick reject on the view tag before the more expensive key comparison.
+        if (output.GetOutputMessage().HasStandardFields() &&
+            output.GetOutputMessage().GetViewTag() != ViewTag(shared)) {
+            return false;
+        }
         const PublicKey expected = Keys::AddPublicKeys(spendPubKey, Keys::PublicKeyFrom(Tweak(shared)));
         return expected == output.GetReceiverPubKey();
+    }
+
+    // Recipient: recover the value carried in the output (masked with the shared
+    // secret). Only meaningful for an output that IsMine.
+    static uint64_t RecoverValue(const Output& output, const SecretKey& scanKey)
+    {
+        const SecretKey shared = Keys::ECDH(scanKey, output.GetSenderPubKey());
+        return output.GetOutputMessage().GetMaskedValue() ^ ValueMask(shared);
     }
 
     // Recipient: recover the blinding factor (needed to spend / reconstruct).
@@ -97,6 +117,28 @@ private:
         ss << static_cast<uint8_t>('T');
         const uint256 h = ss.GetHash();
         return SecretKey(std::vector<uint8_t>(h.begin(), h.end()));
+    }
+
+    // Domain-separated 64-bit keystream from the shared secret, XORed with the
+    // value to mask it in the output message.
+    static uint64_t ValueMask(const SecretKey& shared)
+    {
+        CHashWriter ss(SER_GETHASH, 0);
+        ss.write(reinterpret_cast<const char*>(shared.data()), SecretKey::SIZE);
+        ss << static_cast<uint8_t>('V');
+        const uint256 h = ss.GetHash();
+        uint64_t mask = 0;
+        memcpy(&mask, h.begin(), sizeof(mask));
+        return mask;
+    }
+
+    // One-byte scanning quick-reject tag derived from the shared secret.
+    static uint8_t ViewTag(const SecretKey& shared)
+    {
+        CHashWriter ss(SER_GETHASH, 0);
+        ss.write(reinterpret_cast<const char*>(shared.data()), SecretKey::SIZE);
+        ss << static_cast<uint8_t>('t');
+        return ss.GetHash().begin()[0];
     }
 };
 
