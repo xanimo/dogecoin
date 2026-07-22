@@ -815,6 +815,9 @@ BOOST_AUTO_TEST_CASE(mweb_stealth_payment)
     BOOST_CHECK(recovered == sent.blind);
     BOOST_CHECK(mw::Pedersen::Commit(500, recovered) == sent.output.GetCommitment());
 
+    // Recipient also recovers the value from the output alone (masked in the message).
+    BOOST_CHECK_EQUAL(mw::wallet::Stealth::RecoverValue(sent.output, scanKey), 500u);
+
     // Recipient holds the one-time private key that can spend the output.
     const mw::SecretKey spend = mw::wallet::Stealth::RecoverSpendKey(sent.output, scanKey, spendKey);
     BOOST_CHECK(mw::Keys::PublicKeyFrom(spend) == sent.output.GetReceiverPubKey());
@@ -834,13 +837,16 @@ BOOST_AUTO_TEST_CASE(mweb_stealth_receive_and_spend)
     const uint64_t received = 500;
     const mw::wallet::StealthResult sent = mw::wallet::Stealth::Send(addr, received, sk(0x33));
 
-    // It's theirs, and they recover the blind (value known out-of-band here).
+    // It's theirs; recover BOTH the value and the blind from the output by
+    // scanning alone -- nothing is known out of band.
     BOOST_REQUIRE(mw::wallet::Stealth::IsMine(sent.output, scanKey, mw::Keys::PublicKeyFrom(spendKey)));
+    const uint64_t value = mw::wallet::Stealth::RecoverValue(sent.output, scanKey);
     const mw::BlindingFactor recovered = mw::wallet::Stealth::RecoverBlind(sent.output, scanKey);
+    BOOST_CHECK_EQUAL(value, received);
 
-    // Spend it: the received coin becomes an input worth `received`.
-    const std::vector<mw::wallet::Coin> ins  = {{received, recovered}};
-    const std::vector<mw::wallet::Coin> outs = {{received - 10, blind(0x99)}}; // 500 = 490 + 10 fee
+    // Spend the scanned coin: it becomes an input worth the recovered value.
+    const std::vector<mw::wallet::Coin> ins  = {{value, recovered}};
+    const std::vector<mw::wallet::Coin> outs = {{value - 10, blind(0x99)}}; // 500 = 490 + 10 fee
     BOOST_CHECK_NO_THROW(mw::wallet::TxBuilder::Build(ins, outs, 10, blind(0xAB)).Validate());
 }
 
