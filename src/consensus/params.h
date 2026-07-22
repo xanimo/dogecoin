@@ -74,6 +74,22 @@ struct Params {
      */
     bool IsSegwitConfigured() const { return nSegwitEnforceVersion > 0; }
     /**
+     * MWEB activation on the same AuxPoW-safe version-supermajority substrate,
+     * one rung up the ladder: nMwebEnforceVersion (>= nSegwitEnforceVersion)
+     * base-version blocks reaching a supermajority at or after nMwebStartHeight.
+     * Since IsSuperMajority reads GetBaseVersion() >= minVersion, MWEB-version
+     * blocks also count as SegWit signals, so MWEB cannot activate before SegWit.
+     */
+    int nMwebStartHeight;
+    int nMwebEnforceVersion;
+    /**
+     * Whether MWEB is scheduled on this chain at all. Distinct from
+     * IsMWEBEnabled() (which answers whether MWEB has activated at a given
+     * block), and kept separate from IsSegwitConfigured() so the two
+     * deployments are configured independently.
+     */
+    bool IsMwebConfigured() const { return nMwebEnforceVersion > 0; }
+    /**
      * Minimum blocks including miner confirmation of the total of 2016 blocks in a retargeting period,
      * (nPowTargetTimespan / nPowTargetSpacing) which is also used for BIP9 deployments.
      * Examples: 1916 for 95%, 1512 for testchains.

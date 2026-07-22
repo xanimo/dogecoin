@@ -218,6 +218,12 @@ public:
     mutable bool fSegwitLatched;
     mutable bool fSegwitLatchComputed;
 
+    //! (memory only) Latched MWEB activation state, same mechanism and rationale
+    //! as the SegWit latch above but for the version-6 MWEB gate. Kept separate
+    //! so the two deployments latch independently. See IsMWEBEnabled().
+    mutable bool fMwebLatched;
+    mutable bool fMwebLatchComputed;
+
     //! MWEB data (only populated when BLOCK_HAVE_MWEB is set)
     mw::Header::CPtr mweb_header{nullptr};
     uint256 hogex_hash{};
@@ -240,6 +246,8 @@ public:
         nTimeMax = 0;
         fSegwitLatched = false;
         fSegwitLatchComputed = false;
+        fMwebLatched = false;
+        fMwebLatchComputed = false;
 
         nVersion = 0;
         hashMerkleRoot = uint256();
