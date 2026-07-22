@@ -19,10 +19,14 @@ MW_NAMESPACE
 namespace wallet {
 
 // A value committed under a blinding factor: an input being spent or an output
-// being created.
+// being created. When spending a specific existing output, `outputID` carries
+// that output's ID (Output::GetOutputID(), a hash of the whole output) so the
+// input references it and the accumulator can find and spend it. Left null for
+// outputs, and for inputs in tests that only exercise the value balance.
 struct Coin {
     uint64_t value;
     BlindingFactor blind;
+    mw::Hash outputID; // null by default (mw::Hash zero-initializes); keeps Coin an aggregate
 };
 
 // Constructs valid MWEB transactions -- the inverse of Transaction::Validate.
@@ -66,11 +70,15 @@ public:
         std::vector<PegOutCoin> pegouts,
         const BlindingFactor& offset)
     {
-        // Inputs: commit to each spent coin.
+        // Inputs: commit to each spent coin. When the caller supplies the output
+        // ID of the coin being spent, reference it so the accumulator can find and
+        // spend the real output; otherwise fall back to the commitment hash (used
+        // by value-balance-only tests that do not reference on-chain outputs).
         std::vector<Input> ins;
         for (const Coin& c : inputs) {
             const Commitment commit = Pedersen::Commit(c.value, c.blind);
-            ins.emplace_back(0, Hashed(commit), commit,
+            const mw::Hash outID = c.outputID.IsNull() ? Hashed(commit) : c.outputID;
+            ins.emplace_back(0, outID, commit,
                              PublicKey(), PublicKey(), Signature());
         }
 
