@@ -1665,6 +1665,15 @@ bool ApplyTxInUndo(const CTxInUndo& undo, CCoinsViewCache& view, const COutPoint
     return fClean;
 }
 
+// Set while CVerifyDB::VerifyDB is running. VerifyDB disconnects and reconnects
+// blocks purely to test undo data, rolling the canonical UTXO set back in a
+// temporary CCoinsViewCache. MWEB state (g_mweb_state) has no such view layering,
+// so applying those disconnects/reconnects to it would corrupt the real
+// accumulator -- and at the default check level VerifyDB disconnects without
+// reconnecting, permanently dropping the UTXO set. So MWEB state mutation is
+// skipped while this flag is set.
+static bool g_mweb_verifying = false;
+
 bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockIndex* pindex, CCoinsViewCache& view, bool* pfClean)
 {
     assert(pindex->GetBlockHash() == view.GetBestBlock());
@@ -1733,8 +1742,10 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
             pindex->pprev->mweb_header = blockUndo.mweb_undo.GetPreviousHeader();
         }
 
-        // Reverse the MWEB state DB changes (restore spent UTXOs, remove added outputs)
-        if (g_mweb_state) {
+        // Reverse the MWEB state DB changes (restore spent UTXOs, remove added
+        // outputs). Skipped under VerifyDB, which has no MWEB undo view -- see
+        // g_mweb_verifying.
+        if (g_mweb_state && !g_mweb_verifying) {
             if (!g_mweb_state->DisconnectBlock(blockUndo.mweb_undo)) {
                 return error("DisconnectBlock(): Failed to disconnect MWEB state");
             }
@@ -2062,8 +2073,10 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     if (fJustCheck)
         return true;
 
-    // MWEB: Apply block to MWEB state DB and populate undo data
-    if (!block.mweb_block.IsNull() && pindex->pprev) {
+    // MWEB: Apply block to MWEB state DB and populate undo data. Skipped under
+    // VerifyDB, which reconnects only to test undo and must not mutate the real
+    // MWEB accumulator -- see g_mweb_verifying.
+    if (!block.mweb_block.IsNull() && pindex->pprev && !g_mweb_verifying) {
         mw::Header::CPtr prevHeader = pindex->pprev->mweb_header;
         std::vector<UTXO> spentUTXOs;
         std::vector<mw::Hash> addedOutputIDs;
@@ -3996,6 +4009,13 @@ bool CVerifyDB::VerifyDB(const CChainParams& chainparams, CCoinsView *coinsview,
     LOCK(cs_main);
     if (chainActive.Tip() == NULL || chainActive.Tip()->pprev == NULL)
         return true;
+
+    // Keep VerifyDB's block disconnect/reconnect out of the real MWEB state (it
+    // has no undo view to roll back). Reset on every exit path via RAII.
+    struct MwebVerifyGuard {
+        MwebVerifyGuard()  { g_mweb_verifying = true; }
+        ~MwebVerifyGuard() { g_mweb_verifying = false; }
+    } mwebVerifyGuard;
 
     // Verify blocks in the best chain
     if (nCheckDepth <= 0)
