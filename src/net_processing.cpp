@@ -880,6 +880,11 @@ void PeerLogicValidation::NewPoWValidBlock(const CBlockIndex *pindex, const std:
     nHighestFastAnnounce = pindex->nHeight;
 
     bool fWitnessEnabled = IsWitnessEnabled(pindex->pprev, Params().GetConsensus(pindex->nHeight));
+    // MWEB blocks carry an extension block that the compact-block encoding
+    // (CBlockHeaderAndShortTxIDs) cannot represent, so they are relayed as full
+    // blocks: skip the high-bandwidth compact announcement for them and let the
+    // normal header announcement drive a full-block getdata.
+    bool fIsMWEBBlock = pblock->GetHogEx() != nullptr;
     uint256 hashBlock(pblock->GetHash());
 
     {
@@ -889,7 +894,7 @@ void PeerLogicValidation::NewPoWValidBlock(const CBlockIndex *pindex, const std:
         most_recent_compact_block = pcmpctblock;
     }
 
-    connman->ForEachNode([this, &pcmpctblock, pindex, &msgMaker, fWitnessEnabled, &hashBlock](CNode* pnode) {
+    connman->ForEachNode([this, &pcmpctblock, pindex, &msgMaker, fWitnessEnabled, fIsMWEBBlock, &hashBlock](CNode* pnode) {
         // TODO: Avoid the repeated-serialization here
         if (pnode->nVersion < INVALID_CB_NO_BAN_VERSION || pnode->fDisconnect)
             return;
@@ -897,7 +902,7 @@ void PeerLogicValidation::NewPoWValidBlock(const CBlockIndex *pindex, const std:
         CNodeState &state = *State(pnode->GetId());
         // If the peer has, or we announced to them the previous block already,
         // but we don't think they have this one, go ahead and announce it
-        if (state.fPreferHeaderAndIDs && (!fWitnessEnabled || state.fWantsCmpctWitness) &&
+        if (!fIsMWEBBlock && state.fPreferHeaderAndIDs && (!fWitnessEnabled || state.fWantsCmpctWitness) &&
                 !PeerHasHeader(&state, pindex) && PeerHasHeader(&state, pindex->pprev)) {
 
             LogPrint("net", "%s sending header-and-ids %s to peer=%d\n", "PeerLogicValidation::NewPoWValidBlock",
@@ -984,6 +989,7 @@ bool static AlreadyHave(const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
     case MSG_TX:
     case MSG_WITNESS_TX:
+    case MSG_MWEB_TX:
         {
             assert(recentRejects);
             if (chainActive.Tip()->GetBlockHash() != hashRecentRejectsChainTip)
@@ -1005,6 +1011,7 @@ bool static AlreadyHave(const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
         }
     case MSG_BLOCK:
     case MSG_WITNESS_BLOCK:
+    case MSG_MWEB_BLOCK:
         return mapBlockIndex.count(inv.hash);
     }
     // Don't know what it is, just say we already got one
@@ -1195,7 +1202,11 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                         bool fPeerWantsMWEB = State(pfrom->GetId())->fWantsCmpctMWEB;
                         int nSendFlags = fPeerWantsWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS;
                         nSendFlags |= fPeerWantsMWEB ? 0 : SERIALIZE_NO_MWEB;
-                        if (CanDirectFetch(consensusParams) && mi->second->nHeight >= chainActive.Height() - MAX_CMPCTBLOCK_DEPTH) {
+                        // The compact-block encoding cannot carry an MWEB extension block,
+                        // so respond to a compact-block request for an MWEB block with the
+                        // full block instead.
+                        if (block.GetHogEx() == nullptr &&
+                            CanDirectFetch(consensusParams) && mi->second->nHeight >= chainActive.Height() - MAX_CMPCTBLOCK_DEPTH) {
                             CBlockHeaderAndShortTxIDs cmpctblock(block, fPeerWantsWitness);
                             connman.PushMessage(pfrom, msgMaker.Make(nSendFlags, NetMsgType::CMPCTBLOCK, cmpctblock));
                         } else
@@ -1272,7 +1283,12 @@ uint32_t GetFetchFlags(CNode* pfrom, const CBlockIndex* pprev, const Consensus::
     if ((pfrom->GetLocalServices() & NODE_WITNESS) && State(pfrom->GetId())->fHaveWitness) {
         nFetchFlags |= MSG_WITNESS_FLAG;
     }
-    if ((pfrom->GetLocalServices() & NODE_MWEB) && State(pfrom->GetId())->fHaveMWEB) {
+    // Only tag fetches as MWEB once MWEB has activated for this branch. Before
+    // activation there is no extension data to fetch, and an ungated MSG_MWEB_FLAG
+    // turns every tx fetch into MSG_MWEB_TX -- which AlreadyHave must also know
+    // about, or the request is silently dropped (mempool never syncs).
+    if ((pfrom->GetLocalServices() & NODE_MWEB) && State(pfrom->GetId())->fHaveMWEB &&
+        IsMWEBEnabled(pprev, chainparams)) {
         nFetchFlags |= MSG_MWEB_FLAG;
     }
     return nFetchFlags;

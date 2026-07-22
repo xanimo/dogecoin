@@ -1649,13 +1649,17 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
         nRelevantServices = ServiceFlags(nRelevantServices | NODE_WITNESS);
     }
 
-    // NODE_MWEB is deliberately NOT advertised yet. Advertising it triggers the
-    // sendcmpct version-3 negotiation and the MWEB P2P relay paths, but those are
-    // incomplete: the BIP152 version-3 compact-block encoding does not carry the
-    // extension block (CBlockHeaderAndShortTxIDs has no mweb_block), and enabling
-    // the negotiation breaks ordinary transaction relay between peers (many
-    // multi-node functional tests fail mempool sync). Multi-node MWEB relay is a
-    // separate piece of work; until it lands, MWEB runs single-node.
+    if (chainparams.GetConsensus(0).IsMwebConfigured()) {
+        // Advertise MWEB capability when MWEB is scheduled on this chain, so peers
+        // fetch MWEB blocks (which carry the extension block) from us and relay
+        // them back. MWEB blocks are relayed as full blocks -- the compact-block
+        // encoding cannot carry the extension block -- so the sendcmpct version-3
+        // path is not relied upon for block bodies. Ordinary transaction relay is
+        // unaffected: MWEB-tagged fetches are gated on activation (GetFetchFlags)
+        // and resolved by AlreadyHave.
+        nLocalServices = ServiceFlags(nLocalServices | NODE_MWEB);
+        nRelevantServices = ServiceFlags(nRelevantServices | NODE_MWEB);
+    }
 
     // ********************************************************* Step 10: import blocks
 
