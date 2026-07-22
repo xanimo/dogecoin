@@ -880,11 +880,6 @@ void PeerLogicValidation::NewPoWValidBlock(const CBlockIndex *pindex, const std:
     nHighestFastAnnounce = pindex->nHeight;
 
     bool fWitnessEnabled = IsWitnessEnabled(pindex->pprev, Params().GetConsensus(pindex->nHeight));
-    // MWEB blocks carry an extension block that the compact-block encoding
-    // (CBlockHeaderAndShortTxIDs) cannot represent, so they are relayed as full
-    // blocks: skip the high-bandwidth compact announcement for them and let the
-    // normal header announcement drive a full-block getdata.
-    bool fIsMWEBBlock = pblock->GetHogEx() != nullptr;
     uint256 hashBlock(pblock->GetHash());
 
     {
@@ -894,7 +889,7 @@ void PeerLogicValidation::NewPoWValidBlock(const CBlockIndex *pindex, const std:
         most_recent_compact_block = pcmpctblock;
     }
 
-    connman->ForEachNode([this, &pcmpctblock, pindex, &msgMaker, fWitnessEnabled, fIsMWEBBlock, &hashBlock](CNode* pnode) {
+    connman->ForEachNode([this, &pcmpctblock, pindex, &msgMaker, fWitnessEnabled, &hashBlock](CNode* pnode) {
         // TODO: Avoid the repeated-serialization here
         if (pnode->nVersion < INVALID_CB_NO_BAN_VERSION || pnode->fDisconnect)
             return;
@@ -902,12 +897,16 @@ void PeerLogicValidation::NewPoWValidBlock(const CBlockIndex *pindex, const std:
         CNodeState &state = *State(pnode->GetId());
         // If the peer has, or we announced to them the previous block already,
         // but we don't think they have this one, go ahead and announce it
-        if (!fIsMWEBBlock && state.fPreferHeaderAndIDs && (!fWitnessEnabled || state.fWantsCmpctWitness) &&
+        if (state.fPreferHeaderAndIDs && (!fWitnessEnabled || state.fWantsCmpctWitness) &&
                 !PeerHasHeader(&state, pindex) && PeerHasHeader(&state, pindex->pprev)) {
 
             LogPrint("net", "%s sending header-and-ids %s to peer=%d\n", "PeerLogicValidation::NewPoWValidBlock",
                     hashBlock.ToString(), pnode->id);
-            connman->PushMessage(pnode, msgMaker.Make(NetMsgType::CMPCTBLOCK, *pcmpctblock));
+            // Include the MWEB extension block only for peers that negotiated it;
+            // send an mweb-stripped compact block to the rest so the wire format
+            // stays in sync. (Make() re-serialises per peer.)
+            int nSendFlags = state.fWantsCmpctMWEB ? 0 : SERIALIZE_NO_MWEB;
+            connman->PushMessage(pnode, msgMaker.Make(nSendFlags, NetMsgType::CMPCTBLOCK, *pcmpctblock));
             state.pindexBestHeaderSent = pindex;
         }
     });
@@ -1202,11 +1201,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                         bool fPeerWantsMWEB = State(pfrom->GetId())->fWantsCmpctMWEB;
                         int nSendFlags = fPeerWantsWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS;
                         nSendFlags |= fPeerWantsMWEB ? 0 : SERIALIZE_NO_MWEB;
-                        // The compact-block encoding cannot carry an MWEB extension block,
-                        // so respond to a compact-block request for an MWEB block with the
-                        // full block instead.
-                        if (block.GetHogEx() == nullptr &&
-                            CanDirectFetch(consensusParams) && mi->second->nHeight >= chainActive.Height() - MAX_CMPCTBLOCK_DEPTH) {
+                        if (CanDirectFetch(consensusParams) && mi->second->nHeight >= chainActive.Height() - MAX_CMPCTBLOCK_DEPTH) {
                             CBlockHeaderAndShortTxIDs cmpctblock(block, fPeerWantsWitness);
                             connman.PushMessage(pfrom, msgMaker.Make(nSendFlags, NetMsgType::CMPCTBLOCK, cmpctblock));
                         } else
@@ -2202,7 +2197,21 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
     else if (strCommand == NetMsgType::CMPCTBLOCK && !fImporting && !fReindex) // Ignore blocks received while importing
     {
         CBlockHeaderAndShortTxIDs cmpctblock;
-        vRecv >> cmpctblock;
+        // Expect an MWEB extension block in the compact block only when both peers
+        // support MWEB (matching the sender's fWantsCmpctMWEB gate); otherwise read
+        // it mweb-stripped so the wire format stays in sync with a non-MWEB peer.
+        bool fExpectMWEB;
+        {
+            LOCK(cs_main);
+            fExpectMWEB = (pfrom->GetLocalServices() & NODE_MWEB) &&
+                          State(pfrom->GetId())->fHaveMWEB;
+        }
+        if (fExpectMWEB) {
+            vRecv >> cmpctblock;
+        } else {
+            OverrideStream<CDataStream> s(&vRecv, vRecv.GetType(), vRecv.GetVersion() | SERIALIZE_NO_MWEB);
+            s >> cmpctblock;
+        }
 
         {
         LOCK(cs_main);
@@ -3337,6 +3346,8 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
                             vHeaders.front().GetHash().ToString(), pto->id);
 
                     int nSendFlags = state.fWantsCmpctWitness ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS;
+                    // Carry the MWEB extension block only to peers that negotiated it.
+                    nSendFlags |= state.fWantsCmpctMWEB ? 0 : SERIALIZE_NO_MWEB;
 
                     bool fGotBlockFromCache = false;
                     {

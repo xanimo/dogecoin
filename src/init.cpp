@@ -1651,12 +1651,12 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
 
     if (chainparams.GetConsensus(0).IsMwebConfigured()) {
         // Advertise MWEB capability when MWEB is scheduled on this chain, so peers
-        // fetch MWEB blocks (which carry the extension block) from us and relay
-        // them back. MWEB blocks are relayed as full blocks -- the compact-block
-        // encoding cannot carry the extension block -- so the sendcmpct version-3
-        // path is not relied upon for block bodies. Ordinary transaction relay is
-        // unaffected: MWEB-tagged fetches are gated on activation (GetFetchFlags)
-        // and resolved by AlreadyHave.
+        // fetch MWEB blocks and transactions (which carry the extension block)
+        // from us and relay them back. Blocks relay via the sendcmpct version-3
+        // compact-block path, which carries the extension block, with full-block
+        // getdata as the fallback. Ordinary transaction relay is unaffected:
+        // MWEB-tagged fetches are gated on activation (GetFetchFlags) and resolved
+        // by AlreadyHave.
         nLocalServices = ServiceFlags(nLocalServices | NODE_MWEB);
         nRelevantServices = ServiceFlags(nRelevantServices | NODE_MWEB);
     }

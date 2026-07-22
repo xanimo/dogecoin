@@ -156,6 +156,13 @@ public:
 
     ADD_SERIALIZE_METHODS;
 
+    // The MWEB extension block, when this is an MWEB block. The compact-block
+    // format cannot use the CBlock trick of gating on a HogEx transaction (it has
+    // only short transaction ids, not full transactions), so it is carried as a
+    // self-describing optional: a presence byte followed by the block. Present
+    // only when the stream allows MWEB (peers negotiate this via sendcmpct v3).
+    MWEB::Block mweb_block;
+
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(header);
@@ -186,6 +193,19 @@ public:
 
         READWRITE(prefilledtxn);
 
+        // MWEB extension block, self-describing (presence byte + block) so it can
+        // be skipped without knowing the block's transactions. Omitted entirely
+        // when the stream disallows MWEB (a non-MWEB peer / mweb-stripped send).
+        if (!(s.GetVersion() & SERIALIZE_NO_MWEB)) {
+            uint8_t has_mweb = mweb_block.IsNull() ? 0 : 1;
+            READWRITE(has_mweb);
+            if (has_mweb) {
+                READWRITE(mweb_block);
+            } else if (ser_action.ForRead()) {
+                mweb_block.SetNull();
+            }
+        }
+
         if (ser_action.ForRead())
             FillShortTxIDSelector();
     }
@@ -198,6 +218,9 @@ protected:
     CTxMemPool* pool;
 public:
     CBlockHeader header;
+    // The MWEB extension block carried by the compact block, restored onto the
+    // reconstructed CBlock in FillBlock (which otherwise only has the header).
+    MWEB::Block mweb_block;
     PartiallyDownloadedBlock(CTxMemPool* poolIn) : pool(poolIn) {}
 
     // extra_txn is a list of extra transactions to look at, in <witness hash, reference> form
