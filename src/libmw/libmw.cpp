@@ -22,7 +22,8 @@ MW_NAMESPACE
 // block bodies: every output's range proof, every kernel's signature, and that
 // commitments balance (no inflation). Structural checks (sort/dedup/weight) are
 // left to the callers.
-static void ValidateBodyCrypto(const TxBody& body, const BlindingFactor& kernelOffset)
+static void ValidateBodyCrypto(const TxBody& body, const BlindingFactor& kernelOffset,
+                               const BlindingFactor& stealthOffset)
 {
     // Range proofs: each output commits to a value in [0, 2^64).
     for (const Output& output : body.GetOutputs()) {
@@ -95,6 +96,34 @@ static void ValidateBodyCrypto(const TxBody& body, const BlindingFactor& kernelO
 
     if (!Pedersen::VerifyBalance(positive, negative)) {
         throw std::runtime_error("Body does not balance (inflation)");
+    }
+
+    // Stealth (owner-key) balance: the one-sided-payment keys must tie to the
+    // stealth offset the way the value blinds tie to the kernel offset --
+    //   Sum(output sender keys) - Sum(input owner keys) == stealthOffset*G.
+    // Each output's sender key is the ephemeral key the sender chose; each spent
+    // input's owner key is the one-time key of the output it consumes. Enforced
+    // only when the body carries stealth data (a sender or owner key): value-
+    // balance-only bodies (unit tests with plain outputs and unsigned inputs)
+    // have none and are unaffected. This makes owner keys non-malleable under the
+    // aggregation of transactions into a block, since the block offset is the sum
+    // of the transaction offsets.
+    std::vector<PublicKey> senderKeys;
+    std::vector<PublicKey> ownerKeys;
+    for (const Output& output : body.GetOutputs()) {
+        if (!(output.GetSenderPubKey() == PublicKey())) {
+            senderKeys.push_back(output.GetSenderPubKey());
+        }
+    }
+    for (const Input& input : body.GetInputs()) {
+        if (!(input.GetOutputPubKey() == PublicKey())) {
+            ownerKeys.push_back(input.GetOutputPubKey());
+        }
+    }
+    if (!senderKeys.empty() || !ownerKeys.empty()) {
+        if (!Keys::VerifyKeyBalance(senderKeys, ownerKeys, stealthOffset)) {
+            throw std::runtime_error("Stealth offset does not balance");
+        }
     }
 }
 
@@ -208,9 +237,9 @@ void Block::Validate() const
         }
     }
 
-    // Cryptographic soundness: range proofs, kernel + input owner signatures, and
-    // the value (kernel offset) commitment balance.
-    ValidateBodyCrypto(m_body, GetKernelOffset());
+    // Cryptographic soundness: range proofs, kernel + input owner signatures,
+    // and the value (kernel offset) and stealth (owner-key offset) balances.
+    ValidateBodyCrypto(m_body, GetKernelOffset(), GetStealthOffset());
 }
 
 END_NAMESPACE
@@ -244,8 +273,8 @@ void mw::Transaction::Validate() const
     }
 
     // Cryptographic soundness: range proofs, kernel + input owner signatures, and
-    // the value commitment balance (shared with Block::Validate).
-    mw::ValidateBodyCrypto(m_body, m_kernelOffset);
+    // the value + stealth balances (shared with Block::Validate).
+    mw::ValidateBodyCrypto(m_body, m_kernelOffset, m_stealthOffset);
 }
 
 //

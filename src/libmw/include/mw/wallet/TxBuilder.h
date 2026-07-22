@@ -131,8 +131,17 @@ public:
         std::sort(outs.begin(), outs.end(),
                   [](const Output& a, const Output& b) { return a.GetHash() < b.GetHash(); });
 
+        // Stealth (owner-key) offset: negate the sum of the signed inputs' spend
+        // keys. Since these inputs carry those keys' public keys as their owner
+        // keys, this makes the stealth balance
+        //   Sum(output sender keys) - Sum(input owner keys) == stealthOffset*G
+        // hold for a body whose outputs have no sender key (plain outputs, and
+        // pure peg-outs with no MWEB output). A stealth output added afterwards
+        // via WithStealthOutput folds its ephemeral sender key into this offset.
+        const BlindingFactor stealthOffset = ComputeStealthOffset(inputs);
+
         std::vector<Kernel> kers; kers.push_back(kernel);
-        return Transaction(offset, BlindingFactor(),
+        return Transaction(offset, stealthOffset,
             TxBody(std::move(ins), std::move(outs), std::move(kers)));
     }
 
@@ -144,6 +153,21 @@ private:
     static BlindingFactor ToBlind(const SecretKey& s)
     {
         return BlindingFactor(std::vector<uint8_t>(s.data(), s.data() + SecretKey::SIZE));
+    }
+
+    // -Sum(spend keys of the signed inputs). Inputs without a spend key (value-
+    // balance-only) contribute nothing; with none, the offset is null (identity).
+    static BlindingFactor ComputeStealthOffset(const std::vector<Coin>& inputs)
+    {
+        bool have = false;
+        SecretKey acc;
+        for (const Coin& c : inputs) {
+            if (c.spendKey.IsNull()) continue;
+            acc = have ? Keys::AddSecretKeys(acc, c.spendKey) : c.spendKey;
+            have = true;
+        }
+        if (!have) return BlindingFactor();
+        return ToBlind(Keys::NegateSecretKey(acc));
     }
 
     // excess = Sum(output blinds) - Sum(input blinds) - offset. Folds robustly so

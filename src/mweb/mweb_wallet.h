@@ -108,16 +108,27 @@ inline PegInResult BuildPegIn(CAmount pegInAmount, CAmount mwebFee)
 
 /// Rebuild `tx` with its single output replaced by `stealthOutput`. Only the
 /// output's key-exchange fields change; its commitment (and so the kernel excess
-/// and the block balance) are unchanged because the stealth output was built with
+/// and the value balance) are unchanged because the stealth output was built with
 /// the same value and blinding factor. This lets us reuse TxBuilder to construct
 /// and sign the kernel, then swap in an output the recipient can recognise and
 /// open by scanning -- without teaching TxBuilder about stealth addresses.
-inline mw::Transaction WithStealthOutput(const mw::Transaction& tx, const mw::Output& stealthOutput)
+///
+/// The stealth output introduces a sender key (`ephemeral`*G) into the stealth
+/// (owner-key) balance, so fold `ephemeral` into the transaction's stealth offset
+/// to keep Sum(sender keys) - Sum(owner keys) == stealthOffset*G.
+inline mw::Transaction WithStealthOutput(const mw::Transaction& tx, const mw::Output& stealthOutput,
+                                         const mw::SecretKey& ephemeral)
 {
     std::vector<mw::Input> inputs = tx.GetInputs();
     std::vector<mw::Output> outputs = { stealthOutput };
     std::vector<mw::Kernel> kernels = tx.GetKernels();
-    return mw::Transaction(tx.GetKernelOffset(), tx.GetStealthOffset(),
+
+    const mw::BlindingFactor& prev = tx.GetStealthOffset();
+    const mw::BlindingFactor stealthOffset = prev.IsNull()
+        ? mw::BlindingFactor(ephemeral.vec())
+        : mw::BlindingFactor(mw::Keys::AddSecretKeys(mw::SecretKey(prev.vec()), ephemeral).vec());
+
+    return mw::Transaction(tx.GetKernelOffset(), stealthOffset,
                            mw::TxBody(std::move(inputs), std::move(outputs), std::move(kernels)));
 }
 
@@ -140,8 +151,9 @@ inline PegInResult BuildPegIn(CAmount pegInAmount, CAmount mwebFee,
 
     // The stealth output's blind is derived from the ECDH secret, so the recipient
     // recovers it from the output alone.
+    const mw::SecretKey ephemeral(ephBytes);
     const mw::wallet::StealthResult sr =
-        mw::wallet::Stealth::Send(address, static_cast<uint64_t>(outValue), mw::SecretKey(ephBytes));
+        mw::wallet::Stealth::Send(address, static_cast<uint64_t>(outValue), ephemeral);
 
     const mw::Transaction plain = mw::wallet::TxBuilder::Build(
         {}, { { static_cast<uint64_t>(outValue), sr.blind } },
@@ -149,7 +161,7 @@ inline PegInResult BuildPegIn(CAmount pegInAmount, CAmount mwebFee,
         mw::BlindingFactor(offsetBytes));
 
     PegInResult result;
-    result.tx = WithStealthOutput(plain, sr.output);
+    result.tx = WithStealthOutput(plain, sr.output, ephemeral);
     result.outputBlind = sr.blind;
     result.outputValue = outValue;
     return result;
@@ -173,14 +185,15 @@ inline mw::Transaction BuildStealthSpend(
     GetStrongRandBytes(ephBytes.data(), static_cast<int>(ephBytes.size()));
     GetStrongRandBytes(offsetBytes.data(), static_cast<int>(offsetBytes.size()));
 
+    const mw::SecretKey ephemeral(ephBytes);
     const mw::wallet::StealthResult sr =
-        mw::wallet::Stealth::Send(address, static_cast<uint64_t>(outValue), mw::SecretKey(ephBytes));
+        mw::wallet::Stealth::Send(address, static_cast<uint64_t>(outValue), ephemeral);
 
     const mw::Transaction plain = mw::wallet::TxBuilder::Build(
         { input }, { { static_cast<uint64_t>(outValue), sr.blind } },
         static_cast<uint64_t>(mwebFee), mw::BlindingFactor(offsetBytes));
 
-    return WithStealthOutput(plain, sr.output);
+    return WithStealthOutput(plain, sr.output, ephemeral);
 }
 
 } // namespace Wallet
