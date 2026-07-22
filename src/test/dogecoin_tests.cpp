@@ -1109,4 +1109,47 @@ BOOST_AUTO_TEST_CASE(mweb_wallet_build_pegin)
     BOOST_CHECK_THROW(MWEB::Wallet::BuildPegIn(fee, fee), std::runtime_error);
 }
 
+// MWEB: a tracked output can be spent. Spending references the output by its real
+// output ID (a hash of the whole output), so the accumulator finds and spends it;
+// an input built with only the commitment hash would not match the added output.
+BOOST_AUTO_TEST_CASE(mweb_spend_tracked_output)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    // Peg in to create an MWEB output the wallet owns (knows value + blind + ID).
+    MWEB::Wallet::PegInResult peg = MWEB::Wallet::BuildPegIn(100 * COIN, 100000);
+    BOOST_REQUIRE(peg.tx.GetOutputs().size() == 1);
+    const mw::Hash outID = peg.tx.GetOutputs()[0].GetOutputID();
+
+    // Accumulate it, as connecting the peg-in block would.
+    mw::MWEBState state;
+    const uint64_t leaf = state.AddOutput(outID).Get();
+    BOOST_CHECK(state.IsUnspent(leaf));
+
+    // Spend it: input is the tracked coin carrying its real output ID; output is a
+    // new coin worth value - fee.
+    const CAmount fee2 = 100000;
+    const mw::wallet::Coin inCoin{ (uint64_t)peg.outputValue, peg.outputBlind, outID };
+    const mw::wallet::Coin outCoin{ (uint64_t)(peg.outputValue - fee2), blind(0x55) };
+    const mw::Transaction spend =
+        mw::wallet::TxBuilder::Build({inCoin}, {outCoin}, fee2, blind(0x56));
+
+    // The input references the real output; the tx balances; the accumulator spends it.
+    BOOST_REQUIRE(spend.GetInputs().size() == 1);
+    BOOST_CHECK(spend.GetInputs()[0].GetOutputID() == outID);
+    BOOST_CHECK_NO_THROW(spend.Validate());
+    BOOST_CHECK(state.SpendByOutputID(spend.GetInputs()[0].GetOutputID()));
+    BOOST_CHECK(!state.IsUnspent(leaf));
+
+    // An input that does not carry the output ID falls back to the commitment hash
+    // and so cannot spend the accumulated output.
+    const mw::wallet::Coin noId{ (uint64_t)peg.outputValue, peg.outputBlind };
+    const mw::Transaction badSpend =
+        mw::wallet::TxBuilder::Build({noId}, {outCoin}, fee2, blind(0x56));
+    mw::MWEBState fresh;
+    fresh.AddOutput(outID);
+    BOOST_CHECK(badSpend.GetInputs()[0].GetOutputID() != outID);
+    BOOST_CHECK(!fresh.SpendByOutputID(badSpend.GetInputs()[0].GetOutputID()));
+}
+
 BOOST_AUTO_TEST_SUITE_END()
