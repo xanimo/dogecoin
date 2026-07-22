@@ -1649,6 +1649,16 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
         nRelevantServices = ServiceFlags(nRelevantServices | NODE_WITNESS);
     }
 
+    if (chainparams.GetConsensus(0).IsMwebConfigured()) {
+        // Advertise MWEB capability when MWEB is scheduled on this chain (same
+        // reasoning as NODE_WITNESS above: key off the version gate, not the
+        // unused BIP9 deployment). Without NODE_MWEB, peers negotiate blocks with
+        // SERIALIZE_NO_MWEB and a receiving node rejects post-activation blocks as
+        // mweb-missing, since the extension block is never relayed.
+        nLocalServices = ServiceFlags(nLocalServices | NODE_MWEB);
+        nRelevantServices = ServiceFlags(nRelevantServices | NODE_MWEB);
+    }
+
     // ********************************************************* Step 10: import blocks
 
     if (!CheckDiskSpace())
