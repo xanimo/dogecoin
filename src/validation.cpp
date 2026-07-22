@@ -534,7 +534,13 @@ bool CheckTransaction(const CTransaction& tx, CValidationState &state, bool fChe
         return MWEB::Node::CheckTransaction(tx, state);
     }
 
-    if (tx.vin.empty())
+    // The HogEx (the MWEB integrating transaction) may legitimately have no inputs:
+    // the first HogEx after activation, in an otherwise empty block, has no previous
+    // HogAddr to spend and no peg-in outputs to integrate. Its structure is validated
+    // in block context by MWEB::Node::ContextualCheckBlock, so exempt it here as the
+    // coinbase is exempted elsewhere. A HogEx always has at least the HogAddr output,
+    // so the vout-empty check still applies.
+    if (tx.vin.empty() && !tx.IsHogEx())
         return state.DoS(10, false, REJECT_INVALID, "bad-txns-vin-empty");
     if (tx.vout.empty())
         return state.DoS(10, false, REJECT_INVALID, "bad-txns-vout-empty");
@@ -3164,10 +3170,58 @@ bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& pa
     return IsSegwitLatched(pindexPrev, params);
 }
 
+/**
+ * Latched MWEB activation. Identical mechanism to IsSegwitLatched: the rolling
+ * IsSuperMajority() answer is latched once the supermajority is first met at or
+ * after the start height, so activation is monotonic and per-branch correct.
+ * For MWEB this is not optional -- extension blocks hold funds, so a mid-flight
+ * deactivation would strand them (ContextualCheckBlock would then reject every
+ * block carrying the extension data). Cached on its own CBlockIndex fields,
+ * independent of the SegWit latch.
+ */
+static bool IsMWEBLatched(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+{
+    AssertLockHeld(cs_main);
+
+    std::vector<const CBlockIndex*> vPending;
+    const CBlockIndex* pindex = pindexPrev;
+    while (pindex != NULL && !pindex->fMwebLatchComputed) {
+        vPending.push_back(pindex);
+        pindex = pindex->pprev;
+    }
+
+    bool fLatched = (pindex != NULL) ? pindex->fMwebLatched : false;
+
+    for (std::vector<const CBlockIndex*>::reverse_iterator it = vPending.rbegin(); it != vPending.rend(); ++it) {
+        const CBlockIndex* p = *it;
+        if (!fLatched && p->nHeight + 1 >= params.nMwebStartHeight) {
+            fLatched = IsSuperMajority(params.nMwebEnforceVersion, p,
+                                       params.nMajorityEnforceBlockUpgrade, params);
+        }
+        p->fMwebLatched = fLatched;
+        p->fMwebLatchComputed = true;
+    }
+
+    return fLatched;
+}
+
 bool IsMWEBEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
 {
+    // Dogecoin Phase 0: MWEB activates on the same AuxPoW-safe version
+    // supermajority substrate as SegWit, one rung up the ladder at
+    // nMwebEnforceVersion (>= the SegWit enforce version). Because
+    // IsSuperMajority compares GetBaseVersion() >= minVersion, every block that
+    // signals MWEB also signals SegWit -- MWEB therefore cannot activate before
+    // or without SegWit. Latched for the same reason SegWit is; see
+    // IsWitnessEnabled() and IsMWEBLatched().
+    if (pindexPrev == NULL)
+        return false;
+    if (!params.IsMwebConfigured())
+        return false;
+    if (pindexPrev->nHeight + 1 < params.nMwebStartHeight)
+        return false;
     LOCK(cs_main);
-    return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_MWEB, versionbitscache) == THRESHOLD_ACTIVE);
+    return IsMWEBLatched(pindexPrev, params);
 }
 
 // Compute at which vout of the block's coinbase transaction the witness
