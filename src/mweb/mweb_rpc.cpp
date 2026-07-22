@@ -34,18 +34,63 @@
 //! Default MWEB fee for a peg-in kernel when the caller does not specify one.
 static const CAmount DEFAULT_MWEB_FEE = 100000; // 0.001 coin
 
-// Minimal MWEB coin tracking. A real wallet scans each block's extension block
-// and recognises its own outputs via its view/spend keys; this prototype instead
-// records the outputs it creates itself (peg-ins and spend change), which is
-// enough to spend them again. In memory only for now -- lost on restart -- and
-// guarded by cs_main, which every MWEB RPC below holds.
+// Prototype wallet stealth address. A production wallet derives its scan and
+// spend keys from its HD seed; here they are fixed constants so the wallet's MWEB
+// coins are recoverable by scanning after a restart. INSECURE (well-known keys)
+// -- for the regtest prototype only.
+static mw::SecretKey MWEBScanKey()  { return mw::SecretKey(std::vector<uint8_t>(mw::SecretKey::SIZE, 0x11)); }
+static mw::SecretKey MWEBSpendKey() { return mw::SecretKey(std::vector<uint8_t>(mw::SecretKey::SIZE, 0x22)); }
+static mw::wallet::StealthAddress MWEBStealthAddress()
+{
+    return { mw::Keys::PublicKeyFrom(MWEBScanKey()), mw::Keys::PublicKeyFrom(MWEBSpendKey()) };
+}
+
+// A spendable MWEB coin recovered by scanning: its output ID, opened value, and
+// blinding factor (all the input side of a spend needs).
 struct MWEBWalletCoin {
     mw::Hash outputID;
     CAmount value;
     std::vector<uint8_t> blind;
-    bool spent;
 };
-static std::vector<MWEBWalletCoin> g_mweb_coins;
+
+// Recover this wallet's spendable MWEB coins by scanning the persistent MWEB
+// UTXO set for stealth outputs addressed to its scan/spend keys. This replaces
+// the earlier in-memory record of self-created outputs: because every unspent
+// output lives in g_mweb_state's UTXO set and stealth outputs carry the ECDH
+// key-exchange data, the wallet can recognise and open its coins by scanning
+// alone -- which survives restart and also finds outputs paid to it by others.
+// A spent output leaves the UTXO set, so this only ever returns current coins.
+// Caller must hold cs_main (g_mweb_state access).
+static std::vector<MWEBWalletCoin> ScanMWEBCoins()
+{
+    std::vector<MWEBWalletCoin> coins;
+    if (!g_mweb_state) return coins;
+
+    const mw::SecretKey scanKey = MWEBScanKey();
+    const mw::PublicKey spendPub = mw::Keys::PublicKeyFrom(MWEBSpendKey());
+    const std::vector<mw::Output> utxos = g_mweb_state->GetUTXOs(0, /*max_count=*/1000000);
+    for (const mw::Output& o : utxos) {
+        if (!mw::wallet::Stealth::IsMine(o, scanKey, spendPub)) continue;
+        const uint64_t value = mw::wallet::Stealth::RecoverValue(o, scanKey);
+        const mw::BlindingFactor blind = mw::wallet::Stealth::RecoverBlind(o, scanKey);
+        coins.push_back({ o.GetOutputID(), static_cast<CAmount>(value), blind.vec() });
+    }
+    return coins;
+}
+
+// The first scanned coin worth more than `minValue`, or throw if none. Note: an
+// unconfirmed spend does not yet update the UTXO set, so calling a spend RPC
+// twice without mining in between selects the same coin; the second broadcast
+// then fails as a conflict rather than double-spending -- acceptable for the
+// prototype, which mines between operations.
+static MWEBWalletCoin SelectMWEBCoin(CAmount minValue)
+{
+    for (const MWEBWalletCoin& c : ScanMWEBCoins()) {
+        if (c.value > minValue) return c;
+    }
+    throw JSONRPCError(RPC_WALLET_ERROR,
+        "No spendable MWEB output. Peg in with `pegin` and mine a block first.");
+}
 
 UniValue pegin(const JSONRPCRequest& request)
 {
@@ -59,8 +104,9 @@ UniValue pegin(const JSONRPCRequest& request)
             "\nPeg the given amount from the canonical chain into the MWEB, creating one\n"
             "MWEB output worth (amount - mwebfee). The canonical peg-in output is funded\n"
             "and signed by this wallet and the transaction is broadcast.\n"
-            "\nNOTE: This is a prototype. The created MWEB output's secret is returned so it\n"
-            "can be spent later; the wallet does not yet track MWEB outputs itself.\n"
+            "\nNOTE: This is a prototype. The created MWEB output is a stealth output to this\n"
+            "wallet, so once it confirms it is recoverable by scanning the MWEB UTXO set\n"
+            "(see mwebspend/pegout) -- no out-of-band secret is needed to spend it.\n"
             "\nArguments:\n"
             "1. \"amount\"   (numeric or string, required) The amount to peg in, e.g. 10.0\n"
             "2. \"mwebfee\"  (numeric or string, optional) The MWEB kernel fee (default 0.001)\n"
@@ -88,10 +134,11 @@ UniValue pegin(const JSONRPCRequest& request)
     if (pwalletMain->GetBroadcastTransactions() && !g_connman)
         throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Peer-to-peer functionality missing or disabled");
 
-    // 1. Build the MWEB side: pegs `nAmount` in and creates one MWEB output.
+    // 1. Build the MWEB side: pegs `nAmount` in and creates one stealth MWEB
+    //    output to this wallet, recoverable later by scanning the UTXO set.
     MWEB::Wallet::PegInResult peg;
     try {
-        peg = MWEB::Wallet::BuildPegIn(nAmount, nMwebFee);
+        peg = MWEB::Wallet::BuildPegIn(nAmount, nMwebFee, MWEBStealthAddress());
     } catch (const std::exception& e) {
         throw JSONRPCError(RPC_WALLET_ERROR, e.what());
     }
@@ -120,10 +167,11 @@ UniValue pegin(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_WALLET_ERROR,
             strprintf("Error: The transaction was rejected! Reason given: %s", state.GetRejectReason()));
 
-    // 5. Track the created MWEB output so it can be spent once it confirms.
+    // 5. The created MWEB output is a stealth output to this wallet; it becomes a
+    //    spendable coin (via ScanMWEBCoins) once the peg-in confirms -- no manual
+    //    tracking needed.
     const mw::Hash newOutputID = peg.tx.GetOutputs().front().GetOutputID();
     const std::vector<uint8_t> blindBytes = peg.outputBlind.vec();
-    g_mweb_coins.push_back({ newOutputID, peg.outputValue, blindBytes, false });
 
     UniValue result(UniValue::VOBJ);
     result.pushKV("txid", wtxFinal.GetHash().GetHex());
@@ -156,8 +204,7 @@ UniValue mwebspend(const JSONRPCRequest& request)
             "  \"txid\": \"id\",                (string) The MWEB transaction id (kernel id)\n"
             "  \"spent_output\": \"hex\",        (string) The output ID that was spent\n"
             "  \"new_output\": \"hex\",          (string) The output ID that was created\n"
-            "  \"new_output_value\": n,        (numeric) Value of the new output\n"
-            "  \"new_output_blind\": \"hex\"     (string) Blinding factor of the new output\n"
+            "  \"new_output_value\": n         (numeric) Value of the new output\n"
             "}\n"
             "\nExamples:\n"
             + HelpExampleCli("mwebspend", "")
@@ -169,35 +216,17 @@ UniValue mwebspend(const JSONRPCRequest& request)
     if (!g_mweb_state)
         throw JSONRPCError(RPC_WALLET_ERROR, "MWEB state database not available");
 
-    // Select a tracked coin that is confirmed (present in the MWEB UTXO set) and
-    // large enough to cover the fee.
-    MWEBWalletCoin* coin = nullptr;
-    for (MWEBWalletCoin& c : g_mweb_coins) {
-        if (!c.spent && c.value > nMwebFee && g_mweb_state->HasOutput(c.outputID)) {
-            coin = &c;
-            break;
-        }
-    }
-    if (coin == nullptr)
-        throw JSONRPCError(RPC_WALLET_ERROR,
-            "No spendable MWEB output. Peg in with `pegin` and mine a block first.");
+    // Recover a spendable coin by scanning the MWEB UTXO set (see ScanMWEBCoins).
+    const MWEBWalletCoin coin = SelectMWEBCoin(nMwebFee);
+    const CAmount outValue = coin.value - nMwebFee;
 
-    // Build an MWEB-only spend: consume the coin, create one new output.
-    std::vector<uint8_t> newBlindBytes(mw::BlindingFactor::SIZE);
-    std::vector<uint8_t> offsetBytes(mw::BlindingFactor::SIZE);
-    GetStrongRandBytes(newBlindBytes.data(), static_cast<int>(newBlindBytes.size()));
-    GetStrongRandBytes(offsetBytes.data(), static_cast<int>(offsetBytes.size()));
-    const mw::BlindingFactor newBlind(newBlindBytes);
-    const CAmount outValue = coin->value - nMwebFee;
-
-    const mw::wallet::Coin inCoin{ static_cast<uint64_t>(coin->value),
-                                   mw::BlindingFactor(coin->blind), coin->outputID };
-    const mw::wallet::Coin outCoin{ static_cast<uint64_t>(outValue), newBlind };
+    // Build an MWEB-only spend: consume the coin, create one new stealth output
+    // to this wallet so the change is itself recoverable by scanning.
+    const mw::wallet::Coin inCoin{ static_cast<uint64_t>(coin.value),
+                                   mw::BlindingFactor(coin.blind), coin.outputID };
     mw::Transaction spend;
     try {
-        spend = mw::wallet::TxBuilder::Build({inCoin}, {outCoin},
-                                             static_cast<uint64_t>(nMwebFee),
-                                             mw::BlindingFactor(offsetBytes));
+        spend = MWEB::Wallet::BuildStealthSpend(inCoin, nMwebFee, MWEBStealthAddress());
     } catch (const std::exception& e) {
         throw JSONRPCError(RPC_WALLET_ERROR, e.what());
     }
@@ -219,22 +248,15 @@ UniValue mwebspend(const JSONRPCRequest& request)
     CInv inv(MSG_TX, tx->GetHash());
     g_connman->ForEachNode([&inv](CNode* pnode) { pnode->PushInventory(inv); });
 
-    // Capture what we need before push_back below, which may reallocate
-    // g_mweb_coins and invalidate `coin`.
-    const mw::Hash spentOutputID = coin->outputID;
-    coin->spent = true;
-
-    // Track the new output.
+    // Once mined, the spent coin leaves the UTXO set and the new stealth output
+    // enters it, so both are reflected by a subsequent scan -- nothing to track.
     const mw::Hash newOutID = spend.GetOutputs().front().GetOutputID();
-    const std::vector<uint8_t> newBlindVec = newBlind.vec();
-    g_mweb_coins.push_back({ newOutID, outValue, newBlindVec, false });
 
     UniValue result(UniValue::VOBJ);
     result.pushKV("txid", tx->GetHash().GetHex());
-    result.pushKV("spent_output", spentOutputID.GetHex());
+    result.pushKV("spent_output", coin.outputID.GetHex());
     result.pushKV("new_output", newOutID.GetHex());
     result.pushKV("new_output_value", ValueFromAmount(outValue));
-    result.pushKV("new_output_blind", HexStr(newBlindVec.begin(), newBlindVec.end()));
     return result;
 #else
     throw JSONRPCError(RPC_METHOD_NOT_FOUND, "Method not available (wallet support not compiled in)");
@@ -279,26 +301,17 @@ UniValue pegout(const JSONRPCRequest& request)
     if (!g_mweb_state)
         throw JSONRPCError(RPC_WALLET_ERROR, "MWEB state database not available");
 
-    MWEBWalletCoin* coin = nullptr;
-    for (MWEBWalletCoin& c : g_mweb_coins) {
-        if (!c.spent && c.value > nMwebFee && g_mweb_state->HasOutput(c.outputID)) {
-            coin = &c;
-            break;
-        }
-    }
-    if (coin == nullptr)
-        throw JSONRPCError(RPC_WALLET_ERROR,
-            "No spendable MWEB output. Peg in with `pegin` and mine a block first.");
-
-    const CAmount pegoutAmount = coin->value - nMwebFee;
+    // Recover a spendable coin by scanning the MWEB UTXO set (see ScanMWEBCoins).
+    const MWEBWalletCoin coin = SelectMWEBCoin(nMwebFee);
+    const CAmount pegoutAmount = coin.value - nMwebFee;
 
     std::vector<uint8_t> offsetBytes(mw::BlindingFactor::SIZE);
     GetStrongRandBytes(offsetBytes.data(), static_cast<int>(offsetBytes.size()));
 
     // Build an MWEB-only transaction: consume the input, peg its value out to the
     // canonical destination (no MWEB output). Balance: input == fee + pegout.
-    const mw::wallet::Coin inCoin{ static_cast<uint64_t>(coin->value),
-                                   mw::BlindingFactor(coin->blind), coin->outputID };
+    const mw::wallet::Coin inCoin{ static_cast<uint64_t>(coin.value),
+                                   mw::BlindingFactor(coin.blind), coin.outputID };
     const std::vector<mw::wallet::Coin> noOutputs;
     std::vector<mw::PegOutCoin> pegouts = { mw::PegOutCoin(pegoutAmount, destScript) };
     mw::Transaction pegtx;
@@ -326,12 +339,9 @@ UniValue pegout(const JSONRPCRequest& request)
     CInv inv(MSG_TX, tx->GetHash());
     g_connman->ForEachNode([&inv](CNode* pnode) { pnode->PushInventory(inv); });
 
-    const mw::Hash spentOutputID = coin->outputID;
-    coin->spent = true;
-
     UniValue result(UniValue::VOBJ);
     result.pushKV("txid", tx->GetHash().GetHex());
-    result.pushKV("spent_output", spentOutputID.GetHex());
+    result.pushKV("spent_output", coin.outputID.GetHex());
     result.pushKV("pegout_address", address.ToString());
     result.pushKV("pegout_amount", ValueFromAmount(pegoutAmount));
     return result;
