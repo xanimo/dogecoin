@@ -1002,6 +1002,39 @@ BOOST_AUTO_TEST_CASE(mweb_blockbuilder_matches_validator)
     BOOST_CHECK_NO_THROW(block2->Validate());
 }
 
+// MWEB: a single block carrying MULTIPLE MWEB transactions balances against its
+// aggregate offset. The block's kernel offset is the elliptic-curve scalar sum of
+// the transactions' offsets, so the merged body validates and matches the
+// accumulator. (XOR aggregation only ever balanced a one-transaction block.)
+BOOST_AUTO_TEST_CASE(mweb_blockbuilder_multiple_transactions)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    mw::MWEBState chainState;
+
+    // Two independent peg-ins with DIFFERENT kernel offsets, assembled into one
+    // block. Each balances against its own offset; the block must balance against
+    // the sum of the two.
+    const mw::Transaction tx1 =
+        mw::wallet::TxBuilder::Build({}, {{90, blind(0x71)}}, 10, /*pegin=*/100, blind(0x72));
+    const mw::Transaction tx2 =
+        mw::wallet::TxBuilder::Build({}, {{40, blind(0x73)}}, 10, /*pegin=*/50, blind(0x74));
+
+    auto builder = mw::BlockBuilder::Create(1, /*prevHeader=*/nullptr, chainState);
+    BOOST_REQUIRE(builder->AddTransaction(std::make_shared<mw::Transaction>(tx1), tx1.GetPegIns()));
+    BOOST_REQUIRE(builder->AddTransaction(std::make_shared<mw::Transaction>(tx2), tx2.GetPegIns()));
+    mw::Block::Ptr block = builder->Build();
+    BOOST_REQUIRE(block != nullptr);
+
+    // Both outputs and both kernels are present, and the block balances against
+    // the aggregated (summed) offset -- the check XOR aggregation would fail.
+    BOOST_CHECK_EQUAL(block->GetHeader()->GetNumTXOs(), 2u);
+    BOOST_CHECK_EQUAL(block->GetHeader()->GetNumKernels(), 2u);
+    BOOST_CHECK_NO_THROW(block->Validate());
+    BOOST_REQUIRE(chainState.ApplyBlock(*block));
+    BOOST_CHECK(chainState.MatchesHeader(*block->GetHeader()));
+}
+
 // MWEB: the accumulator rebuilds exactly from its persisted append-only log. A
 // state loaded from (output IDs, kernel IDs, leafset) reproduces the live state's
 // roots -- including which outputs are spent, since the permanent output MMR is
