@@ -552,6 +552,13 @@ public:
     void removeForReorg(const CCoinsViewCache *pcoins, unsigned int nMemPoolHeight, int flags);
     void removeConflicts(const CTransaction &tx);
     void removeForBlock(const std::vector<CTransactionRef>& vtx, unsigned int nBlockHeight);
+    /** Called when a block with an MWEB extension block is connected: remove any
+     *  mempool transaction whose kernel is in the connected block. MWEB-only
+     *  transactions are not in the block's canonical vtx (they live only in the
+     *  extension block), so removeForBlock never removes them; without this they
+     *  linger and are re-aggregated into later blocks, double-spending their
+     *  already-confirmed outputs. */
+    void removeForMWEBBlock(const std::set<mw::Hash>& blockKernelIDs);
 
     void clear();
     void _clear(); //lock free

@@ -2452,6 +2452,10 @@ bool static ConnectTip(CValidationState& state, const CChainParams& chainparams,
     LogPrint("bench", "  - Writing chainstate: %.2fms [%.2fs]\n", (nTime5 - nTime4) * 0.001, nTimeChainState * 0.000001);
     // Remove conflicting transactions from the mempool.;
     mempool.removeForBlock(blockConnecting.vtx, pindexNew->nHeight);
+    // MWEB-only transactions are not in vtx, so remove them by kernel id.
+    if (!blockConnecting.mweb_block.IsNull()) {
+        mempool.removeForMWEBBlock(blockConnecting.mweb_block.GetKernelIDs());
+    }
     // Update chainActive & related variables.
     UpdateTip(pindexNew, chainparams);
 
