@@ -181,6 +181,23 @@ class MwebVersion6ActivationTest(BitcoinTestFramework):
         self.assert_mweb_active(node, "after 300 non-signalling v4 blocks")
         print("v4 blocks past activation: MWEB STILL active, activation is latched OK")
 
+        # 7. Multiple MWEB transactions in ONE block. Two peg-ins are accepted to
+        #    the mempool and mined together; the block's single kernel offset is
+        #    the elliptic-curve sum of the two transactions' offsets, so the
+        #    merged extension block balances -- the case the earlier XOR offset
+        #    aggregation could not handle (it only balanced a one-tx block).
+        r1 = node.pegin(10.0)
+        r2 = node.pegin(11.0)
+        assert r1["txid"] in node.getrawmempool(), "first peg-in not accepted"
+        assert r2["txid"] in node.getrawmempool(), "second peg-in not accepted"
+        node.generate(1)
+        blocktxs = node.getblock(node.getbestblockhash())["tx"]
+        assert_equal(len(blocktxs), 4)          # coinbase + 2 peg-ins + HogEx
+        assert r1["txid"] in blocktxs and r2["txid"] in blocktxs
+        assert_equal(node.gettransaction(r1["txid"])["confirmations"], 1)
+        assert_equal(node.gettransaction(r2["txid"])["confirmations"], 1)
+        print("two peg-ins mined in one block (aggregate kernel offset) OK")
+
         print("")
         print("PASS: MWEB activates on the AuxPoW-safe version-6 supermajority gate.")
         print("  - not active below the start height")
@@ -189,6 +206,7 @@ class MwebVersion6ActivationTest(BitcoinTestFramework):
         print("  - stays active when signalling later drops (activation is latched)")
         print("  - the full peg lifecycle works once active: peg-in, in-MWEB")
         print("    spend, and peg-out back to a canonical UTXO")
+        print("  - multiple MWEB transactions confirm together in one block")
 
 
 if __name__ == '__main__':

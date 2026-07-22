@@ -8,6 +8,7 @@
 #include <mw/consensus/Weight.h>
 #include <mw/node/BlockBuilder.h>
 #include <mw/crypto/Bulletproof.h>
+#include <mw/crypto/Keys.h>
 #include <mw/crypto/Pedersen.h>
 #include <mw/crypto/Schnorr.h>
 
@@ -261,13 +262,24 @@ bool mw::BlockBuilder::AddTransaction(const mw::Transaction::CPtr& pTransaction,
 
 mw::BlindingFactor mw::BlockBuilder::CombineOffsets(const mw::BlindingFactor& a, const mw::BlindingFactor& b)
 {
-    // Placeholder: XOR blinding factors as a stand-in for proper ECC addition.
-    // In a real implementation, this would use secp256k1 scalar addition.
-    std::vector<uint8_t> result(mw::BlindingFactor::SIZE);
-    for (size_t i = 0; i < mw::BlindingFactor::SIZE; i++) {
-        result[i] = a.data()[i] ^ b.data()[i];
-    }
-    return mw::BlindingFactor(result);
+    // A block's kernel/stealth offset is the elliptic-curve scalar SUM of its
+    // transactions' offsets. Summing each transaction's balance identity
+    //   Sum(outputs) + (fees+pegouts)*H == Sum(inputs) + Sum(excess) + pegins*H + offset*G
+    // over all transactions in the block yields the same identity for the merged
+    // body with offset = the sum of the per-transaction offsets -- so the block
+    // balances against a single offset exactly when that offset is this sum.
+    // (The earlier XOR happened to be identity-correct only for one transaction:
+    // XOR against the zero seed returns the transaction's own offset.)
+    //
+    // A null (all-zero) offset contributes nothing and is returned as-is: zero is
+    // not a valid secp256k1 scalar, so it must not be fed to scalar addition.
+    if (a.IsNull()) return b;
+    if (b.IsNull()) return a;
+
+    const SecretKey sa(std::vector<uint8_t>(a.data(), a.data() + mw::BlindingFactor::SIZE));
+    const SecretKey sb(std::vector<uint8_t>(b.data(), b.data() + mw::BlindingFactor::SIZE));
+    const SecretKey sum = Keys::AddSecretKeys(sa, sb);
+    return mw::BlindingFactor(std::vector<uint8_t>(sum.data(), sum.data() + SecretKey::SIZE));
 }
 
 mw::Block::Ptr mw::BlockBuilder::Build()

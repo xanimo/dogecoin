@@ -29,10 +29,9 @@ MW_NAMESPACE
 /// connects the block -- so a block this builder produces satisfies
 /// MWEBState::MatchesHeader.
 ///
-/// NOTE: the aggregate kernel/stealth offsets still use XOR as a placeholder
-/// for elliptic-curve scalar addition. For a single-transaction block this is
-/// identity-correct (XOR against the zero seed yields the transaction's own
-/// offset); aggregating multiple transactions' offsets needs real EC addition.
+/// The aggregate kernel/stealth offset is the elliptic-curve scalar sum of the
+/// transactions' offsets (see CombineOffsets), so a block carrying multiple MWEB
+/// transactions balances against its single header offset.
 class BlockBuilder {
 public:
     using Ptr = std::shared_ptr<BlockBuilder>;
@@ -63,7 +62,7 @@ public:
 private:
     BlockBuilder(int32_t height, const mw::Header::CPtr& prevHeader, const mw::MWEBState& prevState);
 
-    /// Combine blinding factors using XOR (placeholder for real ECC addition).
+    /// Elliptic-curve scalar sum of two offsets (a null offset acts as identity).
     static BlindingFactor CombineOffsets(const BlindingFactor& a, const BlindingFactor& b);
 
     int32_t m_height;
