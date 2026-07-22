@@ -25,7 +25,8 @@
 #   2. past the start, below threshold   -> still inactive (threshold gates)
 #   3. threshold met                     -> active
 #   4. signalling stops (v4 blocks)      -> still active (the latch)
-#   5. peg-in -> mine -> confirmed in a [coinbase, peg-in, HogEx] block
+#   5. the full peg lifecycle: peg-in -> mine, spend inside the MWEB -> mine,
+#      spend the change, then peg-out back to a canonical UTXO -> mine
 #
 
 from test_framework.test_framework import BitcoinTestFramework
@@ -140,6 +141,20 @@ class MwebVersion6ActivationTest(BitcoinTestFramework):
         node.generate(1)
         print("MWEB spend confirmed: pegged-in output spent, change re-spendable OK")
 
+        # 5c. Peg out: send the remaining MWEB value back to the canonical chain.
+        #     The peg-out is realised as an output of the block's HogEx, so the
+        #     value becomes a normal canonical UTXO at the destination address --
+        #     completing the round trip canonical -> MWEB -> canonical.
+        addr = node.getnewaddress()
+        po = node.pegout(addr)
+        assert_equal(po["spent_output"], sp2["new_output"])
+        assert po["txid"] in node.getrawmempool(), "peg-out not accepted to mempool"
+        node.generate(1)
+        assert_equal(len(node.getblock(node.getbestblockhash())["tx"]), 2)  # coinbase + HogEx
+        # The pegged-out value is now a confirmed canonical UTXO at the address.
+        assert_equal(node.getreceivedbyaddress(addr, 1), po["pegout_amount"])
+        print("peg-out confirmed: value returned to a canonical UTXO at %s OK" % addr)
+
         # 6. Activation is LATCHED: it must not revert when signalling stops.
         #    IsSuperMajority() is a rolling-window predicate, so re-deriving it
         #    per block would deactivate MWEB here. Restart the miner on
@@ -161,7 +176,8 @@ class MwebVersion6ActivationTest(BitcoinTestFramework):
         print("  - not active above the start height until the threshold is met")
         print("  - active once the threshold is met")
         print("  - stays active when signalling later drops (activation is latched)")
-        print("  - a wallet peg-in confirms in a valid MWEB block once active")
+        print("  - the full peg lifecycle works once active: peg-in, in-MWEB")
+        print("    spend, and peg-out back to a canonical UTXO")
 
 
 if __name__ == '__main__':

@@ -8,6 +8,7 @@
 #endif
 
 #include "amount.h"
+#include "base58.h"
 #include "net.h"
 #include "rpc/server.h"
 #include "utilstrencodings.h"
@@ -240,11 +241,111 @@ UniValue mwebspend(const JSONRPCRequest& request)
 #endif
 }
 
+UniValue pegout(const JSONRPCRequest& request)
+{
+#ifdef ENABLE_WALLET
+    if (!pwalletMain)
+        throw JSONRPCError(RPC_METHOD_NOT_FOUND, "Method not found (wallet disabled)");
+
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 2)
+        throw std::runtime_error(
+            "pegout \"address\" ( mwebfee )\n"
+            "\nPeg a tracked MWEB output back out to the canonical chain: consume the\n"
+            "first confirmed, unspent MWEB output this wallet owns and pay its value\n"
+            "(minus the fee) to \"address\" as a canonical output realised in the block's\n"
+            "HogEx. The value leaves the MWEB and becomes a normal spendable UTXO.\n"
+            "\nArguments:\n"
+            "1. \"address\"  (string, required) The canonical address to peg out to\n"
+            "2. \"mwebfee\"  (numeric or string, optional) The MWEB kernel fee (default 0.001)\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"txid\": \"id\",              (string) The MWEB transaction id (kernel id)\n"
+            "  \"spent_output\": \"hex\",      (string) The MWEB output ID that was spent\n"
+            "  \"pegout_address\": \"addr\",   (string) The canonical destination\n"
+            "  \"pegout_amount\": n          (numeric) Value pegged out (value - fee)\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("pegout", "\"mnUs...\"")
+            + HelpExampleRpc("pegout", "\"mnUs...\""));
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    CBitcoinAddress address(request.params[0].get_str());
+    if (!address.IsValid())
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Dogecoin address");
+    const CScript destScript = GetScriptForDestination(address.Get());
+
+    const CAmount nMwebFee = request.params.size() > 1 ? AmountFromValue(request.params[1]) : DEFAULT_MWEB_FEE;
+    if (!g_mweb_state)
+        throw JSONRPCError(RPC_WALLET_ERROR, "MWEB state database not available");
+
+    MWEBWalletCoin* coin = nullptr;
+    for (MWEBWalletCoin& c : g_mweb_coins) {
+        if (!c.spent && c.value > nMwebFee && g_mweb_state->HasOutput(c.outputID)) {
+            coin = &c;
+            break;
+        }
+    }
+    if (coin == nullptr)
+        throw JSONRPCError(RPC_WALLET_ERROR,
+            "No spendable MWEB output. Peg in with `pegin` and mine a block first.");
+
+    const CAmount pegoutAmount = coin->value - nMwebFee;
+
+    std::vector<uint8_t> offsetBytes(mw::BlindingFactor::SIZE);
+    GetStrongRandBytes(offsetBytes.data(), static_cast<int>(offsetBytes.size()));
+
+    // Build an MWEB-only transaction: consume the input, peg its value out to the
+    // canonical destination (no MWEB output). Balance: input == fee + pegout.
+    const mw::wallet::Coin inCoin{ static_cast<uint64_t>(coin->value),
+                                   mw::BlindingFactor(coin->blind), coin->outputID };
+    const std::vector<mw::wallet::Coin> noOutputs;
+    std::vector<mw::PegOutCoin> pegouts = { mw::PegOutCoin(pegoutAmount, destScript) };
+    mw::Transaction pegtx;
+    try {
+        pegtx = mw::wallet::TxBuilder::Build(std::vector<mw::wallet::Coin>{inCoin}, noOutputs,
+                                             static_cast<uint64_t>(nMwebFee), /*pegin=*/0,
+                                             std::move(pegouts), mw::BlindingFactor(offsetBytes));
+    } catch (const std::exception& e) {
+        throw JSONRPCError(RPC_WALLET_ERROR, e.what());
+    }
+
+    CMutableTransaction mtx;
+    mtx.mweb_tx = MWEB::Tx(std::make_shared<mw::Transaction>(pegtx));
+    CTransactionRef tx = MakeTransactionRef(std::move(mtx));
+
+    if (g_connman == nullptr)
+        throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Peer-to-peer functionality missing or disabled");
+
+    CValidationState state;
+    bool fMissingInputs = false;
+    if (!AcceptToMemoryPool(mempool, state, tx, false, &fMissingInputs, NULL, false, maxTxFee)) {
+        throw JSONRPCError(RPC_WALLET_ERROR,
+            strprintf("Peg-out rejected: %s", state.GetRejectReason()));
+    }
+    CInv inv(MSG_TX, tx->GetHash());
+    g_connman->ForEachNode([&inv](CNode* pnode) { pnode->PushInventory(inv); });
+
+    const mw::Hash spentOutputID = coin->outputID;
+    coin->spent = true;
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("txid", tx->GetHash().GetHex());
+    result.pushKV("spent_output", spentOutputID.GetHex());
+    result.pushKV("pegout_address", address.ToString());
+    result.pushKV("pegout_amount", ValueFromAmount(pegoutAmount));
+    return result;
+#else
+    throw JSONRPCError(RPC_METHOD_NOT_FOUND, "Method not available (wallet support not compiled in)");
+#endif
+}
+
 static const CRPCCommand commands[] =
 { //  category              name                        actor (function)           okSafeMode
   //  --------------------- --------------------------- -------------------------- ----------
     { "mweb",               "pegin",                    &pegin,                    false,  {"amount","mwebfee"} },
     { "mweb",               "mwebspend",                &mwebspend,                false,  {"mwebfee"} },
+    { "mweb",               "pegout",                   &pegout,                   false,  {"address","mwebfee"} },
 };
 
 void RegisterMWEBRPCCommands(CRPCTable& t)
