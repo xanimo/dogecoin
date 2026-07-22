@@ -176,8 +176,12 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     // transaction (which in most cases can be a no-op).
     fIncludeWitness = IsWitnessEnabled(pindexPrev, consensus) && fMineWitnessTx;
 
-    // Initialize MWEB miner if MWEB is active
-    bool fIncludeMWEB = IsMWEBEnabled(pindexPrev, consensus) && fIncludeWitness;
+    // Initialize MWEB miner if MWEB is active. Once MWEB is consensus-active every
+    // block must carry an extension block, so this is gated on the consensus
+    // predicates only -- not fIncludeWitness, which folds in the fMineWitnessTx
+    // mining policy (generate hardcodes it false). MWEB requires SegWit to be
+    // active, so both predicates are checked.
+    bool fIncludeMWEB = IsMWEBEnabled(pindexPrev, consensus) && IsWitnessEnabled(pindexPrev, consensus);
     if (fIncludeMWEB) {
         mwebMiner.NewBlock(nHeight, pindexPrev->mweb_header);
     }
@@ -354,7 +358,23 @@ bool BlockAssembler::TestForBlock(CTxMemPool::txiter iter)
 
 void BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
 {
-    pblock->vtx.emplace_back(iter->GetSharedTx());
+    const CTransactionRef& ptx = iter->GetSharedTx();
+    if (ptx->HasMWEBTx()) {
+        // The MWEB portion is aggregated into the block's extension block (via the
+        // HogEx path); the canonical transaction carried in vtx must not keep the
+        // MWEB data, or CheckBlock rejects the block with "unexpected-mweb-data".
+        // A pure MWEB-only transaction has no canonical presence and is not added
+        // to vtx at all -- it lives only in the extension block.
+        if (ptx->IsMWEBOnly()) {
+            inBlock.insert(iter);
+            return;
+        }
+        CMutableTransaction mtx(*ptx);
+        mtx.mweb_tx = MWEB::Tx();
+        pblock->vtx.emplace_back(MakeTransactionRef(std::move(mtx)));
+    } else {
+        pblock->vtx.emplace_back(ptx);
+    }
     pblocktemplate->vTxFees.push_back(iter->GetFee());
     pblocktemplate->vTxSigOpsCost.push_back(iter->GetSigOpCost());
     if (fNeedSizeAccounting) {

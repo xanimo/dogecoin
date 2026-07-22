@@ -257,7 +257,10 @@ mw::BlindingFactor mw::BlockBuilder::CombineOffsets(const mw::BlindingFactor& a,
 
 mw::Block::Ptr mw::BlockBuilder::Build()
 {
-    if (m_transactions.empty()) return nullptr;
+    // An empty block is valid and required: once MWEB is active every block must
+    // carry an extension block, even one with no transactions. With no bodies the
+    // merge below is a no-op, the accumulator stays at the previous state, and the
+    // header commits to the unchanged roots -- exactly what the validator expects.
 
     // Merge all transaction bodies
     std::vector<mw::Input> allInputs;

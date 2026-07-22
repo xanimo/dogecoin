@@ -24,7 +24,6 @@ void Miner::NewBlock(const uint64_t nHeight, const mw::Header::CPtr& prevHeader)
     hogex_fees = 0;
     hogex_sigops = 0;
     hogex_inputs.clear();
-    hogex_outputs.clear();
 
     // Create the block builder, seeded with the current accumulated MWEB state so
     // the header roots it computes match what the validator will accumulate when it
@@ -97,12 +96,18 @@ bool Miner::AddMWEBTransaction(CTxMemPool::txiter iter)
         return false;
     }
 
-    // Collect HogEx inputs and outputs from this transaction
-    for (const CTxIn& vin : pTx->vin) {
-        hogex_inputs.push_back(vin);
-    }
-    for (const CTxOut& vout : pTx->vout) {
-        hogex_outputs.push_back(vout);
+    // The HogEx integrates the peg-in by spending each canonical peg-in output
+    // of this transaction (moving that value into the MWEB). Reference the peg-in
+    // outputs by outpoint -- not the transaction's funding inputs, and not its
+    // outputs. ContextualCheckBlock verifies the HogEx inputs are exactly these
+    // peg-in outputs, and the peg-out outputs come from the MWEB kernels, not from
+    // the canonical transaction. Order matches ContextualCheckBlock's scan
+    // (transactions in block order, outputs in index order).
+    const uint256 txid = pTx->GetHash();
+    for (size_t nOut = 0; nOut < pTx->vout.size(); nOut++) {
+        if (pTx->vout[nOut].scriptPubKey.IsMWEBPegin()) {
+            hogex_inputs.push_back(CTxIn(COutPoint(txid, static_cast<uint32_t>(nOut))));
+        }
     }
 
     mweb_amount_change += (CAmount(pegin_amount) - CAmount(pegout_amount + tx_fee));
@@ -118,12 +123,17 @@ bool Miner::AddMWEBTransaction(CTxMemPool::txiter iter)
 void Miner::AddHogExTransaction(const CBlockIndex* pIndexPrev, CBlock* pblock,
                                  CBlockTemplate* pblocktemplate, CAmount& nFees)
 {
-    // If no MWEB transactions were added, nothing to do
-    if (!mweb_builder || !mweb_builder->HasTransactions()) {
+    // Once MWEB is active the miner must attach an extension block to every block,
+    // even when no MWEB transactions were selected -- ContextualCheckBlock rejects
+    // an active-MWEB block with no extension data. So finalize whenever the builder
+    // exists (it is created in NewBlock only when MWEB is active); an empty builder
+    // yields an empty extension block plus a HogEx that just rolls the HogAddr
+    // forward.
+    if (!mweb_builder) {
         return;
     }
 
-    // 1. Finalize the MWEB block
+    // 1. Finalize the MWEB block (may be empty)
     mw::Block::Ptr mweb_block = mweb_builder->Build();
     if (!mweb_block) {
         LogPrintf("MWEB::Miner: Failed to build MWEB block\n");
@@ -156,15 +166,12 @@ void Miner::AddHogExTransaction(const CBlockIndex* pIndexPrev, CBlock* pblock,
     CAmount new_hogex_amount = prev_hogex_amount + mweb_amount_change;
     hogex.vout.push_back(CTxOut(new_hogex_amount, hogAddrScript));
 
-    // Remaining outputs: pegout outputs from MWEB kernels
+    // Remaining outputs: peg-out outputs from the MWEB kernels. These are the
+    // only non-HogAddr outputs the HogEx carries -- canonical outputs of the
+    // block's transactions (peg-in outputs, change) stay in those transactions.
     std::vector<mw::PegOutCoin> pegouts = mweb_block->GetPegOuts();
     for (const auto& pegout : pegouts) {
         hogex.vout.push_back(CTxOut(pegout.GetAmount(), pegout.GetScriptPubKey()));
-    }
-
-    // Also append any non-MWEB outputs collected from mixed transactions
-    for (const auto& vout : hogex_outputs) {
-        hogex.vout.push_back(vout);
     }
 
     // 3. Set the MWEB block on the CBlock
