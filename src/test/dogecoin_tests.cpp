@@ -892,6 +892,40 @@ BOOST_AUTO_TEST_CASE(mweb_input_owner_signature)
     BOOST_CHECK_THROW(badTx.Validate(), std::runtime_error);
 }
 
+// MWEB stealth (owner-key) balance: a stealth output's sender key ties to the
+// transaction's stealth offset, so Sum(output sender keys) - Sum(input owner
+// keys) == stealthOffset*G. A peg-in with one stealth output balances only when
+// the offset equals the output's ephemeral key; a wrong offset is rejected.
+BOOST_AUTO_TEST_CASE(mweb_stealth_offset_balance)
+{
+    auto sk = [](uint8_t b) { return mw::SecretKey(std::vector<uint8_t>(32, b)); };
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    // Peg in 100 as one stealth output. Sender key = ephemeral*G; with no inputs
+    // the stealth offset must be the ephemeral for R - ephemeral*G to cancel.
+    const mw::SecretKey ephemeral = sk(0x33);
+    const mw::wallet::StealthAddress addr{
+        mw::Keys::PublicKeyFrom(sk(0x11)), mw::Keys::PublicKeyFrom(sk(0x22)) };
+    const uint64_t value = 100;
+    const mw::wallet::StealthResult sr = mw::wallet::Stealth::Send(addr, value, ephemeral);
+
+    // Build the kernel/body with a plain output, then swap in the stealth output.
+    const mw::Transaction plain = mw::wallet::TxBuilder::Build(
+        {}, {{value, sr.blind}}, /*fee=*/0, /*pegin=*/value, blind(0x44));
+
+    auto assemble = [&](const mw::BlindingFactor& stealthOffset) {
+        std::vector<mw::Input>  vin  = plain.GetInputs();
+        std::vector<mw::Output> vout = { sr.output };
+        std::vector<mw::Kernel> vker = plain.GetKernels();
+        return mw::Transaction(plain.GetKernelOffset(), stealthOffset,
+            mw::TxBody(std::move(vin), std::move(vout), std::move(vker)));
+    };
+
+    // Correct offset (the ephemeral) balances; a wrong offset does not.
+    BOOST_CHECK_NO_THROW(assemble(mw::BlindingFactor(ephemeral.vec())).Validate());
+    BOOST_CHECK_THROW(assemble(blind(0x55)).Validate(), std::runtime_error);
+}
+
 // MWEB (2f bridge): a transaction built by the wallet, wrapped into a
 // CTransaction, is accepted by the node's actual validation entry point
 // (MWEB::Node::CheckTransaction, called from validation.cpp) -- not just by the

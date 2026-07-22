@@ -108,5 +108,54 @@ SecretKey ECDH(const SecretKey& mine, const PublicKey& theirs)
     return SecretKey(shared);
 }
 
+bool VerifyKeyBalance(const std::vector<PublicKey>& positive,
+                      const std::vector<PublicKey>& negative,
+                      const BlindingFactor& offset)
+{
+    // Build the point list: +positives, -negatives, and -offset*G. If they sum
+    // to the point at infinity the balance holds. secp256k1_ec_pubkey_combine
+    // returns 0 exactly when the result is that point (and 1 for any finite
+    // point), which is precisely the balanced/unbalanced distinction -- and the
+    // only way to represent "sums to zero" here, since the infinity point has no
+    // compressed encoding.
+    std::vector<secp256k1_pubkey> points;
+    points.reserve(positive.size() + negative.size() + 1);
+
+    for (const PublicKey& p : positive) {
+        points.push_back(Parse(p));
+    }
+    for (const PublicKey& n : negative) {
+        secp256k1_pubkey pn = Parse(n);
+        if (!secp256k1_ec_pubkey_negate(Ctx(), &pn)) {
+            throw std::runtime_error("Keys: public key negation failed");
+        }
+        points.push_back(pn);
+    }
+    if (!offset.IsNull()) {
+        secp256k1_pubkey off;
+        if (!secp256k1_ec_pubkey_create(Ctx(), &off, offset.data())) {
+            throw std::runtime_error("Keys: invalid stealth offset");
+        }
+        if (!secp256k1_ec_pubkey_negate(Ctx(), &off)) {
+            throw std::runtime_error("Keys: public key negation failed");
+        }
+        points.push_back(off);
+    }
+
+    if (points.empty()) {
+        return true; // nothing to balance
+    }
+
+    std::vector<const secp256k1_pubkey*> ptrs;
+    ptrs.reserve(points.size());
+    for (const secp256k1_pubkey& pt : points) {
+        ptrs.push_back(&pt);
+    }
+
+    secp256k1_pubkey combined;
+    // Balanced <=> the sum is the point at infinity <=> combine returns 0.
+    return secp256k1_ec_pubkey_combine(Ctx(), &combined, ptrs.data(), ptrs.size()) == 0;
+}
+
 }
 END_NAMESPACE

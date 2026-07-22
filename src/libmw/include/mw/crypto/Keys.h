@@ -8,6 +8,9 @@
 #include <mw/common/Macros.h>
 #include <mw/models/crypto/PublicKey.h>
 #include <mw/models/crypto/SecretKey.h>
+#include <mw/models/crypto/BlindingFactor.h>
+
+#include <vector>
 
 MW_NAMESPACE
 
@@ -35,6 +38,16 @@ namespace Keys {
     // ECDH shared secret (32 bytes) between our secret key and their public key.
     // Symmetric: ECDH(a, P_b) == ECDH(b, P_a). Basis for stealth-address scanning.
     SecretKey ECDH(const SecretKey& mine, const PublicKey& theirs);
+
+    // True iff Sum(positive) - Sum(negative) == offset*G, i.e. the signed point
+    // sum (positives minus negatives minus offset*G) is the point at infinity.
+    // Used for the MWEB stealth (owner-key) balance. Handles the all-cancel case
+    // that plain point arithmetic cannot represent, because the underlying
+    // pubkey-combine reports the point at infinity distinctly. A null offset
+    // contributes no offset*G term.
+    bool VerifyKeyBalance(const std::vector<PublicKey>& positive,
+                          const std::vector<PublicKey>& negative,
+                          const BlindingFactor& offset);
 
 }
 
