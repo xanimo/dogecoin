@@ -45,12 +45,14 @@ static mw::wallet::StealthAddress MWEBStealthAddress()
     return { mw::Keys::PublicKeyFrom(MWEBScanKey()), mw::Keys::PublicKeyFrom(MWEBSpendKey()) };
 }
 
-// A spendable MWEB coin recovered by scanning: its output ID, opened value, and
-// blinding factor (all the input side of a spend needs).
+// A spendable MWEB coin recovered by scanning: its output ID, opened value,
+// blinding factor, and the one-time private key that authorises spending it
+// (all the input side of a signed spend needs).
 struct MWEBWalletCoin {
     mw::Hash outputID;
     CAmount value;
     std::vector<uint8_t> blind;
+    std::vector<uint8_t> spendKey;
 };
 
 // Recover this wallet's spendable MWEB coins by scanning the persistent MWEB
@@ -67,13 +69,17 @@ static std::vector<MWEBWalletCoin> ScanMWEBCoins()
     if (!g_mweb_state) return coins;
 
     const mw::SecretKey scanKey = MWEBScanKey();
-    const mw::PublicKey spendPub = mw::Keys::PublicKeyFrom(MWEBSpendKey());
+    const mw::SecretKey spendKey = MWEBSpendKey();
+    const mw::PublicKey spendPub = mw::Keys::PublicKeyFrom(spendKey);
     const std::vector<mw::Output> utxos = g_mweb_state->GetUTXOs(0, /*max_count=*/1000000);
     for (const mw::Output& o : utxos) {
         if (!mw::wallet::Stealth::IsMine(o, scanKey, spendPub)) continue;
         const uint64_t value = mw::wallet::Stealth::RecoverValue(o, scanKey);
         const mw::BlindingFactor blind = mw::wallet::Stealth::RecoverBlind(o, scanKey);
-        coins.push_back({ o.GetOutputID(), static_cast<CAmount>(value), blind.vec() });
+        // One-time private key for this output: spendKey + tweak. Its public key
+        // is the output's receiver key, so a spend signed with it proves ownership.
+        const mw::SecretKey oneTimeKey = mw::wallet::Stealth::RecoverSpendKey(o, scanKey, spendKey);
+        coins.push_back({ o.GetOutputID(), static_cast<CAmount>(value), blind.vec(), oneTimeKey.vec() });
     }
     return coins;
 }
@@ -221,9 +227,11 @@ UniValue mwebspend(const JSONRPCRequest& request)
     const CAmount outValue = coin.value - nMwebFee;
 
     // Build an MWEB-only spend: consume the coin, create one new stealth output
-    // to this wallet so the change is itself recoverable by scanning.
+    // to this wallet so the change is itself recoverable by scanning. The input
+    // carries the recovered one-time key so it is signed to prove ownership.
     const mw::wallet::Coin inCoin{ static_cast<uint64_t>(coin.value),
-                                   mw::BlindingFactor(coin.blind), coin.outputID };
+                                   mw::BlindingFactor(coin.blind), coin.outputID,
+                                   mw::SecretKey(coin.spendKey) };
     mw::Transaction spend;
     try {
         spend = MWEB::Wallet::BuildStealthSpend(inCoin, nMwebFee, MWEBStealthAddress());
@@ -309,9 +317,11 @@ UniValue pegout(const JSONRPCRequest& request)
     GetStrongRandBytes(offsetBytes.data(), static_cast<int>(offsetBytes.size()));
 
     // Build an MWEB-only transaction: consume the input, peg its value out to the
-    // canonical destination (no MWEB output). Balance: input == fee + pegout.
+    // canonical destination (no MWEB output). Balance: input == fee + pegout. The
+    // input carries the recovered one-time key so it is signed to prove ownership.
     const mw::wallet::Coin inCoin{ static_cast<uint64_t>(coin.value),
-                                   mw::BlindingFactor(coin.blind), coin.outputID };
+                                   mw::BlindingFactor(coin.blind), coin.outputID,
+                                   mw::SecretKey(coin.spendKey) };
     const std::vector<mw::wallet::Coin> noOutputs;
     std::vector<mw::PegOutCoin> pegouts = { mw::PegOutCoin(pegoutAmount, destScript) };
     mw::Transaction pegtx;

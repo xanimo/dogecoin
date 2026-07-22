@@ -10,7 +10,9 @@
 #include <mw/models/crypto/Commitment.h>
 #include <mw/models/crypto/PublicKey.h>
 #include <mw/models/crypto/Signature.h>
+#include <hash.h>
 #include <serialize.h>
+#include <uint256.h>
 #include <vector>
 #include <memory>
 
@@ -62,8 +64,11 @@ public:
         return m_hash;
     }
 
+    // The bytes the owner signature commits to: the whole input except the
+    // signature itself. Mirrors Kernel::SerializeSigMessage; Serialize reuses it
+    // so the signed message and the wire encoding can never drift apart.
     template<typename Stream>
-    void Serialize(Stream& s) const {
+    void SerializeSigMessage(Stream& s) const {
         s << m_features;
         s << m_outputID;
         s << m_commitment;
@@ -73,6 +78,19 @@ public:
             WriteCompactSize(s, m_extraData.size());
             s.write((const char*)m_extraData.data(), m_extraData.size());
         }
+    }
+
+    // Message the input's owner signature must verify against (its output pubkey
+    // being the verifying key). Do NOT use GetHash(): that includes the signature.
+    mw::Hash GetSignatureMessage() const {
+        CHashWriter ss(SER_GETHASH, 0);
+        SerializeSigMessage(ss);
+        return mw::Hash(ss.GetHash());
+    }
+
+    template<typename Stream>
+    void Serialize(Stream& s) const {
+        SerializeSigMessage(s);
         s << m_signature;
     }
 

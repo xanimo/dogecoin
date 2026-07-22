@@ -844,10 +844,52 @@ BOOST_AUTO_TEST_CASE(mweb_stealth_receive_and_spend)
     const mw::BlindingFactor recovered = mw::wallet::Stealth::RecoverBlind(sent.output, scanKey);
     BOOST_CHECK_EQUAL(value, received);
 
-    // Spend the scanned coin: it becomes an input worth the recovered value.
-    const std::vector<mw::wallet::Coin> ins  = {{value, recovered}};
+    // Spend the scanned coin: recover the one-time key as well and sign the input
+    // with it, so the spend proves ownership -- not merely knowledge of the value.
+    const mw::SecretKey oneTimeKey = mw::wallet::Stealth::RecoverSpendKey(sent.output, scanKey, spendKey);
+    const std::vector<mw::wallet::Coin> ins  = {{value, recovered, sent.output.GetOutputID(), oneTimeKey}};
     const std::vector<mw::wallet::Coin> outs = {{value - 10, blind(0x99)}}; // 500 = 490 + 10 fee
     BOOST_CHECK_NO_THROW(mw::wallet::TxBuilder::Build(ins, outs, 10, blind(0xAB)).Validate());
+}
+
+// MWEB owner signatures: a spend must be signed by the one-time key of the output
+// it consumes. The one-time key's public key is the output's receiver key, so the
+// TxBuilder-signed input verifies; a signature by any other key is rejected.
+BOOST_AUTO_TEST_CASE(mweb_input_owner_signature)
+{
+    auto sk = [](uint8_t b) { return mw::SecretKey(std::vector<uint8_t>(32, b)); };
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    const mw::SecretKey scanKey = sk(0x11), spendKey = sk(0x22);
+    const mw::wallet::StealthAddress addr{
+        mw::Keys::PublicKeyFrom(scanKey), mw::Keys::PublicKeyFrom(spendKey) };
+    const uint64_t value = 500;
+    const mw::wallet::StealthResult sent = mw::wallet::Stealth::Send(addr, value, sk(0x33));
+    const mw::BlindingFactor recovered = mw::wallet::Stealth::RecoverBlind(sent.output, scanKey);
+    const mw::SecretKey oneTimeKey = mw::wallet::Stealth::RecoverSpendKey(sent.output, scanKey, spendKey);
+
+    // Correctly signed spend validates, and the input's owner key is the output's
+    // receiver (one-time) key.
+    const mw::wallet::Coin in{value, recovered, sent.output.GetOutputID(), oneTimeKey};
+    const mw::Transaction tx =
+        mw::wallet::TxBuilder::Build({in}, {{value - 10, blind(0x99)}}, 10, blind(0xAB));
+    BOOST_CHECK_NO_THROW(tx.Validate());
+    BOOST_CHECK(tx.GetInputs()[0].GetOutputPubKey() == sent.output.GetReceiverPubKey());
+
+    // Replace the input's signature with one produced by a different key. The
+    // balance and kernel are untouched (they do not depend on the owner sig), so
+    // only the owner-signature check can catch it -- and it must.
+    const mw::Input& orig = tx.GetInputs()[0];
+    const mw::Input tampered(
+        orig.GetFeatures(), orig.GetOutputID(), orig.GetCommitment(),
+        orig.GetInputPubKey(), orig.GetOutputPubKey(),
+        mw::Schnorr::Sign(sk(0x77), orig.GetSignatureMessage().data()));
+    std::vector<mw::Input> vin = {tampered};
+    std::vector<mw::Output> vout = tx.GetOutputs();
+    std::vector<mw::Kernel> vker = tx.GetKernels();
+    const mw::Transaction badTx(tx.GetKernelOffset(), tx.GetStealthOffset(),
+        mw::TxBody(std::move(vin), std::move(vout), std::move(vker)));
+    BOOST_CHECK_THROW(badTx.Validate(), std::runtime_error);
 }
 
 // MWEB (2f bridge): a transaction built by the wallet, wrapped into a
