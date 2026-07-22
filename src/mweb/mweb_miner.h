@@ -45,7 +45,6 @@ private:
     CAmount mweb_amount_change{0};
     CAmount hogex_fees{0};
     int64_t hogex_sigops{0};
-    std::vector<CTxIn> hogex_inputs;
 };
 
 } // namespace MWEB

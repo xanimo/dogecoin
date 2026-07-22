@@ -23,7 +23,6 @@ void Miner::NewBlock(const uint64_t nHeight, const mw::Header::CPtr& prevHeader)
     mweb_amount_change = 0;
     hogex_fees = 0;
     hogex_sigops = 0;
-    hogex_inputs.clear();
 
     // Create the block builder, seeded with the current accumulated MWEB state so
     // the header roots it computes match what the validator will accumulate when it
@@ -96,20 +95,11 @@ bool Miner::AddMWEBTransaction(CTxMemPool::txiter iter)
         return false;
     }
 
-    // The HogEx integrates the peg-in by spending each canonical peg-in output
-    // of this transaction (moving that value into the MWEB). Reference the peg-in
-    // outputs by outpoint -- not the transaction's funding inputs, and not its
-    // outputs. ContextualCheckBlock verifies the HogEx inputs are exactly these
-    // peg-in outputs, and the peg-out outputs come from the MWEB kernels, not from
-    // the canonical transaction. Order matches ContextualCheckBlock's scan
-    // (transactions in block order, outputs in index order).
-    const uint256 txid = pTx->GetHash();
-    for (size_t nOut = 0; nOut < pTx->vout.size(); nOut++) {
-        if (pTx->vout[nOut].scriptPubKey.IsMWEBPegin()) {
-            hogex_inputs.push_back(CTxIn(COutPoint(txid, static_cast<uint32_t>(nOut))));
-        }
-    }
-
+    // The HogEx's peg-in inputs are collected later, from the finalized block in
+    // block order (see AddHogExTransaction). They are NOT gathered here: this
+    // runs in mempool iteration order, which need not match the order the peg-in
+    // transactions ended up in block.vtx, and ContextualCheckBlock matches the
+    // HogEx inputs against the peg-in outputs in strict block order.
     mweb_amount_change += (CAmount(pegin_amount) - CAmount(pegout_amount + tx_fee));
 
     if (pTx->IsMWEBOnly()) {
@@ -152,9 +142,19 @@ void Miner::AddHogExTransaction(const CBlockIndex* pIndexPrev, CBlock* pblock,
         prev_hogex_amount = pIndexPrev->mweb_amount;
     }
 
-    // Additional inputs: pegin inputs collected from MWEB transactions
-    for (const auto& vin : hogex_inputs) {
-        hogex.vin.push_back(vin);
+    // Additional inputs: every canonical peg-in output in the block, spent by the
+    // HogEx to move that value into the MWEB. Collect them from the finalized
+    // block in block order (transactions in block.vtx order, outputs in index
+    // order) so they match ContextualCheckBlock's scan exactly -- gathering them
+    // in mempool order could mis-order the inputs when a block carries more than
+    // one peg-in. The HogEx is not in the block yet, so this scans all of vtx.
+    for (size_t nTx = 1; nTx < pblock->vtx.size(); nTx++) {
+        const CTransactionRef& pTx = pblock->vtx[nTx];
+        for (size_t nOut = 0; nOut < pTx->vout.size(); nOut++) {
+            if (pTx->vout[nOut].scriptPubKey.IsMWEBPegin()) {
+                hogex.vin.push_back(CTxIn(COutPoint(pTx->GetHash(), static_cast<uint32_t>(nOut))));
+            }
+        }
     }
 
     // Output 0: HogAddr — witness v8 program committing to the MWEB header hash.
