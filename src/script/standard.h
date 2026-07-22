@@ -86,7 +86,16 @@ CScript GetScriptForWitness(const CScript& redeemscript);
 /** Build the canonical peg-in output script for an MWEB kernel: a witness
  *  program at version MWEB_PEGIN_WITNESS_VERSION carrying the 32-byte kernel ID.
  *  This is the inverse of CScript::IsMWEBPegin -- the value sent to this script
- *  is what pegs into the MWEB from the canonical chain. */
-CScript GetScriptForMWEBPegin(const mw::Hash& kernelID);
+ *  is what pegs into the MWEB from the canonical chain.
+ *
+ *  Inline (header-only) so it introduces no cross-library symbol: its only
+ *  callers are the wallet and the tests, and an out-of-line definition in the
+ *  common library would create a backward archive dependency at link time. */
+inline CScript GetScriptForMWEBPegin(const mw::Hash& kernelID)
+{
+    // Witness program: version opcode + the 32-byte kernel ID as the program.
+    // Mirrors CScript::IsMWEBPegin, which decodes exactly this shape.
+    return CScript() << CScript::EncodeOP_N(MWEB_PEGIN_WITNESS_VERSION) << kernelID.vec();
+}
 
 #endif // BITCOIN_SCRIPT_STANDARD_H

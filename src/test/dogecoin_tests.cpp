@@ -1087,4 +1087,26 @@ BOOST_AUTO_TEST_CASE(mweb_node_validates_full_block)
     BOOST_CHECK(!MWEB::Node::ValidateMWEBBlock(makeBlock(CTransaction(badPegin))));
 }
 
+// MWEB: the wallet's peg-in builder produces a valid, balanced MWEB transaction
+// creating one output worth (amount - fee), with fresh randomness each call.
+BOOST_AUTO_TEST_CASE(mweb_wallet_build_pegin)
+{
+    const CAmount amount = 100 * COIN;
+    const CAmount fee = 100000;
+
+    MWEB::Wallet::PegInResult r = MWEB::Wallet::BuildPegIn(amount, fee);
+    BOOST_CHECK(r.outputValue == amount - fee);
+    BOOST_REQUIRE(r.tx.GetPegIns().size() == 1);
+    BOOST_CHECK(r.tx.GetPegIns().front().GetAmount() == amount);
+    BOOST_CHECK(r.tx.GetOutputs().size() == 1);
+    BOOST_CHECK_NO_THROW(r.tx.Validate()); // balanced values + sound crypto
+
+    // Fresh randomness each call -> a different kernel.
+    MWEB::Wallet::PegInResult r2 = MWEB::Wallet::BuildPegIn(amount, fee);
+    BOOST_CHECK(r.tx.GetPegIns().front().GetKernelID() != r2.tx.GetPegIns().front().GetKernelID());
+
+    // The peg-in amount must exceed the fee.
+    BOOST_CHECK_THROW(MWEB::Wallet::BuildPegIn(fee, fee), std::runtime_error);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

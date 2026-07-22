@@ -7,8 +7,15 @@
 #define DOGECOIN_MWEB_WALLET_H
 
 #include <primitives/transaction.h>
+#include <amount.h>
+#include <random.h>
+#include <script/standard.h>
 #include <mw/models/tx/Transaction.h>
+#include <mw/models/crypto/BlindingFactor.h>
+#include <mw/wallet/TxBuilder.h>
 
+#include <memory>
+#include <stdexcept>
 #include <vector>
 
 namespace MWEB {
@@ -18,6 +25,10 @@ namespace MWEB {
 /// The cryptographic MWEB body (commitments, range proofs, kernels) is built
 /// by the libmw wallet TxBuilder; this layer bridges that body to the canonical
 /// chain by attaching the CTransaction structure the consensus rules require.
+///
+/// These helpers are header-only (inline): they are used only by the wallet and
+/// the tests, and inlining keeps them out of the server library so no wallet ->
+/// server archive dependency is introduced at link time.
 namespace Wallet {
 
 /// Assemble a peg-in CTransaction from an already-built MWEB transaction.
@@ -31,9 +42,66 @@ namespace Wallet {
 ///
 /// `canonicalInputs` are the canonical coins that fund the peg-in (supplied by
 /// the wallet's coin selection); this helper does not select or sign them.
-CTransaction CreatePegInTransaction(
+inline CTransaction CreatePegInTransaction(
     const mw::Transaction& mwtx,
-    const std::vector<CTxIn>& canonicalInputs);
+    const std::vector<CTxIn>& canonicalInputs)
+{
+    CMutableTransaction mtx;
+    mtx.vin = canonicalInputs;
+    mtx.mweb_tx = MWEB::Tx(std::make_shared<mw::Transaction>(mwtx));
+
+    // Pair each MWEB peg-in kernel with a canonical peg-in output carrying the
+    // same amount and keyed by the kernel ID. This is exactly what the node's
+    // peg-in match verifies in MWEB::Node::CheckTransaction.
+    for (const mw::PegInCoin& pegin : mwtx.GetPegIns()) {
+        mtx.vout.emplace_back(pegin.GetAmount(), GetScriptForMWEBPegin(pegin.GetKernelID()));
+    }
+
+    return CTransaction(mtx);
+}
+
+/// The MWEB side of a peg-in the wallet has built: the MWEB transaction plus the
+/// secret (blinding factor) and value of the single output it creates, which the
+/// wallet needs in order to spend that output later.
+struct PegInResult {
+    mw::Transaction tx;
+    mw::BlindingFactor outputBlind;
+    CAmount outputValue{0};
+};
+
+/// Build the MWEB side of a peg-in: peg `pegInAmount` in from the canonical chain
+/// and create one MWEB output worth `pegInAmount - mwebFee` under a fresh random
+/// blinding factor, with a fresh random kernel offset. The returned transaction
+/// passes Transaction::Validate. The caller (the wallet) funds and signs the
+/// canonical peg-in output separately. Requires pegInAmount > mwebFee.
+inline PegInResult BuildPegIn(CAmount pegInAmount, CAmount mwebFee)
+{
+    if (pegInAmount <= mwebFee) {
+        throw std::runtime_error("peg-in amount must exceed the MWEB fee");
+    }
+
+    // Fresh random secrets: the output's blinding factor and the kernel offset.
+    std::vector<uint8_t> blindBytes(mw::BlindingFactor::SIZE);
+    std::vector<uint8_t> offsetBytes(mw::BlindingFactor::SIZE);
+    GetStrongRandBytes(blindBytes.data(), static_cast<int>(blindBytes.size()));
+    GetStrongRandBytes(offsetBytes.data(), static_cast<int>(offsetBytes.size()));
+
+    PegInResult result;
+    result.outputBlind = mw::BlindingFactor(blindBytes);
+    result.outputValue = pegInAmount - mwebFee;
+
+    const std::vector<mw::wallet::Coin> inputs;
+    const std::vector<mw::wallet::Coin> outputs = {
+        { static_cast<uint64_t>(result.outputValue), result.outputBlind }
+    };
+    result.tx = mw::wallet::TxBuilder::Build(
+        inputs, outputs,
+        static_cast<uint64_t>(mwebFee),
+        static_cast<uint64_t>(pegInAmount),
+        mw::BlindingFactor(offsetBytes));
+
+    return result;
+}
 
 } // namespace Wallet
 
