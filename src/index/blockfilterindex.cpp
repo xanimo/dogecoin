@@ -6,7 +6,8 @@
 
 #include <dbwrapper.h>
 #include <index/blockfilterindex.h>
-#include <util/system.h>
+#include <util.h>
+#include <utilmemory.h>
 #include <validation.h>
 
 /* The index database stores three items for each block: the disk location of the encoded filter,
@@ -43,7 +44,7 @@ namespace {
 struct DBVal {
     uint256 hash;
     uint256 header;
-    FlatFilePos pos;
+    CDiskBlockPos pos;
 
     ADD_SERIALIZE_METHODS;
 
@@ -100,7 +101,8 @@ struct DBHashKey {
 
 }; // namespace
 
-static std::map<BlockFilterType, BlockFilterIndex> g_filter_indexes;
+static CCriticalSection g_cs_block_filter_indexes;
+static std::map<BlockFilterType, BlockFilterIndex> g_filter_indexes GUARDED_BY(g_cs_block_filter_indexes);
 
 BlockFilterIndex::BlockFilterIndex(BlockFilterType filter_type,
                                    size_t n_cache_size, bool f_memory, bool f_wipe)
@@ -132,27 +134,26 @@ bool BlockFilterIndex::Init()
         m_next_filter_pos.nFile = 0;
         m_next_filter_pos.nPos = 0;
     }
+    LogPrint("index", "%s: initialized with next filter pos=%s\n", __func__, m_next_filter_pos.ToString());
     return BaseIndex::Init();
 }
 
 bool BlockFilterIndex::CommitInternal(CDBBatch& batch)
 {
-    const FlatFilePos& pos = m_next_filter_pos;
+    const CDiskBlockPos& pos = m_next_filter_pos;
 
     // Flush current filter file to disk.
     CAutoFile file(m_filter_fileseq->Open(pos), SER_DISK, CLIENT_VERSION);
     if (file.IsNull()) {
         return error("%s: Failed to open filter file %d", __func__, pos.nFile);
     }
-    if (!FileCommit(file.Get())) {
-        return error("%s: Failed to commit filter file %d", __func__, pos.nFile);
-    }
+    FileCommit(file.Get());
 
     batch.Write(DB_FILTER_POS, pos);
     return BaseIndex::CommitInternal(batch);
 }
 
-bool BlockFilterIndex::ReadFilterFromDisk(const FlatFilePos& pos, BlockFilter& filter) const
+bool BlockFilterIndex::ReadFilterFromDisk(const CDiskBlockPos& pos, BlockFilter& filter) const
 {
     CAutoFile filein(m_filter_fileseq->Open(pos, true), SER_DISK, CLIENT_VERSION);
     if (filein.IsNull()) {
@@ -172,7 +173,7 @@ bool BlockFilterIndex::ReadFilterFromDisk(const FlatFilePos& pos, BlockFilter& f
     return true;
 }
 
-size_t BlockFilterIndex::WriteFilterToDisk(FlatFilePos& pos, const BlockFilter& filter)
+size_t BlockFilterIndex::WriteFilterToDisk(CDiskBlockPos& pos, const BlockFilter& filter)
 {
     assert(filter.GetFilterType() == GetFilterType());
 
@@ -191,10 +192,7 @@ size_t BlockFilterIndex::WriteFilterToDisk(FlatFilePos& pos, const BlockFilter& 
             LogPrintf("%s: Failed to truncate filter file %d\n", __func__, pos.nFile);
             return 0;
         }
-        if (!FileCommit(last_file.Get())) {
-            LogPrintf("%s: Failed to commit filter file %d\n", __func__, pos.nFile);
-            return 0;
-        }
+        FileCommit(last_file.Get());
 
         pos.nFile++;
         pos.nPos = 0;
@@ -223,14 +221,23 @@ bool BlockFilterIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex
     CBlockUndo block_undo;
     uint256 prev_header;
 
+    if (GetFilterType() != BlockFilterType::BASIC) {
+        return error("%s: unsupported filter type value=%d while indexing block=%s height=%d",
+                     __func__, static_cast<int>(m_filter_type),
+                     pindex->GetBlockHash().ToString(), pindex->nHeight);
+    }
+
     if (pindex->nHeight > 0) {
-        if (!UndoReadFromDisk(block_undo, pindex)) {
-            return false;
+        if (!UndoReadFromDisk(block_undo, pindex->GetUndoPos(), pindex->pprev->GetBlockHash())) {
+            return error("%s: UndoReadFromDisk failed for block=%s height=%d undo_pos=%s",
+                         __func__, pindex->GetBlockHash().ToString(), pindex->nHeight,
+                         pindex->GetUndoPos().ToString());
         }
 
         std::pair<uint256, DBVal> read_out;
         if (!m_db->Read(DBHeightKey(pindex->nHeight - 1), read_out)) {
-            return false;
+            return error("%s: failed reading previous height entry=%d for block=%s",
+                         __func__, pindex->nHeight - 1, pindex->GetBlockHash().ToString());
         }
 
         uint256 expected_block_hash = pindex->pprev->GetBlockHash();
@@ -242,10 +249,14 @@ bool BlockFilterIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex
         prev_header = read_out.second.header;
     }
 
-    BlockFilter filter(m_filter_type, block, block_undo);
+    BlockFilter filter(GetFilterType(), block, block_undo);
 
     size_t bytes_written = WriteFilterToDisk(m_next_filter_pos, filter);
-    if (bytes_written == 0) return false;
+    if (bytes_written == 0) {
+        return error("%s: WriteFilterToDisk returned 0 for block=%s height=%d pos=%s",
+                     __func__, pindex->GetBlockHash().ToString(), pindex->nHeight,
+                     m_next_filter_pos.ToString());
+    }
 
     std::pair<uint256, DBVal> value;
     value.first = pindex->GetBlockHash();
@@ -254,7 +265,8 @@ bool BlockFilterIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex
     value.second.pos = m_next_filter_pos;
 
     if (!m_db->Write(DBHeightKey(pindex->nHeight), value)) {
-        return false;
+        return error("%s: failed writing DBHeightKey=%d for block=%s",
+                     __func__, pindex->nHeight, pindex->GetBlockHash().ToString());
     }
 
     m_next_filter_pos.nPos += bytes_written;
@@ -431,13 +443,14 @@ bool BlockFilterIndex::LookupFilterRange(int start_height, const CBlockIndex* st
         return false;
     }
 
-    filters_out.resize(entries.size());
-    auto filter_pos_it = filters_out.begin();
+    filters_out.clear();
+    filters_out.reserve(entries.size());
     for (const auto& entry : entries) {
-        if (!ReadFilterFromDisk(entry.pos, *filter_pos_it)) {
+        BlockFilter filter(GetFilterType(), uint256(), {0x00});
+        if (!ReadFilterFromDisk(entry.pos, filter)) {
             return false;
         }
-        ++filter_pos_it;
+        filters_out.emplace_back(std::move(filter));
     }
 
     return true;
@@ -462,18 +475,21 @@ bool BlockFilterIndex::LookupFilterHashRange(int start_height, const CBlockIndex
 
 BlockFilterIndex* GetBlockFilterIndex(BlockFilterType filter_type)
 {
+    LOCK(g_cs_block_filter_indexes);
     auto it = g_filter_indexes.find(filter_type);
     return it != g_filter_indexes.end() ? &it->second : nullptr;
 }
 
 void ForEachBlockFilterIndex(std::function<void (BlockFilterIndex&)> fn)
 {
+    LOCK(g_cs_block_filter_indexes);
     for (auto& entry : g_filter_indexes) fn(entry.second);
 }
 
 bool InitBlockFilterIndex(BlockFilterType filter_type,
                           size_t n_cache_size, bool f_memory, bool f_wipe)
 {
+    LOCK(g_cs_block_filter_indexes);
     auto result = g_filter_indexes.emplace(std::piecewise_construct,
                                            std::forward_as_tuple(filter_type),
                                            std::forward_as_tuple(filter_type,
@@ -483,10 +499,12 @@ bool InitBlockFilterIndex(BlockFilterType filter_type,
 
 bool DestroyBlockFilterIndex(BlockFilterType filter_type)
 {
+    LOCK(g_cs_block_filter_indexes);
     return g_filter_indexes.erase(filter_type);
 }
 
 void DestroyAllBlockFilterIndexes()
 {
+    LOCK(g_cs_block_filter_indexes);
     g_filter_indexes.clear();
 }
