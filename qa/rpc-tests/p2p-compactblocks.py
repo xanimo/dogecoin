@@ -127,12 +127,12 @@ class CompactBlocksTest(BitcoinTestFramework):
         # negotiates version-1 compact blocks. node1 is SegWit-aware and mines
         # base-version-5 blocks (-blockversion=5) so its chain can reach the
         # version-5 supermajority that activates SegWit.
-        # The test relays zero-fee anyone-can-spend transactions. Dogecoin's free-
-        # transaction rate limiter would otherwise reject them, so raise the free-
-        # relay limit. (Dogecoin also rejects low-priority zero-fee txns as
-        # "insufficient priority"; giving the test's transactions a real
-        # Dogecoin-sized fee is the remaining work to make the whole test pass.)
-        fee_args = ["-limitfreerelay=999999"]
+        # Dogecoin's default fees are far higher than Bitcoin's, which the test's
+        # tiny hand-set fees (and wallet sendtoaddress) do not meet. Drop both the
+        # relay and wallet minimum fees to a nominal 1 sat/kB (0 is rejected as an
+        # invalid amount) so the mininode's 1000-sat transactions and the wallet's
+        # sends are accepted; raise the free-relay limit as a safety net.
+        fee_args = ["-minrelaytxfee=0.00000001", "-mintxfee=0.00000001", "-limitfreerelay=999999"]
         self.nodes = start_nodes(self.num_nodes, self.options.tmpdir,
                 [["-debug", "-logtimemicros=1", "-segwitparams=0:0"] + fee_args,
                  ["-debug", "-logtimemicros", "-txindex", "-blockversion=5"] + fee_args])
@@ -305,10 +305,12 @@ class CompactBlocksTest(BitcoinTestFramework):
         address = node.getnewaddress()
         if use_witness_address:
             # Want at least one segwit spend, so move all funds to
-            # a witness address.
+            # a witness address. Leave a wide fee margin: Dogecoin's wallet fee for
+            # consolidating many coinbase inputs (and its dust-output penalty) is
+            # far larger than Bitcoin's, so the original 0.1 headroom is not enough.
             address = node.addwitnessaddress(address)
             value_to_send = node.getbalance()
-            node.sendtoaddress(address, satoshi_round(value_to_send-Decimal(0.1)))
+            node.sendtoaddress(address, satoshi_round(value_to_send - Decimal(100)))
             node.generate(1)
 
         segwit_tx_generated = False
@@ -734,14 +736,20 @@ class CompactBlocksTest(BitcoinTestFramework):
     def activate_segwit(self, node):
         # Version-5 latch: SegWit activates when a supermajority of recent blocks
         # are base-version 5 (this branch's AuxPoW-safe activation), not via BIP9
-        # versionbits. `node` runs -blockversion=5, so generate() emits the
-        # signal; getblocktemplate gains a weightlimit once IsWitnessEnabled.
+        # versionbits. `node` runs -blockversion=5, so its blocks emit the signal;
+        # getblocktemplate gains a weightlimit once IsWitnessEnabled.
+        #
+        # Mine the (hundreds of) activation blocks to node0's address rather than
+        # `node`'s wallet, so `node`'s wallet does not accumulate one coinbase UTXO
+        # per block -- consolidating that many inputs later would exceed the maximum
+        # transaction size.
+        throwaway = self.nodes[0].getnewaddress()
         def segwit_active():
             return "weightlimit" in node.getblocktemplate({"rules": ["segwit"]})
         for _ in range(20):
             if segwit_active():
                 break
-            node.generate(100)
+            node.generatetoaddress(100, throwaway)
         assert segwit_active(), "SegWit did not activate under the version-5 supermajority"
 
     def test_end_to_end_block_relay(self, node, listeners):
