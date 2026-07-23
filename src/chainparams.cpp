@@ -499,10 +499,20 @@ public:
     // enforce version of 0 disables SegWit entirely (the node no longer reports
     // itself SegWit-capable), which lets a functional test model an unupgraded
     // peer -- the version-5 analogue of -bip9params=segwit:0:0.
+    //
+    // The regtest consensus is a height tree (consensus -> digishieldConsensus ->
+    // auxpowConsensus), and the digishield/auxpow nodes are copied from consensus
+    // AFTER the SegWit parameters are set, so every node in the tree carries them.
+    // GetConsensus() at these low regtest heights returns auxpowConsensus, so all
+    // three must be updated for the override to take effect.
     void UpdateSegwitParameters(int startHeight, int enforceVersion)
     {
         consensus.nSegwitStartHeight = startHeight;
         consensus.nSegwitEnforceVersion = enforceVersion;
+        digishieldConsensus.nSegwitStartHeight = startHeight;
+        digishieldConsensus.nSegwitEnforceVersion = enforceVersion;
+        auxpowConsensus.nSegwitStartHeight = startHeight;
+        auxpowConsensus.nSegwitEnforceVersion = enforceVersion;
     }
 };
 static CRegTestParams regTestParams;
