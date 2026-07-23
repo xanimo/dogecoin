@@ -132,7 +132,12 @@ class CompactBlocksTest(BitcoinTestFramework):
         tip = node.getbestblockhash()
         mtp = node.getblockheader(tip)['mediantime']
         block = create_block(int(tip, 16), create_coinbase(height + 1), mtp + 1)
-        block.nVersion = 4
+        # Dogecoin: keep the AuxPoW chain ID (0x0062) in nVersion bits 16-31 --
+        # regtest is fStrictChainId, so a plain nVersion=4 is rejected by
+        # CheckAuxPowProofOfWork ("block does not have our chain ID"). The base
+        # version stays in the low byte: 4 pre-segwit, 5 to signal SegWit under
+        # the version-5 supermajority activation.
+        block.nVersion = 0x620005 if segwit else 0x620004
         if segwit:
             add_witness_commitment(block)
         block.solve()
