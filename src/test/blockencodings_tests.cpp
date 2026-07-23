@@ -117,6 +117,7 @@ public:
     uint64_t nonce;
     std::vector<uint64_t> shorttxids;
     std::vector<PrefilledTransaction> prefilledtxn;
+    MWEB::Block mweb_block;
 
     TestHeaderAndShortIDs(const CBlockHeaderAndShortTxIDs& orig) {
         CDataStream stream(SER_NETWORK, PROTOCOL_VERSION);
@@ -151,6 +152,17 @@ public:
             shorttxids[i] = (uint64_t(msb) << 32) | uint64_t(lsb);
         }
         READWRITE(prefilledtxn);
+        // Mirror CBlockHeaderAndShortTxIDs' self-describing MWEB extension block
+        // (presence byte + block) so this test encoder stays byte-compatible.
+        if (!(s.GetVersion() & SERIALIZE_NO_MWEB)) {
+            uint8_t has_mweb = mweb_block.IsNull() ? 0 : 1;
+            READWRITE(has_mweb);
+            if (has_mweb) {
+                READWRITE(mweb_block);
+            } else if (ser_action.ForRead()) {
+                mweb_block.SetNull();
+            }
+        }
     }
 };
 
