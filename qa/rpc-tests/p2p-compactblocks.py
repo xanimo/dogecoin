@@ -121,10 +121,21 @@ class CompactBlocksTest(BitcoinTestFramework):
     def setup_network(self):
         self.nodes = []
 
-        # Start up node0 to be a version 1, pre-segwit node.
-        self.nodes = start_nodes(self.num_nodes, self.options.tmpdir, 
-                [["-debug", "-logtimemicros=1", "-bip9params=segwit:0:0"], 
-                 ["-debug", "-logtimemicros", "-txindex"]])
+        # node0 is a version-1, pre-segwit node: -segwitparams=0:0 disables SegWit
+        # under this branch's version-5 activation (the analogue of the old
+        # -bip9params=segwit:0:0), so it never advertises witness support and
+        # negotiates version-1 compact blocks. node1 is SegWit-aware and mines
+        # base-version-5 blocks (-blockversion=5) so its chain can reach the
+        # version-5 supermajority that activates SegWit.
+        # The test relays zero-fee anyone-can-spend transactions. Dogecoin's free-
+        # transaction rate limiter would otherwise reject them, so raise the free-
+        # relay limit. (Dogecoin also rejects low-priority zero-fee txns as
+        # "insufficient priority"; giving the test's transactions a real
+        # Dogecoin-sized fee is the remaining work to make the whole test pass.)
+        fee_args = ["-limitfreerelay=999999"]
+        self.nodes = start_nodes(self.num_nodes, self.options.tmpdir,
+                [["-debug", "-logtimemicros=1", "-segwitparams=0:0"] + fee_args,
+                 ["-debug", "-logtimemicros", "-txindex", "-blockversion=5"] + fee_args])
         connect_nodes(self.nodes[0], 1)
 
     def build_block_on_tip(self, node, segwit=False):
@@ -721,8 +732,17 @@ class CompactBlocksTest(BitcoinTestFramework):
             assert(test_node.last_blocktxn is None)
 
     def activate_segwit(self, node):
-        node.generate(144*3)
-        assert_equal(get_bip9_status(node, "segwit")["status"], 'active')
+        # Version-5 latch: SegWit activates when a supermajority of recent blocks
+        # are base-version 5 (this branch's AuxPoW-safe activation), not via BIP9
+        # versionbits. `node` runs -blockversion=5, so generate() emits the
+        # signal; getblocktemplate gains a weightlimit once IsWitnessEnabled.
+        def segwit_active():
+            return "weightlimit" in node.getblocktemplate({"rules": ["segwit"]})
+        for _ in range(20):
+            if segwit_active():
+                break
+            node.generate(100)
+        assert segwit_active(), "SegWit did not activate under the version-5 supermajority"
 
     def test_end_to_end_block_relay(self, node, listeners):
         utxo = self.utxos.pop(0)
