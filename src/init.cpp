@@ -439,6 +439,7 @@ std::string HelpMessage(HelpMessageMode mode)
         strUsage += HelpMessageOpt("-limitdescendantcount=<n>", strprintf("Do not accept transactions if any ancestor would have <n> or more in-mempool descendants (default: %u)", DEFAULT_DESCENDANT_LIMIT));
         strUsage += HelpMessageOpt("-limitdescendantsize=<n>", strprintf("Do not accept transactions if any ancestor would have more than <n> kilobytes of in-mempool descendants (default: %u).", DEFAULT_DESCENDANT_SIZE_LIMIT));
         strUsage += HelpMessageOpt("-bip9params=deployment:start:end", "Use given start/end times for specified BIP9 deployment (regtest-only)");
+        strUsage += HelpMessageOpt("-segwitparams=startheight:enforceversion", "Use given version-5 SegWit activation parameters; enforceversion 0 disables SegWit (regtest-only)");
     }
     std::string debugCategories = "addrman, alert, bench, cmpctblock, coindb, db, http, libevent, lock, mempool, mempoolrej, net, proxy, prune, rand, reindex, rpc, selectcoins, tor, zmq"; // Don't translate these and qt below
     if (mode == HMM_BITCOIN_QT)
@@ -1156,6 +1157,23 @@ bool AppInitParameterInteraction()
                 return InitError(strprintf("Invalid deployment (%s)", vDeploymentParams[0]));
             }
         }
+    }
+
+    if (IsArgSet("-segwitparams")) {
+        // Override the version-5 SegWit activation (start height : enforce
+        // version) for testing. Enforce version 0 disables SegWit on this node.
+        if (!chainparams.MineBlocksOnDemand()) {
+            return InitError("SegWit parameters may only be overridden on regtest.");
+        }
+        std::string strSegwitParams = GetArg("-segwitparams", "");
+        std::vector<std::string> vParams;
+        boost::split(vParams, strSegwitParams, boost::is_any_of(":"));
+        int startHeight, enforceVersion;
+        if (vParams.size() != 2 || !ParseInt32(vParams[0], &startHeight) || !ParseInt32(vParams[1], &enforceVersion)) {
+            return InitError("SegWit parameters malformed, expecting startheight:enforceversion");
+        }
+        UpdateRegtestSegwitParameters(startHeight, enforceVersion);
+        LogPrintf("Setting version-5 SegWit activation parameters to start=%d, enforce=%d\n", startHeight, enforceVersion);
     }
     return true;
 }

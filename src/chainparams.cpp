@@ -494,6 +494,16 @@ public:
         consensus.vDeployments[d].nStartTime = nStartTime;
         consensus.vDeployments[d].nTimeout = nTimeout;
     }
+
+    // Override the version-5 SegWit activation parameters (regtest only). An
+    // enforce version of 0 disables SegWit entirely (the node no longer reports
+    // itself SegWit-capable), which lets a functional test model an unupgraded
+    // peer -- the version-5 analogue of -bip9params=segwit:0:0.
+    void UpdateSegwitParameters(int startHeight, int enforceVersion)
+    {
+        consensus.nSegwitStartHeight = startHeight;
+        consensus.nSegwitEnforceVersion = enforceVersion;
+    }
 };
 static CRegTestParams regTestParams;
 
@@ -539,4 +549,9 @@ void SelectParams(const std::string& network)
 void UpdateRegtestBIP9Parameters(Consensus::DeploymentPos d, int64_t nStartTime, int64_t nTimeout)
 {
     regTestParams.UpdateBIP9Parameters(d, nStartTime, nTimeout);
+}
+
+void UpdateRegtestSegwitParameters(int startHeight, int enforceVersion)
+{
+    regTestParams.UpdateSegwitParameters(startHeight, enforceVersion);
 }

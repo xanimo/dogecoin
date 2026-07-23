@@ -125,4 +125,9 @@ void SelectParams(const std::string& chain);
  */
 void UpdateRegtestBIP9Parameters(Consensus::DeploymentPos d, int64_t nStartTime, int64_t nTimeout);
 
+/**
+ * Allows modifying the version-5 SegWit activation parameters on regtest.
+ */
+void UpdateRegtestSegwitParameters(int startHeight, int enforceVersion);
+
 #endif // BITCOIN_CHAINPARAMS_H
