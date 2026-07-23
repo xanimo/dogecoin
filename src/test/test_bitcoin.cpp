@@ -15,6 +15,7 @@
 #include "validation.h"
 #include "miner.h"
 #include "net_processing.h"
+#include "pow.h"
 #include "pubkey.h"
 #include "random.h"
 #include "txdb.h"

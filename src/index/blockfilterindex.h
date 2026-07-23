@@ -9,6 +9,7 @@
 #include <chain.h>
 #include <flatfile.h>
 #include <index/base.h>
+#include <sync.h>
 
 /** Interval between compact filter checkpoints. See BIP 157. */
 static constexpr int CFCHECKPT_INTERVAL = 1000;
@@ -32,13 +33,13 @@ private:
     std::string m_name;
     std::unique_ptr<BaseIndex::DB> m_db;
 
-    FlatFilePos m_next_filter_pos;
+    CDiskBlockPos m_next_filter_pos;
     std::unique_ptr<FlatFileSeq> m_filter_fileseq;
 
-    bool ReadFilterFromDisk(const FlatFilePos& pos, BlockFilter& filter) const;
-    size_t WriteFilterToDisk(FlatFilePos& pos, const BlockFilter& filter);
+    bool ReadFilterFromDisk(const CDiskBlockPos& pos, BlockFilter& filter) const;
+    size_t WriteFilterToDisk(CDiskBlockPos& pos, const BlockFilter& filter);
 
-    Mutex m_cs_headers_cache;
+    CCriticalSection m_cs_headers_cache;
     std::unordered_map<uint256, uint256, FilterHeaderHasher> m_headers_cache GUARDED_BY(m_cs_headers_cache);
 
 protected:
@@ -59,7 +60,10 @@ public:
     explicit BlockFilterIndex(BlockFilterType filter_type,
                               size_t n_cache_size, bool f_memory = false, bool f_wipe = false);
 
-    BlockFilterType GetFilterType() const { return m_filter_type; }
+    BlockFilterType GetFilterType() const
+    {
+        return m_filter_type == BlockFilterType::BASIC ? m_filter_type : BlockFilterType::BASIC;
+    }
 
     /** Get a single filter by block. */
     bool LookupFilter(const CBlockIndex* block_index, BlockFilter& filter_out) const;
