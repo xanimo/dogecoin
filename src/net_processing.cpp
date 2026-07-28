@@ -1747,7 +1747,10 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             pfrom->cleanSubVer = cleanSubVer;
         }
         pfrom->nStartingHeight = nStartingHeight;
-        pfrom->fClient = !(nServices & NODE_NETWORK);
+        // Nodes serving neither the full chain nor recent blocks (BIP159) are clients.
+        pfrom->fClient = (!(nServices & NODE_NETWORK) && !(nServices & NODE_NETWORK_LIMITED));
+        // Nodes serving only recent blocks (BIP159 NODE_NETWORK_LIMITED) are limited nodes.
+        pfrom->m_limited_node = (!(nServices & NODE_NETWORK) && (nServices & NODE_NETWORK_LIMITED));
         {
             LOCK(pfrom->cs_filter);
             pfrom->fRelayTxes = fRelay; // set to true after we get the first filter* message
@@ -1928,7 +1931,9 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
 
             nProcessedAddrs++;
 
-            if ((addr.nServices & REQUIRED_SERVICES) != REQUIRED_SERVICES)
+            // Store peers serving the full chain (NODE_NETWORK) or recent blocks
+            // (BIP159 NODE_NETWORK_LIMITED); skip those offering neither.
+            if (!(addr.nServices & NODE_NETWORK) && !(addr.nServices & NODE_NETWORK_LIMITED))
                 continue;
 
             if (addr.nTime <= 100000000 || addr.nTime > nNow + 10 * 60)

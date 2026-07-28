@@ -616,6 +616,7 @@ public:
     bool fOneShot;
     bool fAddnode;
     bool fClient;
+    bool m_limited_node{false}; // BIP159: peer serves only recent blocks (NODE_NETWORK_LIMITED)
     const bool fInbound;
     std::atomic_bool fSuccessfullyConnected;
     std::atomic_bool fDisconnect;
