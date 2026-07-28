@@ -312,6 +312,10 @@ enum ServiceFlags : uint64_t {
     // NODE_COMPACT_FILTERS means the node will service basic block filter requests.
     // See BIP157 and BIP158 for details on how this is implemented.
     NODE_COMPACT_FILTERS = (1 << 6),
+    // NODE_NETWORK_LIMITED means the same as NODE_NETWORK with the limitation of
+    // only serving the last NODE_NETWORK_LIMITED_MIN_BLOCKS (~2 days) blocks.
+    // See BIP159 for details on how this is implemented.
+    NODE_NETWORK_LIMITED = (1 << 10),
 
     // Bits 24-31 are reserved for temporary experiments. Just pick a bit that
     // isn't getting used, or one not being used much, and notify the
