@@ -1876,6 +1876,13 @@ void CConnman::ThreadOpenConnections()
                 nRequiredServices = REQUIRED_SERVICES;
             }
 
+            // BIP159: once out of IBD, a peer serving only recent blocks
+            // (NODE_NETWORK_LIMITED) can still serve us, so drop the full-chain
+            // (NODE_NETWORK) requirement for such peers.
+            if (g_initial_block_download_completed && (addr.nServices & NODE_NETWORK_LIMITED) && !(addr.nServices & NODE_NETWORK)) {
+                nRequiredServices = ServiceFlags((nRequiredServices & ~NODE_NETWORK) | NODE_NETWORK_LIMITED);
+            }
+
             if ((addr.nServices & nRequiredServices) != nRequiredServices) {
                 continue;
             }
