@@ -17,6 +17,7 @@
 #include "version.h"
 
 #include <stdint.h>
+#include <atomic>
 #include <string>
 
 /** Message header.
@@ -325,6 +326,11 @@ enum ServiceFlags : uint64_t {
     // do not actually support. Other service bits should be allocated via the
     // BIP process.
 };
+
+/** True once the node has completed initial block download; used to relax peer
+ *  service requirements for BIP159 NODE_NETWORK_LIMITED peers. Lives here (not
+ *  validation) so the connection thread can read it without taking cs_main. */
+extern std::atomic<bool> g_initial_block_download_completed;
 
 /** A CService with information about it as peer */
 class CAddress : public CService

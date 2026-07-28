@@ -253,3 +253,5 @@ std::vector<std::string> serviceFlagsToStr(uint64_t flags)
 
     return str_flags;
 }
+
+std::atomic<bool> g_initial_block_download_completed(false);
