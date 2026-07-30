@@ -7,7 +7,13 @@ NO_QT ?=
 NO_WALLET ?=
 NO_UPNP ?=
 AVX2 ?=
-FALLBACK_DOWNLOAD_PATH ?= https://depends.dogecoincore.org
+# Space-separated list of source mirrors, tried in order after a package's own
+# download_path. dogecoincore is primary; additional entries are fallbacks for
+# when it is unreachable (e.g. expired TLS cert). Downloaded tarballs are
+# checksum-verified after fetch regardless of which mirror served them.
+# TODO(revert): trim back to the dogecoincore mirror once its certificate is
+# renewed.
+FALLBACK_DOWNLOAD_PATH ?= https://depends.dogecoincore.org https://bitcoincore.org/depends-sources
 
 BUILD = $(shell ./config.guess)
 HOST ?= $(BUILD)

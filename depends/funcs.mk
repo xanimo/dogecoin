@@ -33,7 +33,8 @@ endef
 define fetch_file
     ( test -f $$($(1)_source_dir)/$(4) || \
     ( $(call fetch_file_inner,$(1),$(2),$(3),$(4),$(5)) || \
-      $(call fetch_file_inner,$(1),$(FALLBACK_DOWNLOAD_PATH),$(4),$(4),$(5))))
+      $(foreach mirror,$(FALLBACK_DOWNLOAD_PATH),$(call fetch_file_inner,$(1),$(mirror),$(4),$(4),$(5)) || ) \
+      false ))
 endef
 
 define int_get_build_recipe_hash
