@@ -401,6 +401,8 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-blockfilterindex=<type>",
             strprintf(_("Maintain an index of compact filters by block (default: %s, values: %s)."), DEFAULT_BLOCKFILTERINDEX, ListBlockFilterTypes()) +
             " " + _("If <type> is not supplied or if <type> = 1, indexes for all known types are enabled."));
+    strUsage += HelpMessageOpt("-peerblockfilters",
+            strprintf(_("Serve compact block filters to peers per BIP 157 (default: %u). Requires -blockfilterindex."), DEFAULT_PEERBLOCKFILTERS));
 
     strUsage += HelpMessageGroup(_("Connection options:"));
     strUsage += HelpMessageOpt("-addnode=<ip>", _("Add a node to connect to and attempt to keep the connection open"));
