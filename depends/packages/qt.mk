@@ -11,6 +11,7 @@ $(package)_qt_libs=corelib network widgets gui plugins testlib printsupport
 
 $(package)_patches=mac-qmake.conf
 $(package)_patches+=mingw-uuidof.patch
+$(package)_patches+=mingw-file-id-info.patch
 $(package)_patches+=pidlist_absolute.patch
 $(package)_patches+=fix-xcb-include-order.patch
 $(package)_patches+=fix_qfontengine_coretext.patch
