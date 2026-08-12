@@ -60,11 +60,21 @@ define $(package)_extract_cmds
 endef
 endif
 
+ifeq ($(strip $(FORCE_USE_SYSTEM_CLANG)),)
+# clang_prog points at the staged location, which cctools itself installs, so it
+# does not exist yet here. Build against the bundle we just extracted.
+$(package)_build_cc=$($(package)_extract_dir)/toolchain/bin/clang
+$(package)_build_cxx=$($(package)_extract_dir)/toolchain/bin/clang++
+else
+$(package)_build_cc=$(clang_prog)
+$(package)_build_cxx=$(clangxx_prog)
+endif
+
 define $(package)_set_vars
   $(package)_config_opts=--target=$(host) --disable-lto-support --with-libtapi=$($(package)_extract_dir)
   $(package)_ldflags+=-Wl,-rpath=\\$$$$$$$$\$$$$$$$$ORIGIN/../lib
-  $(package)_cc=$(clang_prog)
-  $(package)_cxx=$(clangxx_prog)
+  $(package)_cc=$($(package)_build_cc)
+  $(package)_cxx=$($(package)_build_cxx)
 endef
 
 define $(package)_preprocess_cmds
