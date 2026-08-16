@@ -213,15 +213,29 @@ def check_MACHO_libraries(binary) -> bool:
             ok = False
     return ok
 
+# This tree targets macOS 10.8 against the 10.11 SDK, see OSX_MIN_VERSION and
+# OSX_SDK_VERSION in depends/hosts/darwin.mk. Binaries built that way carry
+# LC_VERSION_MIN_MACOSX; LC_BUILD_VERSION, which the checks below originally
+# read, is only emitted for newer deployment targets, so build_version is None
+# here and reading it raised AttributeError before any comparison happened.
+MACHO_MIN_OS = [10, 8, 0]
+MACHO_SDK = [10, 11, 0]
+
+def macho_versions(binary):
+    """Return (minos, sdk) from whichever load command the binary carries."""
+    if binary.build_version is not None:
+        return binary.build_version.minos, binary.build_version.sdk
+    if binary.version_min is not None:
+        return binary.version_min.version, binary.version_min.sdk
+    return None, None
+
 def check_MACHO_min_os(binary) -> bool:
-    if binary.build_version.minos == [10,15,0]:
-        return True
-    return False
+    minos, _ = macho_versions(binary)
+    return minos == MACHO_MIN_OS
 
 def check_MACHO_sdk(binary) -> bool:
-    if binary.build_version.sdk == [11, 0, 0]:
-        return True
-    return False
+    _, sdk = macho_versions(binary)
+    return sdk == MACHO_SDK
 
 def check_PE_libraries(binary) -> bool:
     ok: bool = True
