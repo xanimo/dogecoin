@@ -12,7 +12,7 @@
 #include <wincrypt.h>
 #endif
 #include "util.h"     // for LogPrint()
-#include "sync.h"     // for LOCK
+#include "sync.h"     // for CMutexLock
 #include "utiltime.h" // for GetTime()
 
 #include <stdlib.h>
@@ -306,7 +306,9 @@ void LockingCallbackOpenSSL(int mode, int i, const char* file, int line);
 namespace {
 
 class RNGState {
-    Mutex m_mutex;
+    /* Upstream uses sync.h's non-recursive Mutex, which this tree does not have.
+     * CWaitableCriticalSection is the same AnnotatedMixin<boost::mutex>. */
+    CWaitableCriticalSection m_mutex;
     /* The RNG state consists of 256 bits of entropy, taken from the output of
      * one operation's SHA512 output, and fed as input to the next one.
      * Carrying 256 bits of entropy should be sufficient to guarantee
@@ -318,7 +320,7 @@ class RNGState {
     unsigned char m_state[32] GUARDED_BY(m_mutex) = {0};
     uint64_t m_counter GUARDED_BY(m_mutex) = 0;
     bool m_strongly_seeded GUARDED_BY(m_mutex) = false;
-    std::unique_ptr<Mutex[]> m_mutex_openssl;
+    std::unique_ptr<CWaitableCriticalSection[]> m_mutex_openssl;
 
 public:
     RNGState() noexcept
@@ -326,7 +328,7 @@ public:
         InitHardwareRand();
 
         // Init OpenSSL library multithreading support
-        m_mutex_openssl.reset(new Mutex[CRYPTO_num_locks()]);
+        m_mutex_openssl.reset(new CWaitableCriticalSection[CRYPTO_num_locks()]);
         CRYPTO_set_locking_callback(LockingCallbackOpenSSL);
 
         // OpenSSL can optionally load a config file which lists optional loadable modules and engines.
@@ -356,7 +358,8 @@ public:
         static_assert(sizeof(buf) == CSHA512::OUTPUT_SIZE, "Buffer needs to have hasher's output size");
         bool ret;
         {
-            LOCK(m_mutex);
+            /* LOCK() is hardcoded to CCriticalSection here; CMutexLock is already generic. */
+            CMutexLock<CWaitableCriticalSection> lock(m_mutex, "m_mutex", __FILE__, __LINE__);
             ret = (m_strongly_seeded |= strong_seed);
             // Write the current state of the RNG into the hasher
             hasher.Write(m_state, 32);
@@ -379,7 +382,7 @@ public:
         return ret;
     }
 
-    Mutex& GetOpenSSLMutex(int i) { return m_mutex_openssl[i]; }
+    CWaitableCriticalSection& GetOpenSSLMutex(int i) { return m_mutex_openssl[i]; }
 };
 
 RNGState& GetRNGState() noexcept
