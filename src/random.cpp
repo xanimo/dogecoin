@@ -150,7 +150,7 @@ static void Strengthen(const unsigned char (&seed)[32], int microseconds, CSHA51
 
     // Hash loop
     unsigned char buffer[64];
-    int64_t stop = GetTimeMicros() + microseconds;
+    const auto stop = std::chrono::steady_clock::now() + std::chrono::microseconds{microseconds};
     do {
         for (int i = 0; i < 1000; ++i) {
             inner_hasher.Finalize(buffer);
@@ -160,7 +160,7 @@ static void Strengthen(const unsigned char (&seed)[32], int microseconds, CSHA51
         // Benchmark operation and feed it into outer hasher.
         int64_t perf = GetPerformanceCounter();
         hasher.Write((const unsigned char*)&perf, sizeof(perf));
-    } while (GetTimeMicros() < stop);
+    } while (std::chrono::steady_clock::now() < stop);
 
     // Produce output from inner state and feed it to outer hasher.
     inner_hasher.Finalize(buffer);
@@ -469,8 +469,12 @@ static void SeedStrengthen(CSHA512& hasher, RNGState& rng) noexcept
 {
     static std::atomic<int64_t> last_strengthen{0};
     int64_t last_time = last_strengthen.load();
-    int64_t current_time = GetTimeMicros();
-    if (current_time > last_time + 60000000) { // Only run once a minute
+    int64_t current_time = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    // steady_clock's epoch is boot, so the 0 sentinel cannot be compared against
+    // an absolute reading the way a wall-clock value could; test it separately or
+    // the first run is skipped on a node started within a minute of boot.
+    if (last_time == 0 || current_time > last_time + 60000000) { // Only run once a minute
         // Generate 32 bytes of entropy from the RNG, and a copy of the entropy already in hasher.
         unsigned char strengthen_seed[32];
         rng.MixExtract(strengthen_seed, sizeof(strengthen_seed), CSHA512(hasher), false);
