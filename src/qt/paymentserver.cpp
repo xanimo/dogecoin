@@ -164,6 +164,13 @@ void PaymentServer::initializeServer(QObject* parent, QString ipcServerName, boo
     {
         uriServer = new QLocalServer(this);
 
+        // The socket is bound before init.cpp applies umask(077), so its mode
+        // would otherwise depend on whatever umask was inherited. Restrict it
+        // to the owner explicitly: connecting to a unix socket needs write
+        // permission, and a permissive umask would hand that to other local
+        // users, who could then inject dogecoin: URIs into this wallet.
+        uriServer->setSocketOptions(QLocalServer::UserAccessOption);
+
         if (!uriServer->listen(ipcServerName)) {
             // constructor is called early in init, so don't use "Q_EMIT message()" here
             QMessageBox::critical(0, tr("Payment request error"),
