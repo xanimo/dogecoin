@@ -608,11 +608,19 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
     CCrypter crypter;
     int64_t nStartTime = GetTimeMillis();
     crypter.SetKeyFromPassphrase(strWalletPassphrase, kMasterKey.vchSalt, 25000, kMasterKey.nDerivationMethod);
-    kMasterKey.nDeriveIterations = 2500000 / ((double)(GetTimeMillis() - nStartTime));
+    /* A zero or negative delta (coarse timer, or a wall-clock step during the
+       measurement) makes the division undefined; fall back to the default. */
+    int64_t nElapsed = GetTimeMillis() - nStartTime;
+    if (nElapsed <= 0)
+        nElapsed = 1;
+    kMasterKey.nDeriveIterations = 2500000 / ((double)nElapsed);
 
     nStartTime = GetTimeMillis();
     crypter.SetKeyFromPassphrase(strWalletPassphrase, kMasterKey.vchSalt, kMasterKey.nDeriveIterations, kMasterKey.nDerivationMethod);
-    kMasterKey.nDeriveIterations = (kMasterKey.nDeriveIterations + kMasterKey.nDeriveIterations * 100 / ((double)(GetTimeMillis() - nStartTime))) / 2;
+    nElapsed = GetTimeMillis() - nStartTime;
+    if (nElapsed <= 0)
+        nElapsed = 1;
+    kMasterKey.nDeriveIterations = (kMasterKey.nDeriveIterations + kMasterKey.nDeriveIterations * 100 / ((double)nElapsed)) / 2;
 
     if (kMasterKey.nDeriveIterations < 25000)
         kMasterKey.nDeriveIterations = 25000;
