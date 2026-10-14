@@ -35,14 +35,14 @@ static void ValidateBodyCrypto(const TxBody& body, const BlindingFactor& kernelO
         }
     }
 
-    // Input owner signatures: an input that carries an owner (output) public key
-    // must be signed by it, proving the spender controls the one-time key of the
-    // output being spent. Inputs with no owner key are value-balance-only (unit
-    // tests that do not reference on-chain outputs) and are not signed here; the
-    // stateful connect path binds a real spend's owner key to its output.
+    // Input owner signatures: every input must carry the one-time (owner) public
+    // key of the output it spends and be signed by it, proving the spender
+    // controls that key. An input with no owner key is rejected rather than
+    // skipped: a null key would otherwise bind nothing here and compare equal to
+    // a null receiver key when the block connects.
     for (const Input& input : body.GetInputs()) {
         if (input.GetOutputPubKey() == PublicKey()) {
-            continue;
+            throw std::runtime_error("Input has no owner key");
         }
         const mw::Hash message = input.GetSignatureMessage();
         if (!Schnorr::Verify(input.GetSignature(), input.GetOutputPubKey(), message.data())) {
@@ -116,9 +116,7 @@ static void ValidateBodyCrypto(const TxBody& body, const BlindingFactor& kernelO
         }
     }
     for (const Input& input : body.GetInputs()) {
-        if (!(input.GetOutputPubKey() == PublicKey())) {
-            ownerKeys.push_back(input.GetOutputPubKey());
-        }
+        ownerKeys.push_back(input.GetOutputPubKey()); // non-null, checked above
     }
     if (!senderKeys.empty() || !ownerKeys.empty()) {
         if (!Keys::VerifyKeyBalance(senderKeys, ownerKeys, stealthOffset)) {

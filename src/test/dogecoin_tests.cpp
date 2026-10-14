@@ -368,13 +368,30 @@ BOOST_AUTO_TEST_CASE(mweb_ec_keys_and_ecdh)
 // `proofValue`, and a fee-10 kernel whose excess is outBlind*G, signed by
 // `signKey`. Kernel offset is 0, so the excess equals the output blind and the
 // tx balances when commitValue == 90 (100 == 90 + 10 fee).
+// Fixed spend keys for fixtures whose inputs are not real on-chain outputs.
+static mw::SecretKey MwebKey(uint8_t b)
+{
+    return mw::SecretKey(std::vector<uint8_t>(32, b));
+}
+
+// The owner (one-time) key of the single input BuildMWEBBody spends. Every input
+// must carry one, so the body's stealth offset is its negation.
+static mw::SecretKey BodyOwnerKey()
+{
+    return mw::SecretKey(std::vector<uint8_t>(32, 0x55));
+}
+
 static mw::TxBody BuildMWEBBody(uint64_t commitValue, uint64_t proofValue, const mw::SecretKey& signKey)
 {
     const mw::BlindingFactor outBlind(std::vector<uint8_t>(32, 0x44));
 
-    mw::Input input(0, mw::Hash(),
-        mw::Pedersen::Commit(100, mw::BlindingFactor()),
-        mw::PublicKey(), mw::PublicKey(), mw::Signature());
+    const mw::Commitment inCommit = mw::Pedersen::Commit(100, mw::BlindingFactor());
+    const mw::PublicKey ownerPubKey = mw::Keys::PublicKeyFrom(BodyOwnerKey());
+    const mw::Input unsignedIn(0, mw::Hash(), inCommit,
+        mw::PublicKey(), ownerPubKey, mw::Signature());
+    mw::Input input(0, mw::Hash(), inCommit,
+        mw::PublicKey(), ownerPubKey,
+        mw::Schnorr::Sign(BodyOwnerKey(), unsignedIn.GetSignatureMessage().data()));
 
     auto proof = std::make_shared<mw::RangeProof>(mw::Bulletproof::Prove(proofValue, outBlind));
     mw::Output output(mw::Pedersen::Commit(commitValue, outBlind),
@@ -394,7 +411,9 @@ static mw::TxBody BuildMWEBBody(uint64_t commitValue, uint64_t proofValue, const
 // Kernel offset is 0, matching the excess = output blind convention above.
 static mw::Transaction BuildMWEBTx(uint64_t commitValue, uint64_t proofValue, const mw::SecretKey& signKey)
 {
-    return mw::Transaction(mw::BlindingFactor(), mw::BlindingFactor(),
+    const mw::BlindingFactor stealthOffset(
+        mw::Keys::NegateSecretKey(BodyOwnerKey()).vec());
+    return mw::Transaction(mw::BlindingFactor(), stealthOffset,
         BuildMWEBBody(commitValue, proofValue, signKey));
 }
 
@@ -439,7 +458,9 @@ BOOST_AUTO_TEST_CASE(mweb_block_validation)
     auto makeBlock = [](uint64_t commitValue, uint64_t proofValue, const mw::SecretKey& key) {
         auto header = std::make_shared<mw::Header>(
             1, mw::Hash(), mw::Hash(), mw::Hash(),
-            mw::BlindingFactor(), mw::BlindingFactor(), 0, 0); // kernel offset 0
+            mw::BlindingFactor(), // kernel offset 0
+            mw::BlindingFactor(mw::Keys::NegateSecretKey(BodyOwnerKey()).vec()),
+            0, 0);
         return mw::Block(header, BuildMWEBBody(commitValue, proofValue, key));
     };
 
@@ -737,12 +758,13 @@ BOOST_AUTO_TEST_CASE(mweb_txbuilder_build_and_validate)
     auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
 
     // 1 input 100 -> 1 output 90 + fee 10, with a non-zero offset.
-    const std::vector<mw::wallet::Coin> ins  = {{100, blind(0x11)}};
+    const std::vector<mw::wallet::Coin> ins  = {{100, blind(0x11), mw::Hash(), MwebKey(0x51)}};
     const std::vector<mw::wallet::Coin> outs = {{90, blind(0x22)}};
     BOOST_CHECK_NO_THROW(mw::wallet::TxBuilder::Build(ins, outs, 10, blind(0x33)).Validate());
 
     // 2 inputs -> 2 outputs, balanced: 30 + 70 == 40 + 50 + 10 fee.
-    const std::vector<mw::wallet::Coin> ins2  = {{30, blind(0x41)}, {70, blind(0x42)}};
+    const std::vector<mw::wallet::Coin> ins2  = {{30, blind(0x41), mw::Hash(), MwebKey(0x52)},
+                                                 {70, blind(0x42), mw::Hash(), MwebKey(0x53)}};
     const std::vector<mw::wallet::Coin> outs2 = {{40, blind(0x43)}, {50, blind(0x44)}};
     BOOST_CHECK_NO_THROW(mw::wallet::TxBuilder::Build(ins2, outs2, 10, blind(0x45)).Validate());
 
@@ -774,7 +796,7 @@ BOOST_AUTO_TEST_CASE(mweb_txbuilder_pegin)
 BOOST_AUTO_TEST_CASE(mweb_txbuilder_pegout)
 {
     auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
-    const std::vector<mw::wallet::Coin> ins = {{100, blind(0x71)}};
+    const std::vector<mw::wallet::Coin> ins = {{100, blind(0x71), mw::Hash(), MwebKey(0x54)}};
     const std::vector<mw::wallet::Coin> noOutputs;
 
     CScript script; script << OP_TRUE; // dummy canonical destination
@@ -941,13 +963,15 @@ BOOST_AUTO_TEST_CASE(mweb_node_accepts_builder_tx)
 
     // A valid wallet-built transfer passes the node's transaction check.
     const mw::Transaction good =
-        mw::wallet::TxBuilder::Build({{100, blind(0x11)}}, {{90, blind(0x22)}}, 10, blind(0x33));
+        mw::wallet::TxBuilder::Build({{100, blind(0x11), mw::Hash(), MwebKey(0x56)}},
+                                    {{90, blind(0x22)}}, 10, blind(0x33));
     CValidationState s1;
     BOOST_CHECK(MWEB::Node::CheckTransaction(wrap(good), s1));
 
     // An unbalanced one is rejected by the node.
     const mw::Transaction bad =
-        mw::wallet::TxBuilder::Build({{100, blind(0x11)}}, {{95, blind(0x22)}}, 10, blind(0x33));
+        mw::wallet::TxBuilder::Build({{100, blind(0x11), mw::Hash(), MwebKey(0x56)}},
+                                    {{95, blind(0x22)}}, 10, blind(0x33));
     CValidationState s2;
     BOOST_CHECK(!MWEB::Node::CheckTransaction(wrap(bad), s2));
 }
@@ -1244,7 +1268,7 @@ BOOST_AUTO_TEST_CASE(mweb_spend_tracked_output)
     // Spend it: input is the tracked coin carrying its real output ID; output is a
     // new coin worth value - fee.
     const CAmount fee2 = 100000;
-    const mw::wallet::Coin inCoin{ (uint64_t)peg.outputValue, peg.outputBlind, outID };
+    const mw::wallet::Coin inCoin{ (uint64_t)peg.outputValue, peg.outputBlind, outID, MwebKey(0x57) };
     const mw::wallet::Coin outCoin{ (uint64_t)(peg.outputValue - fee2), blind(0x55) };
     const mw::Transaction spend =
         mw::wallet::TxBuilder::Build({inCoin}, {outCoin}, fee2, blind(0x56));
@@ -1258,7 +1282,7 @@ BOOST_AUTO_TEST_CASE(mweb_spend_tracked_output)
 
     // An input that does not carry the output ID falls back to the commitment hash
     // and so cannot spend the accumulated output.
-    const mw::wallet::Coin noId{ (uint64_t)peg.outputValue, peg.outputBlind };
+    const mw::wallet::Coin noId{ (uint64_t)peg.outputValue, peg.outputBlind, mw::Hash(), MwebKey(0x57) };
     const mw::Transaction badSpend =
         mw::wallet::TxBuilder::Build({noId}, {outCoin}, fee2, blind(0x56));
     mw::MWEBState fresh;

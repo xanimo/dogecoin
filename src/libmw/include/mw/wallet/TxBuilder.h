@@ -83,20 +83,19 @@ public:
         for (const Coin& c : inputs) {
             const Commitment commit = Pedersen::Commit(c.value, c.blind);
             const mw::Hash outID = c.outputID.IsNull() ? Hashed(commit) : c.outputID;
+            // Owner-signed input: the output's one-time public key is the
+            // verifying key, and we sign the input with its private key to
+            // prove the right to spend the referenced output. A coin with no
+            // spend key cannot be spent; building one would produce a body the
+            // validator rejects.
             if (c.spendKey.IsNull()) {
-                // Value-balance-only input (tests): no owner key or signature.
-                ins.emplace_back(0, outID, commit,
-                                 PublicKey(), PublicKey(), Signature());
-            } else {
-                // Owner-signed input: the output's one-time public key is the
-                // verifying key, and we sign the input with its private key to
-                // prove the right to spend the referenced output.
-                const PublicKey ownerPubKey = Keys::PublicKeyFrom(c.spendKey);
-                const Input unsigned_in(0, outID, commit, PublicKey(), ownerPubKey, Signature());
-                const mw::Hash msg = unsigned_in.GetSignatureMessage();
-                ins.emplace_back(0, outID, commit, PublicKey(), ownerPubKey,
-                                 Schnorr::Sign(c.spendKey, msg.data()));
+                throw std::runtime_error("Cannot spend a coin with no spend key");
             }
+            const PublicKey ownerPubKey = Keys::PublicKeyFrom(c.spendKey);
+            const Input unsigned_in(0, outID, commit, PublicKey(), ownerPubKey, Signature());
+            const mw::Hash msg = unsigned_in.GetSignatureMessage();
+            ins.emplace_back(0, outID, commit, PublicKey(), ownerPubKey,
+                             Schnorr::Sign(c.spendKey, msg.data()));
         }
 
         // Outputs: commit and range-prove each new coin.
@@ -155,8 +154,8 @@ private:
         return BlindingFactor(std::vector<uint8_t>(s.data(), s.data() + SecretKey::SIZE));
     }
 
-    // -Sum(spend keys of the signed inputs). Inputs without a spend key (value-
-    // balance-only) contribute nothing; with none, the offset is null (identity).
+    // -Sum(the inputs' spend keys). Every input is signed, so every input
+    // contributes; with no inputs at all the offset is null (identity).
     static BlindingFactor ComputeStealthOffset(const std::vector<Coin>& inputs)
     {
         bool have = false;
