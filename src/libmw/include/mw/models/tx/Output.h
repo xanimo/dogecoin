@@ -127,6 +127,20 @@ public:
     /// using only the proof hash for efficiency)
     const mw::Hash& GetOutputID() const { return GetHash(); }
 
+    // Message the output's sender signature must verify against, its sender key
+    // being the verifying key. Covers everything that identifies where the value
+    // went -- receiver key and message included -- so neither can be swapped in
+    // flight. Do NOT use GetHash(): that includes the signature.
+    mw::Hash GetSignatureMessage() const {
+        CHashWriter ss(SER_GETHASH, 0);
+        ss << m_commitment;
+        ss << m_senderPubKey;
+        ss << m_receiverPubKey;
+        ss << m_message;
+        ss << (m_pRangeProof ? m_pRangeProof->GetHash() : mw::Hash());
+        return mw::Hash(ss.GetHash());
+    }
+
     const mw::Hash& GetHash() const override {
         if (m_hash.IsNull()) {
             m_hash = Hashed(*this);
