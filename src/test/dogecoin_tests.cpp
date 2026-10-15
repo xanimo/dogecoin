@@ -374,11 +374,23 @@ static mw::SecretKey MwebKey(uint8_t b)
     return mw::SecretKey(std::vector<uint8_t>(32, b));
 }
 
-// The owner (one-time) key of the single input BuildMWEBBody spends. Every input
-// must carry one, so the body's stealth offset is its negation.
+// The owner (one-time) key of the single input BuildMWEBBody spends, and the
+// sender key of its single output. Every input must carry an owner key and every
+// output a sender key, so the body's stealth offset is sender - owner.
 static mw::SecretKey BodyOwnerKey()
 {
     return mw::SecretKey(std::vector<uint8_t>(32, 0x55));
+}
+
+static mw::SecretKey BodySenderKey()
+{
+    return mw::SecretKey(std::vector<uint8_t>(32, 0x66));
+}
+
+static mw::BlindingFactor BodyStealthOffset()
+{
+    return mw::BlindingFactor(mw::Keys::AddSecretKeys(
+        BodySenderKey(), mw::Keys::NegateSecretKey(BodyOwnerKey())).vec());
 }
 
 static mw::TxBody BuildMWEBBody(uint64_t commitValue, uint64_t proofValue, const mw::SecretKey& signKey)
@@ -394,8 +406,12 @@ static mw::TxBody BuildMWEBBody(uint64_t commitValue, uint64_t proofValue, const
         mw::Schnorr::Sign(BodyOwnerKey(), unsignedIn.GetSignatureMessage().data()));
 
     auto proof = std::make_shared<mw::RangeProof>(mw::Bulletproof::Prove(proofValue, outBlind));
-    mw::Output output(mw::Pedersen::Commit(commitValue, outBlind),
-        mw::PublicKey(), mw::PublicKey(), mw::OutputMessage(), proof, mw::Signature());
+    const mw::Commitment outCommit = mw::Pedersen::Commit(commitValue, outBlind);
+    const mw::PublicKey senderPubKey = mw::Keys::PublicKeyFrom(BodySenderKey());
+    const mw::Output unsignedOut(outCommit, senderPubKey, senderPubKey,
+        mw::OutputMessage(), proof, mw::Signature());
+    mw::Output output(outCommit, senderPubKey, senderPubKey, mw::OutputMessage(), proof,
+        mw::Schnorr::Sign(BodySenderKey(), unsignedOut.GetSignatureMessage().data()));
 
     const uint8_t feat = mw::Kernel::FEE_FEATURE_BIT;
     const mw::Commitment excessCommit = mw::Pedersen::Commit(0, outBlind); // outBlind*G
@@ -411,9 +427,7 @@ static mw::TxBody BuildMWEBBody(uint64_t commitValue, uint64_t proofValue, const
 // Kernel offset is 0, matching the excess = output blind convention above.
 static mw::Transaction BuildMWEBTx(uint64_t commitValue, uint64_t proofValue, const mw::SecretKey& signKey)
 {
-    const mw::BlindingFactor stealthOffset(
-        mw::Keys::NegateSecretKey(BodyOwnerKey()).vec());
-    return mw::Transaction(mw::BlindingFactor(), stealthOffset,
+    return mw::Transaction(mw::BlindingFactor(), BodyStealthOffset(),
         BuildMWEBBody(commitValue, proofValue, signKey));
 }
 
@@ -459,8 +473,7 @@ BOOST_AUTO_TEST_CASE(mweb_block_validation)
         auto header = std::make_shared<mw::Header>(
             1, mw::Hash(), mw::Hash(), mw::Hash(),
             mw::BlindingFactor(), // kernel offset 0
-            mw::BlindingFactor(mw::Keys::NegateSecretKey(BodyOwnerKey()).vec()),
-            0, 0);
+            BodyStealthOffset(), 0, 0);
         return mw::Block(header, BuildMWEBBody(commitValue, proofValue, key));
     };
 
@@ -946,6 +959,49 @@ BOOST_AUTO_TEST_CASE(mweb_stealth_offset_balance)
     // Correct offset (the ephemeral) balances; a wrong offset does not.
     BOOST_CHECK_NO_THROW(assemble(mw::BlindingFactor(ephemeral.vec())).Validate());
     BOOST_CHECK_THROW(assemble(blind(0x55)).Validate(), std::runtime_error);
+}
+
+// MWEB output signatures: an output's sender key signs the output, so the
+// receiver (one-time) key cannot be swapped in flight. Without it a relayed
+// output can be re-addressed to a key the attacker controls: the commitment,
+// range proof and kernel are untouched, so every other check still passes and
+// the payment is destroyed rather than stolen.
+BOOST_AUTO_TEST_CASE(mweb_output_signature_binds_receiver_key)
+{
+    auto sk = [](uint8_t b) { return mw::SecretKey(std::vector<uint8_t>(32, b)); };
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    const mw::SecretKey ephemeral = sk(0x33);
+    const mw::wallet::StealthAddress addr{
+        mw::Keys::PublicKeyFrom(sk(0x11)), mw::Keys::PublicKeyFrom(sk(0x22)) };
+    const uint64_t value = 100;
+    const mw::wallet::StealthResult sr = mw::wallet::Stealth::Send(addr, value, ephemeral);
+
+    const mw::Transaction plain = mw::wallet::TxBuilder::Build(
+        {}, {{value, sr.blind}}, /*fee=*/0, /*pegin=*/value, blind(0x44));
+
+    auto assemble = [&](const mw::Output& out) {
+        std::vector<mw::Input>  vin  = plain.GetInputs();
+        std::vector<mw::Output> vout = { out };
+        std::vector<mw::Kernel> vker = plain.GetKernels();
+        return mw::Transaction(plain.GetKernelOffset(),
+            mw::BlindingFactor(ephemeral.vec()),
+            mw::TxBody(std::move(vin), std::move(vout), std::move(vker)));
+    };
+
+    // The output as sent validates.
+    BOOST_CHECK_NO_THROW(assemble(sr.output).Validate());
+
+    // Re-address it: same commitment, same range proof, same sender key and
+    // message, different receiver key. Only the output signature can catch this.
+    const mw::Output readdressed(
+        sr.output.GetCommitment(),
+        sr.output.GetSenderPubKey(),
+        mw::Keys::PublicKeyFrom(sk(0x66)),
+        sr.output.GetOutputMessage(),
+        sr.output.GetRangeProof(),
+        sr.output.GetSignature());
+    BOOST_CHECK_THROW(assemble(readdressed).Validate(), std::runtime_error);
 }
 
 // MWEB (2f bridge): a transaction built by the wallet, wrapped into a

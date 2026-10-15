@@ -10,6 +10,7 @@
 #include <mw/crypto/Keys.h>
 #include <mw/crypto/Pedersen.h>
 #include <mw/crypto/Bulletproof.h>
+#include <mw/crypto/Schnorr.h>
 
 #include <hash.h>
 #include <uint256.h>
@@ -63,7 +64,11 @@ public:
         const OutputMessage message(OutputMessage::STANDARD_FIELDS_FEATURE_BIT, R,
                                     ViewTag(shared), value ^ ValueMask(shared), 0);
 
-        Output output(commit, R, oneTimeKey, message, proof, Signature());
+        // Sign with the ephemeral key, whose public key R is the output's sender
+        // key, binding the receiver key and message to this output.
+        const Output unsigned_out(commit, R, oneTimeKey, message, proof, Signature());
+        Output output(commit, R, oneTimeKey, message, proof,
+                      Schnorr::Sign(ephemeralKey, unsigned_out.GetSignatureMessage().data()));
         return StealthResult{ output, blind };
     }
 

@@ -31,7 +31,9 @@ struct Coin {
     uint64_t value;
     BlindingFactor blind;
     mw::Hash outputID;
-    SecretKey spendKey;
+    SecretKey spendKey;     // one-time key of the output being spent (inputs)
+    SecretKey senderKey;    // ephemeral key signing a new output (outputs)
+    PublicKey receiverPubKey; // one-time key the new output pays to (outputs)
 };
 
 // Constructs valid MWEB transactions -- the inverse of Transaction::Validate.
@@ -98,13 +100,22 @@ public:
                              Schnorr::Sign(c.spendKey, msg.data()));
         }
 
-        // Outputs: commit and range-prove each new coin.
+        // Outputs: commit and range-prove each new coin, then sign it with the
+        // sender key so the receiver key and message cannot be swapped in flight.
+        // A coin with no sender key gets a deterministic one derived from its
+        // blind, so every output carries one.
         std::vector<Output> outs;
         for (const Coin& c : outputs) {
             const Commitment commit = Pedersen::Commit(c.value, c.blind);
             auto proof = std::make_shared<RangeProof>(Bulletproof::Prove(c.value, c.blind));
-            outs.emplace_back(commit, PublicKey(), PublicKey(), OutputMessage(),
-                              proof, Signature());
+            const SecretKey senderKey = OutputSenderKey(c);
+            const PublicKey senderPubKey = Keys::PublicKeyFrom(senderKey);
+            const PublicKey receiverPubKey =
+                c.receiverPubKey.IsNull() ? senderPubKey : c.receiverPubKey;
+            const Output unsigned_out(commit, senderPubKey, receiverPubKey,
+                                      OutputMessage(), proof, Signature());
+            outs.emplace_back(commit, senderPubKey, receiverPubKey, OutputMessage(), proof,
+                              Schnorr::Sign(senderKey, unsigned_out.GetSignatureMessage().data()));
         }
 
         // Kernel excess = Sum(output blinds) - Sum(input blinds) - offset.
@@ -137,7 +148,7 @@ public:
         // hold for a body whose outputs have no sender key (plain outputs, and
         // pure peg-outs with no MWEB output). A stealth output added afterwards
         // via WithStealthOutput folds its ephemeral sender key into this offset.
-        const BlindingFactor stealthOffset = ComputeStealthOffset(inputs);
+        const BlindingFactor stealthOffset = ComputeStealthOffset(inputs, outputs);
 
         std::vector<Kernel> kers; kers.push_back(kernel);
         return Transaction(offset, stealthOffset,
@@ -154,19 +165,39 @@ private:
         return BlindingFactor(std::vector<uint8_t>(s.data(), s.data() + SecretKey::SIZE));
     }
 
-    // -Sum(the inputs' spend keys). Every input is signed, so every input
-    // contributes; with no inputs at all the offset is null (identity).
-    static BlindingFactor ComputeStealthOffset(const std::vector<Coin>& inputs)
+    // The sender key of an output with none supplied: deterministic in its blind,
+    // so the same coin always yields the same key and the offset below matches.
+    static SecretKey OutputSenderKey(const Coin& c)
+    {
+        if (!c.senderKey.IsNull()) return c.senderKey;
+        CHashWriter ss(SER_GETHASH, 0);
+        ss << std::vector<uint8_t>(c.blind.data(), c.blind.data() + BlindingFactor::SIZE);
+        const uint256 h = ss.GetHash();
+        return SecretKey(std::vector<uint8_t>(h.begin(), h.end()));
+    }
+
+    // Sum(the outputs' sender keys) - Sum(the inputs' spend keys), which is what
+    // the stealth balance checks against stealthOffset*G. Every input is signed
+    // and every output carries a sender key, so every term contributes; an empty
+    // body gives the null offset (identity).
+    static BlindingFactor ComputeStealthOffset(const std::vector<Coin>& inputs,
+                                               const std::vector<Coin>& outputs)
     {
         bool have = false;
         SecretKey acc;
+        for (const Coin& c : outputs) {
+            const SecretKey k = OutputSenderKey(c);
+            acc = have ? Keys::AddSecretKeys(acc, k) : k;
+            have = true;
+        }
         for (const Coin& c : inputs) {
             if (c.spendKey.IsNull()) continue;
-            acc = have ? Keys::AddSecretKeys(acc, c.spendKey) : c.spendKey;
+            const SecretKey neg = Keys::NegateSecretKey(c.spendKey);
+            acc = have ? Keys::AddSecretKeys(acc, neg) : neg;
             have = true;
         }
         if (!have) return BlindingFactor();
-        return ToBlind(Keys::NegateSecretKey(acc));
+        return ToBlind(acc);
     }
 
     // excess = Sum(output blinds) - Sum(input blinds) - offset. Folds robustly so

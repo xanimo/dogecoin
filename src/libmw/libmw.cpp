@@ -35,6 +35,20 @@ static void ValidateBodyCrypto(const TxBody& body, const BlindingFactor& kernelO
         }
     }
 
+    // Output sender signatures: every output must carry a sender key and be
+    // signed by it. The signed message covers the receiver key and the output
+    // message, so a relayed output cannot be re-addressed or have its value hint
+    // rewritten without invalidating the signature.
+    for (const Output& output : body.GetOutputs()) {
+        if (output.GetSenderPubKey() == PublicKey()) {
+            throw std::runtime_error("Output has no sender key");
+        }
+        const mw::Hash message = output.GetSignatureMessage();
+        if (!Schnorr::Verify(output.GetSignature(), output.GetSenderPubKey(), message.data())) {
+            throw std::runtime_error("Invalid output sender signature");
+        }
+    }
+
     // Input owner signatures: every input must carry the one-time (owner) public
     // key of the output it spends and be signed by it, proving the spender
     // controls that key. An input with no owner key is rejected rather than
@@ -111,17 +125,13 @@ static void ValidateBodyCrypto(const TxBody& body, const BlindingFactor& kernelO
     std::vector<PublicKey> senderKeys;
     std::vector<PublicKey> ownerKeys;
     for (const Output& output : body.GetOutputs()) {
-        if (!(output.GetSenderPubKey() == PublicKey())) {
-            senderKeys.push_back(output.GetSenderPubKey());
-        }
+        senderKeys.push_back(output.GetSenderPubKey()); // non-null, checked above
     }
     for (const Input& input : body.GetInputs()) {
         ownerKeys.push_back(input.GetOutputPubKey()); // non-null, checked above
     }
-    if (!senderKeys.empty() || !ownerKeys.empty()) {
-        if (!Keys::VerifyKeyBalance(senderKeys, ownerKeys, stealthOffset)) {
-            throw std::runtime_error("Stealth offset does not balance");
-        }
+    if (!Keys::VerifyKeyBalance(senderKeys, ownerKeys, stealthOffset)) {
+        throw std::runtime_error("Stealth offset does not balance");
     }
 }
 
