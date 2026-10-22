@@ -8,6 +8,8 @@
 
 #include "policy/policy.h"
 
+#include "mweb/mweb_policy.h"
+
 #include "validation.h"
 #include "tinyformat.h"
 #include "util.h"
@@ -125,6 +127,12 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnes
     // MWEB: Check that MWEB kernels are standard (no extra data fields)
     if (tx.HasMWEBTx() && !tx.mweb_tx.m_transaction->IsStandard()) {
         reason = "mweb-nonstandard";
+        return false;
+    }
+
+    // MWEB-specific standardness: peg-in outputs must name exactly the kernels
+    // the MWEB data carries, and kernels must use only standard features.
+    if (!MWEB::Policy::IsStandardTx(tx, reason)) {
         return false;
     }
 

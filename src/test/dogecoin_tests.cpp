@@ -22,6 +22,7 @@
 #include <mw/wallet/Stealth.h>
 
 #include "mweb/mweb_node.h"
+#include "mweb/mweb_policy.h"
 #include "mweb/mweb_wallet.h"
 #include "mweb/mweb_db.h"
 #include "script/standard.h"
@@ -1362,6 +1363,48 @@ BOOST_AUTO_TEST_CASE(mweb_hogex_accounting)
                                             0, false, state));
         BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-hogex-prevout");
     }
+}
+
+// MWEB relay policy: a peg-in transaction must name exactly the kernels its MWEB
+// data carries, and a relayed MWEB transaction is bounded well below the
+// consensus limits so a peer cannot buy a block's worth of verification free.
+BOOST_AUTO_TEST_CASE(mweb_policy_standardness)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    const mw::Transaction mwtx =
+        mw::wallet::TxBuilder::Build({}, {{90, blind(0xB1)}}, 10, /*pegin=*/100, blind(0xB2));
+    const CTransaction peginTx =
+        MWEB::Wallet::CreatePegInTransaction(mwtx, std::vector<CTxIn>(1));
+
+    std::string reason;
+    BOOST_CHECK(MWEB::Policy::IsStandardTx(peginTx, reason));
+    BOOST_CHECK(reason.empty());
+    BOOST_CHECK(MWEB::Policy::CheckWeight(peginTx, reason));
+
+    // Re-point the canonical peg-in output at a kernel the MWEB data does not
+    // carry. The MWEB side still balances; only the pairing is wrong.
+    CMutableTransaction mismatched(peginTx);
+    bool repointed = false;
+    for (CTxOut& out : mismatched.vout) {
+        if (out.scriptPubKey.IsMWEBPegin()) {
+            out.scriptPubKey = GetScriptForMWEBPegin(mw::Hash(std::vector<uint8_t>(32, 0xCD)));
+            repointed = true;
+        }
+    }
+    BOOST_REQUIRE(repointed);
+    reason.clear();
+    BOOST_CHECK(!MWEB::Policy::IsStandardTx(CTransaction(mismatched), reason));
+    BOOST_CHECK_EQUAL(reason, "kernel-mismatch");
+
+    // Dropping the canonical peg-in output entirely is the same failure: the
+    // kernel is funded by nothing on the canonical side.
+    CMutableTransaction dropped(peginTx);
+    dropped.vout.clear();
+    dropped.vout.push_back(CTxOut(1, CScript() << OP_TRUE));
+    reason.clear();
+    BOOST_CHECK(!MWEB::Policy::IsStandardTx(CTransaction(dropped), reason));
+    BOOST_CHECK_EQUAL(reason, "kernel-mismatch");
 }
 
 // MWEB: the wallet's peg-in builder produces a valid, balanced MWEB transaction
