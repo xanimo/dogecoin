@@ -92,13 +92,46 @@ bool Node::ContextualCheckBlock(
     // For the very first HogEx transaction, all inputs are pegins, so start at index of 0.
     // For all other HogEx transactions, the first input is not a pegin, so start looking at index 1.
     const bool is_first_hogex = !IsMWEBEnabled(pindexPrev->pprev, consensus_params);
+    if (!MWEB::Node::CheckHogEx(block, pindexPrev->hogex_hash, pindexPrev->mweb_amount,
+                                is_first_hogex, state)) {
+        return false;
+    }
+
+    // Verify that the mw::Block is valid, and the pegins and pegouts all match.
+    if (!MWEB::Node::ValidateMWEBBlock(block)) {
+        return state.DoS(100, false, REJECT_INVALID, "bad-blk-mweb",
+            false, "MWEB block validation failed");
+    }
+
+    return true;
+}
+
+bool Node::CheckHogEx(
+    const CBlock& block,
+    const uint256& prev_hogex_hash,
+    CAmount prev_mweb_amount,
+    bool is_first_hogex,
+    CValidationState& state)
+{
+    const CTransactionRef& pHogEx = block.vtx.back();
+
+    // The first input rolls the previous pool forward. Without this the HogEx can
+    // fund its HogAddr from anywhere, leaving the previous HogAddr unspent while
+    // the accounting still assumes it was consumed.
     size_t next_pegin_idx = is_first_hogex ? 0 : 1;
+    if (!is_first_hogex) {
+        if (pHogEx->vin.empty() ||
+            pHogEx->vin[0].prevout != COutPoint(prev_hogex_hash, 0)) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-hogex-prevout",
+                false, "HogEx does not spend the previous HogAddr");
+        }
+    }
 
     // Loop through the block's txs looking for all outputs with pegin scriptPubKeys.
     // While looping, we:
     // 1. Calculate the total value of the HogEx inputs (hogex_input_amount).
     // 2. Verify the HogEx inputs exactly match the pegin outputs.
-    CAmount hogex_input_amount = pindexPrev->mweb_amount;
+    CAmount hogex_input_amount = prev_mweb_amount;
     for (size_t nTx = 1; nTx < block.vtx.size() - 1; nTx++) {
         const CTransactionRef& pTx = block.vtx[nTx];
         for (size_t nOut = 0; nOut < pTx->vout.size(); nOut++) {
@@ -133,10 +166,25 @@ bool Node::ContextualCheckBlock(
             false, "HogEx contains unexpected input(s)");
     }
 
-    // Verify that the mw::Block is valid, and the pegins and pegouts all match.
-    if (!MWEB::Node::ValidateMWEBBlock(block)) {
-        return state.DoS(100, false, REJECT_INVALID, "bad-blk-mweb",
-            false, "MWEB block validation failed");
+    // The HogAddr carries what is left in the pool: everything pegged in, less
+    // what pegs out and less the MWEB fees. ConnectBlock's input rules only cap
+    // the HogEx's outputs at its inputs, so without this an under-funded HogAddr
+    // hands the difference to the miner as fee -- pegged-in value leaving the
+    // pool with every consensus rule still satisfied.
+    CAmount pegout_amount = 0;
+    for (size_t i = 1; i < pHogEx->vout.size(); i++) {
+        pegout_amount += pHogEx->vout[i].nValue;
+        if (!MoneyRange(pegout_amount)) {
+            return state.DoS(100, false, REJECT_INVALID, "pegout-outofrange",
+                false, "Accumulated pegout amount is out of range");
+        }
+    }
+
+    const CAmount mweb_fee = block.mweb_block.m_block->GetTotalFee();
+    const CAmount expected_amount = hogex_input_amount - pegout_amount - mweb_fee;
+    if (!MoneyRange(expected_amount) || pHogEx->vout.front().nValue != expected_amount) {
+        return state.DoS(100, false, REJECT_INVALID, "bad-hogex-amount",
+            false, "HogAddr amount does not match the MWEB balance");
     }
 
     return true;
