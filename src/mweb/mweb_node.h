@@ -55,6 +55,19 @@ public:
     /// the peg-in outputs in the block's transactions and the peg-out outputs in
     /// the HogEx must match the MWEB kernels, and the MWEB block's crypto (range
     /// proofs, kernel signatures, commitment balance) must be sound. Context-
+    /// Checks the HogEx's inputs and its HogAddr amount against the pool it
+    /// inherits: the first input must spend the previous HogAddr, the remaining
+    /// inputs must be exactly the block's peg-in outputs in block order, and the
+    /// new HogAddr must carry the previous amount plus peg-ins, less peg-outs and
+    /// less the MWEB fees. Takes the previous pool explicitly rather than a block
+    /// index so it can be exercised without chain state.
+    static bool CheckHogEx(
+        const CBlock& block,
+        const uint256& prev_hogex_hash,
+        CAmount prev_mweb_amount,
+        bool is_first_hogex,
+        CValidationState& state);
+
     /// independent; ContextualCheckBlock calls this after its structural checks.
     static bool ValidateMWEBBlock(const CBlock& block);
 };

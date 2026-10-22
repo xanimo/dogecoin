@@ -1282,6 +1282,88 @@ BOOST_AUTO_TEST_CASE(mweb_node_validates_full_block)
     BOOST_CHECK(!MWEB::Node::ValidateMWEBBlock(makeBlock(CTransaction(badPegin))));
 }
 
+// MWEB HogEx accounting: the HogEx must spend the previous HogAddr and its new
+// HogAddr must carry exactly what is left in the pool. ConnectBlock's input rules
+// only cap its outputs at its inputs, so an under-funded HogAddr would otherwise
+// hand pegged-in value to the miner as fee.
+BOOST_AUTO_TEST_CASE(mweb_hogex_accounting)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    // Peg in 100 with a fee of 10, so the pool ends at 90.
+    const mw::Transaction mwtx =
+        mw::wallet::TxBuilder::Build({}, {{90, blind(0xA1)}}, 10, /*pegin=*/100, blind(0xA2));
+    auto builder = mw::BlockBuilder::Create(1, nullptr, mw::MWEBState());
+    BOOST_REQUIRE(builder->AddTransaction(std::make_shared<mw::Transaction>(mwtx), mwtx.GetPegIns()));
+    mw::Block::Ptr mwebBlock = builder->Build();
+    BOOST_REQUIRE(mwebBlock != nullptr);
+    BOOST_CHECK_EQUAL(mwebBlock->GetTotalFee(), 10);
+
+    const CTransaction peginTx =
+        MWEB::Wallet::CreatePegInTransaction(mwtx, std::vector<CTxIn>(1));
+    const uint256 prevHogExHash = uint256S("0x1234");
+
+    // coinbase, peg-in tx, HogEx(last). The HogEx spends the previous HogAddr
+    // then the block's peg-in output, and pays the remaining pool to its HogAddr.
+    auto makeBlock = [&](const COutPoint& rollover, CAmount hogAddrValue) {
+        CBlock block;
+        CMutableTransaction coinbase;
+        coinbase.vin.resize(1);
+        coinbase.vin[0].prevout.SetNull();
+        coinbase.vout.resize(1);
+        block.vtx.push_back(MakeTransactionRef(coinbase));
+        block.vtx.push_back(MakeTransactionRef(peginTx));
+
+        CMutableTransaction hogex;
+        hogex.m_hogEx = true;
+        hogex.vin.push_back(CTxIn(rollover));
+        for (size_t n = 0; n < peginTx.vout.size(); n++) {
+            if (peginTx.vout[n].scriptPubKey.IsMWEBPegin()) {
+                hogex.vin.push_back(CTxIn(COutPoint(peginTx.GetHash(), (uint32_t)n)));
+            }
+        }
+        hogex.vout.resize(1);
+        hogex.vout[0].nValue = hogAddrValue;
+        block.vtx.push_back(MakeTransactionRef(std::move(hogex)));
+        block.mweb_block.m_block = mwebBlock;
+        return block;
+    };
+
+    const COutPoint rollover(prevHogExHash, 0);
+
+    // Pool was empty, 100 pegs in, 10 is fee: the HogAddr must hold 90.
+    {
+        CValidationState state;
+        BOOST_CHECK(MWEB::Node::CheckHogEx(makeBlock(rollover, 90), prevHogExHash,
+                                           /*prev_mweb_amount=*/0, /*is_first_hogex=*/false, state));
+    }
+
+    // Under-funding the HogAddr leaves the difference as HogEx fee for the miner.
+    {
+        CValidationState state;
+        BOOST_CHECK(!MWEB::Node::CheckHogEx(makeBlock(rollover, 80), prevHogExHash,
+                                            0, false, state));
+        BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-hogex-amount");
+    }
+
+    // Claiming more than the pool holds.
+    {
+        CValidationState state;
+        BOOST_CHECK(!MWEB::Node::CheckHogEx(makeBlock(rollover, 95), prevHogExHash,
+                                            0, false, state));
+        BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-hogex-amount");
+    }
+
+    // Funding the new pool from somewhere other than the previous HogAddr.
+    {
+        CValidationState state;
+        const COutPoint elsewhere(uint256S("0xbeef"), 0);
+        BOOST_CHECK(!MWEB::Node::CheckHogEx(makeBlock(elsewhere, 90), prevHogExHash,
+                                            0, false, state));
+        BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-hogex-prevout");
+    }
+}
+
 // MWEB: the wallet's peg-in builder produces a valid, balanced MWEB transaction
 // creating one output worth (amount - fee), with fresh randomness each call.
 BOOST_AUTO_TEST_CASE(mweb_wallet_build_pegin)
