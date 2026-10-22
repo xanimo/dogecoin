@@ -125,6 +125,7 @@ BITCOIN_CORE_H = \
   mweb/mweb_miner.h \
   mweb/mweb_models.h \
   mweb/mweb_node.h \
+  mweb/mweb_policy.h \
   mweb/mweb_wallet.h \
   net.h \
   net_processing.h \
@@ -216,6 +217,7 @@ libdogecoin_server_a_SOURCES = \
   miner.cpp \
   mweb/mweb_miner.cpp \
   mweb/mweb_node.cpp \
+  mweb/mweb_policy.cpp \
   mweb/mweb_db.cpp \
   mweb/mweb_rpc.cpp \
   libmw/libmw.cpp \

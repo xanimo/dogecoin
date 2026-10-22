@@ -19,6 +19,7 @@
 #include "hash.h"
 #include "init.h"
 #include "mweb/mweb_node.h"
+#include "mweb/mweb_policy.h"
 #include "mweb/mweb_db.h"
 #include "policy/fees.h"
 #include "policy/policy.h"
@@ -631,6 +632,13 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
     AssertLockHeld(cs_main);
     if (pfMissingInputs)
         *pfMissingInputs = false;
+
+    // MWEB: bound the relay cost before CheckTransaction runs the signature and
+    // rangeproof verification, which is otherwise free for a peer to trigger at
+    // full block scale.
+    std::string mweb_reason;
+    if (!MWEB::Policy::CheckWeight(tx, mweb_reason))
+        return state.DoS(0, false, REJECT_NONSTANDARD, mweb_reason);
 
     if (!CheckTransaction(tx, state))
         return false; // state filled in by CheckTransaction
