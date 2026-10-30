@@ -28,6 +28,7 @@
 #include "script/standard.h"
 #include "consensus/validation.h"
 #include "primitives/block.h"
+#include "validation.h" // cs_main, for the MWEB activation latch
 
 #include <boost/test/unit_test.hpp>
 
@@ -1362,6 +1363,125 @@ BOOST_AUTO_TEST_CASE(mweb_hogex_accounting)
         BOOST_CHECK(!MWEB::Node::CheckHogEx(makeBlock(elsewhere, 90), prevHogExHash,
                                             0, false, state));
         BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-hogex-prevout");
+    }
+}
+
+// MWEB: the HogEx marker is the flag-8 serialization bit and CTransaction::
+// ComputeHash serializes with SERIALIZE_NO_MWEB, so neither the marker nor the
+// extension block is committed by the canonical merkle root. A peer can move a
+// marker or swap the body and the block hash is unchanged. Those rejections must
+// set corruptionPossible, because AcceptBlock marks BLOCK_FAILED_VALID only when
+// it is clear, and the honest block shares the hash. Marker placement is checked
+// before the pegin-in-HogEx rule for the same reason: that rule is real consensus
+// and must not fire on a moved marker.
+BOOST_AUTO_TEST_CASE(mweb_mutated_block_is_not_permanently_invalid)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    // Peg in 100 with a fee of 10, so the HogAddr must hold 90.
+    const mw::Transaction mwtx =
+        mw::wallet::TxBuilder::Build({}, {{90, blind(0xC1)}}, 10, /*pegin=*/100, blind(0xC2));
+    auto builder = mw::BlockBuilder::Create(1, nullptr, mw::MWEBState());
+    BOOST_REQUIRE(builder->AddTransaction(std::make_shared<mw::Transaction>(mwtx), mwtx.GetPegIns()));
+    mw::Block::Ptr mwebBlock = builder->Build();
+    BOOST_REQUIRE(mwebBlock != nullptr);
+
+    // A real input: a default CTxIn has a null prevout, which would make the
+    // peg-in transaction read as a coinbase and trip the pegin-in-coinbase rule.
+    const CTransaction peginTx = MWEB::Wallet::CreatePegInTransaction(
+        mwtx, std::vector<CTxIn>(1, CTxIn(COutPoint(uint256S("0x02"), 0))));
+
+    // MWEB configured and already latched, so the test needs no version chain.
+    Consensus::Params consensus = Params().GetConsensus(1);
+    consensus.nMwebStartHeight = 0;
+    consensus.nMwebEnforceVersion = 6;
+
+    CBlockIndex prev;
+    prev.nHeight = 0; // the MWEB block above is height 1
+    prev.mweb_amount = 0;
+    prev.fMwebLatched = true;
+    prev.fMwebLatchComputed = true;
+
+    // This is the first HogEx (prev.pprev is null, so MWEB was inactive), which
+    // means every HogEx input is a peg-in and there is no pool to roll forward.
+    const CScript hogAddr = CScript()
+        << CScript::EncodeOP_N(MWEB_HOG_ADDR_WITNESS_VERSION) << mwebBlock->GetHash().vec();
+
+    auto makeBlock = [&](bool mark_pegin, bool mark_hogex, const mw::Block::CPtr& body) {
+        CBlock block;
+        CMutableTransaction coinbase;
+        coinbase.vin.resize(1);
+        coinbase.vin[0].prevout.SetNull();
+        coinbase.vout.resize(1);
+        block.vtx.push_back(MakeTransactionRef(coinbase));
+
+        CMutableTransaction pegin(peginTx);
+        pegin.m_hogEx = mark_pegin;
+        block.vtx.push_back(MakeTransactionRef(pegin));
+
+        CMutableTransaction hogex;
+        hogex.m_hogEx = mark_hogex;
+        for (size_t n = 0; n < peginTx.vout.size(); n++) {
+            if (peginTx.vout[n].scriptPubKey.IsMWEBPegin()) {
+                hogex.vin.push_back(CTxIn(COutPoint(peginTx.GetHash(), (uint32_t)n)));
+            }
+        }
+        hogex.vout.resize(1);
+        hogex.vout[0].nValue = 90;
+        hogex.vout[0].scriptPubKey = hogAddr;
+        block.vtx.push_back(MakeTransactionRef(std::move(hogex)));
+        block.mweb_block.m_block = body;
+        return block;
+    };
+
+    const CBlock valid = makeBlock(/*mark_pegin=*/false, /*mark_hogex=*/true, mwebBlock);
+
+    {
+        LOCK(cs_main);
+        CValidationState state;
+        BOOST_CHECK(MWEB::Node::ContextualCheckBlock(valid, consensus, &prev, state));
+    }
+
+    // Adding a marker to the peg-in transaction leaves the canonical hash alone.
+    const CBlock marked_pegin = makeBlock(true, true, mwebBlock);
+    BOOST_CHECK(marked_pegin.GetHash() == valid.GetHash());
+
+    // Without the reorder this rejects as bad-tx-unexpected-pegin, which is a
+    // consensus verdict and poisons the hash the honest block also has.
+    {
+        LOCK(cs_main);
+        CValidationState state;
+        BOOST_CHECK(!MWEB::Node::ContextualCheckBlock(marked_pegin, consensus, &prev, state));
+        BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-hogex-position");
+        BOOST_CHECK(state.CorruptionPossible());
+    }
+
+    // Stripping the marker off the last transaction, likewise uncommitted.
+    {
+        LOCK(cs_main);
+        CValidationState state;
+        const CBlock no_marker = makeBlock(false, false, mwebBlock);
+        BOOST_CHECK(no_marker.GetHash() == valid.GetHash());
+        BOOST_CHECK(!MWEB::Node::ContextualCheckBlock(no_marker, consensus, &prev, state));
+        BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-hogex-missing");
+        BOOST_CHECK(state.CorruptionPossible());
+    }
+
+    // A body that disagrees with the header the HogAddr commits to. The HogAddr
+    // pins the header hash, not the body, so this is mutation and not invalidity.
+    {
+        LOCK(cs_main);
+        CValidationState state;
+        const auto inflated = mw::wallet::TxBuilder::Build(
+            {}, {{91, blind(0xC1)}}, 10, /*pegin=*/100, blind(0xC2));
+        auto bad_builder = mw::BlockBuilder::Create(1, nullptr, mw::MWEBState());
+        BOOST_REQUIRE(bad_builder->AddTransaction(
+            std::make_shared<mw::Transaction>(inflated), inflated.GetPegIns()));
+        const CBlock swapped = makeBlock(false, true, bad_builder->Build());
+        BOOST_CHECK(swapped.GetHash() == valid.GetHash());
+        BOOST_CHECK(!MWEB::Node::ContextualCheckBlock(swapped, consensus, &prev, state));
+        BOOST_CHECK_EQUAL(state.GetRejectReason(), "mweb-hash-mismatch");
+        BOOST_CHECK(state.CorruptionPossible());
     }
 }
 
