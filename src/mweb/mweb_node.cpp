@@ -42,15 +42,45 @@ bool Node::ContextualCheckBlock(
         // No MWEB data is allowed in blocks that don't commit to MWEB data
         if (!block.mweb_block.IsNull()) {
             return state.DoS(100, false, REJECT_INVALID, "unexpected-mweb-data",
-                false, "MWEB not activated, but extension block found");
+                true, "MWEB not activated, but extension block found");
         }
+
+        // The HogEx marker is not committed by the canonical merkle root, so before
+        // activation it is mutated data, just like an extension block.
+        for (const CTransactionRef& pTx : block.vtx) {
+            if (pTx->IsHogEx()) {
+                return state.DoS(100, false, REJECT_INVALID, "unexpected-mweb-data",
+                    true, "MWEB not activated, but HogEx marker found");
+            }
+        }
+
         return true;
     } else if (block.mweb_block.IsNull()) {
         return state.DoS(100, false, REJECT_INVALID, "mweb-missing",
-            false, "MWEB activated but extension block not found");
+            true, "MWEB activated but extension block not found");
     }
 
-    // Validate each transaction in the block.
+    // Last transaction must be marked as HogEx. The marker is not committed by the
+    // canonical merkle root, so a missing one is mutated data rather than a reason
+    // to fail the hash: a valid body shares it.
+    const CTransactionRef& pHogEx = block.vtx.back();
+    if (!pHogEx->IsHogEx()) {
+        return state.DoS(100, false, REJECT_INVALID, "bad-hogex-missing",
+            true, "Last transaction is not marked as HogEx");
+    }
+
+    // Only the last transaction in the block should be marked as the HogEx.
+    for (size_t i = 0; i < block.vtx.size() - 1; i++) {
+        if (block.vtx[i]->IsHogEx()) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-hogex-position",
+                true, "HogEx marker in wrong position");
+        }
+    }
+
+    // Validate each transaction in the block. HogEx placement must be checked first
+    // because the marker is not committed by the canonical merkle root: otherwise a
+    // marker moved onto a pegin-bearing transaction rejects here, as consensus-
+    // invalid, and poisons a hash the honest block also has.
     for (const auto& tx : block.vtx) {
         // Verify that there are no pegin outputs in the coinbase or HogEx transactions.
         if (tx->IsCoinBase() || tx->IsHogEx()) {
@@ -63,13 +93,6 @@ bool Node::ContextualCheckBlock(
         }
     }
 
-    // Last transaction must be marked as HogEx.
-    const CTransactionRef& pHogEx = block.vtx.back();
-    if (!pHogEx->IsHogEx()) {
-        return state.DoS(100, false, REJECT_INVALID, "bad-hogex-missing",
-            false, "Last transaction is not marked as HogEx");
-    }
-
     // Verify that the first output of the HogEx is a valid HogAddr.
     mw::Hash mweb_hash;
     if (pHogEx->vout.empty() || !pHogEx->vout.front().scriptPubKey.IsMWEBHogAddr(&mweb_hash)) {
@@ -77,10 +100,11 @@ bool Node::ContextualCheckBlock(
             false, "HogEx missing or invalid HogAddr");
     }
 
-    // Verify that the MWEB header hash matches.
+    // Verify that the MWEB header hash matches. The extension block is not committed
+    // by the canonical merkle root either, so this is mutation and not invalidity.
     if (mweb_hash != block.mweb_block.m_block->GetHash()) {
         return state.DoS(100, false, REJECT_INVALID, "mweb-hash-mismatch",
-            false, "MWEB header hash doesn't match hogex hash");
+            true, "MWEB header hash doesn't match hogex hash");
     }
 
     // Verify that the MWEB block's height is correct.
@@ -98,9 +122,12 @@ bool Node::ContextualCheckBlock(
     }
 
     // Verify that the mw::Block is valid, and the pegins and pegouts all match.
+    // The HogAddr commits to the MWEB header, not to the body, so a body that
+    // disagrees with an otherwise matching header is mutation: the honest body
+    // has this same canonical block hash.
     if (!MWEB::Node::ValidateMWEBBlock(block)) {
         return state.DoS(100, false, REJECT_INVALID, "bad-blk-mweb",
-            false, "MWEB block validation failed");
+            true, "MWEB block validation failed");
     }
 
     return true;
