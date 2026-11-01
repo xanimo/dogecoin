@@ -315,3 +315,8 @@ ECCVerifyHandle::~ECCVerifyHandle()
         secp256k1_context_verify = NULL;
     }
 }
+
+const secp256k1_context_struct* ECCVerifyContext()
+{
+    return secp256k1_context_verify;
+}

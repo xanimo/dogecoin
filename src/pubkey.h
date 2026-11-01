@@ -261,4 +261,10 @@ public:
     ~ECCVerifyHandle();
 };
 
+struct secp256k1_context_struct;
+
+/** The verification context an ECCVerifyHandle owns, for curve arithmetic outside this module.
+ *  NULL unless a handle is held. */
+const secp256k1_context_struct* ECCVerifyContext();
+
 #endif // BITCOIN_PUBKEY_H
