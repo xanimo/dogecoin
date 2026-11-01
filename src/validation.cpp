@@ -2078,6 +2078,21 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     int64_t nTime4 = GetTimeMicros(); nTimeVerify += nTime4 - nTime2;
     LogPrint("bench", "    - Verify %u txins: %.2fms (%.3fms/txin) [%.2fs]\n", nInputs - 1, 0.001 * (nTime4 - nTime2), nInputs <= 1 ? 0 : 0.001 * (nTime4 - nTime2) / (nInputs-1), nTimeVerify * 0.000001);
 
+    // MWEB: the HogEx accounting runs here, not in AcceptBlock. It reads the
+    // previous block's hogex_hash and mweb_amount, which are populated below
+    // when that block connects, and AcceptBlock runs ahead of connection during
+    // a reindex: a whole block file is accepted before anything is activated.
+    // Before the fJustCheck return so a mining template is checked too.
+    if (!block.mweb_block.IsNull() && pindex->pprev) {
+        // The first HogEx has no previous pool to roll forward, so all of its
+        // inputs are peg-ins.
+        const bool is_first_hogex = !IsMWEBEnabled(pindex->pprev->pprev, consensus);
+        if (!MWEB::Node::CheckHogEx(block, pindex->pprev->hogex_hash,
+                                    pindex->pprev->mweb_amount, is_first_hogex, state)) {
+            return error("ConnectBlock(): MWEB HogEx accounting failed: %s", FormatStateMessage(state));
+        }
+    }
+
     if (fJustCheck)
         return true;
 
