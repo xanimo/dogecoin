@@ -32,6 +32,7 @@
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import *
 from decimal import Decimal
+import time
 
 MWEB_START_HEIGHT = 100
 ENFORCE_VERSION   = 6
@@ -109,6 +110,29 @@ class MwebVersion6ActivationTest(BitcoinTestFramework):
         assert_equal((tip_ver >> 16) & 0xffff, REGTEST_CHAIN_ID)
         print("base-version-6 blocks mine (nVersion=0x%08x, base=%d), chain ID 0x%04x intact OK"
               % (tip_ver & 0xffffffff, tip_ver % 256, (tip_ver >> 16) & 0xffff))
+
+        # 4b. Reindex. ConnectBlock revalidates the MWEB body it is about to
+        #     apply, and on a reindex that body is read back from disk rather
+        #     than delivered by a peer. Every MWEB block mined above is
+        #     reconnected through that path, so the chain must come back
+        #     identical and MWEB must still be active.
+        tip = node.getbestblockhash()
+        reindex_height = node.getblockcount()
+        stop_node(self.nodes[0], 0)
+        self.nodes[0] = start_node(0, self.options.tmpdir,
+                                   ["-blockversion=6", "-fallbackfee=0.001", "-reindex"])
+        node = self.nodes[0]
+        # The reindex runs on the import thread, so RPC answers before it has
+        # finished. Wait for the tip to come back rather than racing it.
+        for _ in range(120):
+            if node.getblockcount() == reindex_height:
+                break
+            time.sleep(1)
+        assert_equal(node.getblockcount(), reindex_height)
+        assert_equal(node.getbestblockhash(), tip)
+        self.assert_mweb_active(node, "after reindex")
+        print("reindex: %d blocks reconnected from disk and revalidated OK"
+              % reindex_height)
 
         # 5. Peg-in end to end: the wallet builds/funds/signs a peg-in, it is
         #    accepted to the mempool (only possible with MWEB active), and it
@@ -207,6 +231,7 @@ class MwebVersion6ActivationTest(BitcoinTestFramework):
         print("  - the full peg lifecycle works once active: peg-in, in-MWEB")
         print("    spend, and peg-out back to a canonical UTXO")
         print("  - multiple MWEB transactions confirm together in one block")
+        print("  - a reindex reconnects every MWEB body from disk and revalidates it")
 
 
 if __name__ == '__main__':

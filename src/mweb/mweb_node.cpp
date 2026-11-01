@@ -113,13 +113,12 @@ bool Node::ContextualCheckBlock(
             false, "Invalid MWEB block height");
     }
 
-    // For the very first HogEx transaction, all inputs are pegins, so start at index of 0.
-    // For all other HogEx transactions, the first input is not a pegin, so start looking at index 1.
-    const bool is_first_hogex = !IsMWEBEnabled(pindexPrev->pprev, consensus_params);
-    if (!MWEB::Node::CheckHogEx(block, pindexPrev->hogex_hash, pindexPrev->mweb_amount,
-                                is_first_hogex, state)) {
-        return false;
-    }
+    // The HogEx accounting is NOT checked here. It reads the previous block's
+    // hogex_hash and mweb_amount, which ConnectBlock only populates when that
+    // block connects, and this function runs from AcceptBlock. During a reindex
+    // every block in a file is accepted before any is activated, so the previous
+    // block's values are still zero and the accounting would reject a valid
+    // chain. ConnectBlock calls CheckHogEx instead, where the values are present.
 
     // Verify that the mw::Block is valid, and the pegins and pegouts all match.
     // The HogAddr commits to the MWEB header, not to the body, so a body that
