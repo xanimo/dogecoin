@@ -82,6 +82,7 @@ BITCOIN_CORE_H = \
   auxpow.h \
   base58.h \
   bech32.h \
+  bip352.h \
   bloom.h \
   blockencodings.h \
   chain.h \
@@ -332,6 +333,7 @@ libdogecoin_common_a_SOURCES = \
   auxpow.cpp \
   base58.cpp \
   bech32.cpp \
+  bip352.cpp \
   chainparams.cpp \
   coins.cpp \
   compressor.cpp \
