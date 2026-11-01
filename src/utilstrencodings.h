@@ -160,4 +160,35 @@ constexpr unsigned char ToLower(unsigned char c)
     return (c >= 'A' && c <= 'Z' ? (c - 'A') + 'a' : c);
 }
 
+/**
+ * Convert from one power-of-2 number base to another, appending to out.
+ *
+ * If padding is enabled, a trailing group of fewer than tobits bits is zero-padded out to tobits
+ * and emitted. If padding is disabled, such a group is only accepted when it is all zeroes, and is
+ * dropped. Returns false when the input cannot be represented in the target base.
+ */
+template<int frombits, int tobits, bool pad, typename O, typename I>
+bool ConvertBits(O& out, I it, I end)
+{
+    size_t acc = 0;
+    int bits = 0;
+    const size_t maxv = (1 << tobits) - 1;
+    const size_t max_acc = (1 << (frombits + tobits - 1)) - 1;
+    while (it != end) {
+        acc = ((acc << frombits) | *it) & max_acc;
+        bits += frombits;
+        while (bits >= tobits) {
+            bits -= tobits;
+            out.push_back((acc >> bits) & maxv);
+        }
+        ++it;
+    }
+    if (pad) {
+        if (bits) out.push_back((acc << (tobits - bits)) & maxv);
+    } else if (bits >= frombits || ((acc << (tobits - bits)) & maxv)) {
+        return false;
+    }
+    return true;
+}
+
 #endif // BITCOIN_UTILSTRENCODINGS_H
