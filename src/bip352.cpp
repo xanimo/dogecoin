@@ -14,6 +14,7 @@
 #include "utilstrencodings.h"
 
 #include <secp256k1.h>
+#include <secp256k1_ecdh.h>
 
 #include <algorithm>
 #include <assert.h>
@@ -64,19 +65,34 @@ CPubKey SavePubKeyCompressed(const secp256k1_pubkey& point)
     return key;
 }
 
+/* ECDH hash callback emitting ser_p(point): BIP352 consumes the compressed point, not a hash. */
+int EcdhSerializeCompressed(unsigned char* output, const unsigned char* x32, const unsigned char* y32, void* data)
+{
+    (void)data;
+    output[0] = (y32[31] & 0x01) | 0x02;
+    memcpy(output + 1, x32, 32);
+    return 1;
+}
+
 /**
  * shared_secret = scalar * point, serialized compressed.
  *
  * Both sides call this: the sender with (input_hash * a) and B_scan, the receiver with
  * (input_hash * b_scan) and A. Multiplying the scalars before the point saves one curve
  * multiplication over doing it the other way round.
+ *
+ * secp256k1_ecdh rather than ec_pubkey_tweak_mul: the latter reaches secp256k1_ecmult, which is
+ * variable time in the scalar, and this scalar is secret. Both reject a zero or overflowing one.
  */
 bool CreateSharedSecret(CPubKey& out, const CPubKey& point, const unsigned char* scalar32)
 {
     secp256k1_pubkey p;
     if (!LoadPubKey(p, point)) return false;
-    if (!secp256k1_ec_pubkey_tweak_mul(Ctx(), &p, scalar32)) return false;
-    out = SavePubKeyCompressed(p);
+
+    unsigned char buf[CPubKey::COMPRESSED_SIZE];
+    if (!secp256k1_ecdh(Ctx(), buf, &p, scalar32, EcdhSerializeCompressed, NULL)) return false;
+    out.Set(buf, buf + sizeof(buf));
+    memory_cleanse(buf, sizeof(buf));
     return true;
 }
 
