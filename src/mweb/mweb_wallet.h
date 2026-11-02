@@ -113,23 +113,30 @@ inline PegInResult BuildPegIn(CAmount pegInAmount, CAmount mwebFee)
 /// and sign the kernel, then swap in an output the recipient can recognise and
 /// open by scanning -- without teaching TxBuilder about stealth addresses.
 ///
-/// The stealth output introduces a sender key (`ephemeral`*G) into the stealth
-/// (owner-key) balance, so fold `ephemeral` into the transaction's stealth offset
-/// to keep Sum(sender keys) - Sum(owner keys) == stealthOffset*G.
-inline mw::Transaction WithStealthOutput(const mw::Transaction& tx, const mw::Output& stealthOutput,
-                                         const mw::SecretKey& ephemeral)
+/// The stealth offset is carried over untouched. The caller must have built the
+/// plain output's coin with the same ephemeral sender key the stealth output
+/// carries, so TxBuilder already derived the offset from it and the substitution
+/// leaves Sum(sender keys) - Sum(owner keys) == stealthOffset*G holding.
+inline mw::Transaction WithStealthOutput(const mw::Transaction& tx, const mw::Output& stealthOutput)
 {
     std::vector<mw::Input> inputs = tx.GetInputs();
     std::vector<mw::Output> outputs = { stealthOutput };
     std::vector<mw::Kernel> kernels = tx.GetKernels();
 
-    const mw::BlindingFactor& prev = tx.GetStealthOffset();
-    const mw::BlindingFactor stealthOffset = prev.IsNull()
-        ? mw::BlindingFactor(ephemeral.vec())
-        : mw::BlindingFactor(mw::Keys::AddSecretKeys(mw::SecretKey(prev.vec()), ephemeral).vec());
-
-    return mw::Transaction(tx.GetKernelOffset(), stealthOffset,
+    return mw::Transaction(tx.GetKernelOffset(), tx.GetStealthOffset(),
                            mw::TxBody(std::move(inputs), std::move(outputs), std::move(kernels)));
+}
+
+/// The output coin for a stealth payment: the stealth output's sender key is the
+/// ephemeral key, so the plain output TxBuilder builds must use it too.
+inline mw::wallet::Coin StealthOutputCoin(CAmount value, const mw::BlindingFactor& blind,
+                                          const mw::SecretKey& ephemeral)
+{
+    mw::wallet::Coin coin;
+    coin.value = static_cast<uint64_t>(value);
+    coin.blind = blind;
+    coin.senderKey = ephemeral;
+    return coin;
 }
 
 /// Build the MWEB side of a peg-in whose output is a stealth output to `address`,
@@ -156,12 +163,12 @@ inline PegInResult BuildPegIn(CAmount pegInAmount, CAmount mwebFee,
         mw::wallet::Stealth::Send(address, static_cast<uint64_t>(outValue), ephemeral);
 
     const mw::Transaction plain = mw::wallet::TxBuilder::Build(
-        {}, { { static_cast<uint64_t>(outValue), sr.blind } },
+        {}, { StealthOutputCoin(outValue, sr.blind, ephemeral) },
         static_cast<uint64_t>(mwebFee), static_cast<uint64_t>(pegInAmount),
         mw::BlindingFactor(offsetBytes));
 
     PegInResult result;
-    result.tx = WithStealthOutput(plain, sr.output, ephemeral);
+    result.tx = WithStealthOutput(plain, sr.output);
     result.outputBlind = sr.blind;
     result.outputValue = outValue;
     return result;
@@ -190,10 +197,10 @@ inline mw::Transaction BuildStealthSpend(
         mw::wallet::Stealth::Send(address, static_cast<uint64_t>(outValue), ephemeral);
 
     const mw::Transaction plain = mw::wallet::TxBuilder::Build(
-        { input }, { { static_cast<uint64_t>(outValue), sr.blind } },
+        { input }, { StealthOutputCoin(outValue, sr.blind, ephemeral) },
         static_cast<uint64_t>(mwebFee), mw::BlindingFactor(offsetBytes));
 
-    return WithStealthOutput(plain, sr.output, ephemeral);
+    return WithStealthOutput(plain, sr.output);
 }
 
 } // namespace Wallet
