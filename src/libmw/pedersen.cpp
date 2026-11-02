@@ -27,6 +27,15 @@ namespace {
         return ctx;
     }
 
+    /* secp256k1 declares the commitment-array parameters nonnull, and an empty
+       vector's data() may be null, which is UB even at a zero count. */
+    const secp256k1_pedersen_commitment* const* Array(
+        const std::vector<const secp256k1_pedersen_commitment*>& v)
+    {
+        static const secp256k1_pedersen_commitment* const none = nullptr;
+        return v.empty() ? &none : v.data();
+    }
+
     // Parse a 33-byte model Commitment into a secp256k1 commitment.
     secp256k1_pedersen_commitment Parse(const Commitment& commit)
     {
@@ -73,8 +82,8 @@ Commitment AddCommitments(
     secp256k1_pedersen_commitment result;
     if (!secp256k1_pedersen_commit_sum(
             Ctx(), &result,
-            pos_ptrs.data(), pos_ptrs.size(),
-            neg_ptrs.data(), neg_ptrs.size())) {
+            Array(pos_ptrs), pos_ptrs.size(),
+            Array(neg_ptrs), neg_ptrs.size())) {
         throw std::runtime_error("Pedersen: commit_sum failed");
     }
     return Serialize(result);
@@ -96,8 +105,8 @@ bool VerifyBalance(
 
     return secp256k1_pedersen_verify_tally(
         Ctx(),
-        pos_ptrs.data(), pos_ptrs.size(),
-        neg_ptrs.data(), neg_ptrs.size()) == 1;
+        Array(pos_ptrs), pos_ptrs.size(),
+        Array(neg_ptrs), neg_ptrs.size()) == 1;
 }
 
 PublicKey ToPublicKey(const Commitment& commit)
