@@ -68,6 +68,19 @@ public:
     bool IsStandard() const { return m_features < EXTRA_DATA_FEATURE_BIT; }
     const std::vector<uint8_t>& GetExtraData() const { return m_extraData; }
 
+    /// A feature bit set with nothing behind it. Both fields serialize as a
+    /// count followed by that many entries, so an empty one is a second wire
+    /// encoding of a kernel that could have left the bit clear.
+    bool HasCanonicalPegOutFeature() const noexcept
+    {
+        return !(m_features & PEGOUT_FEATURE_BIT) || !m_pegouts.empty();
+    }
+
+    bool HasCanonicalExtraDataFeature() const noexcept
+    {
+        return !(m_features & EXTRA_DATA_FEATURE_BIT) || !m_extraData.empty();
+    }
+
     /// The supply change introduced by this kernel (pegin - pegout amounts)
     CAmount GetSupplyChange() const {
         CAmount pegout_total = 0;

@@ -113,6 +113,28 @@ bool Node::ContextualCheckBlock(
             false, "Invalid MWEB block height");
     }
 
+    // Kernel feature bits must be canonical: a bit set over an empty field lets
+    // the same kernel be expressed two ways. Unconditional rather than gated on
+    // an activation height as upstream needs, because MWEB has never activated
+    // here and there are no kernels predating the rule to grandfather.
+    //
+    // Mutation rather than invalidity. Nothing has authenticated the body
+    // against the HogEx-committed header yet (ValidateMWEBBlock does that, and
+    // runs below), so a body swapped in under an honest header reaches here
+    // carrying the honest block's canonical hash. Failing it as consensus would
+    // mark that hash permanently invalid and the real block could never be
+    // accepted.
+    for (const mw::Kernel& kernel : block.mweb_block.m_block->GetKernels()) {
+        if (!kernel.HasCanonicalPegOutFeature()) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-mweb-empty-pegout",
+                true, "Pegout feature set without pegouts");
+        }
+        if (!kernel.HasCanonicalExtraDataFeature()) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-mweb-empty-extradata",
+                true, "Extra data feature set without extra data");
+        }
+    }
+
     // The HogEx accounting is NOT checked here. It reads the previous block's
     // hogex_hash and mweb_amount, which ConnectBlock only populates when that
     // block connects, and this function runs from AcceptBlock. During a reindex
