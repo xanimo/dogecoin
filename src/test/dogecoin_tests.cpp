@@ -1467,6 +1467,49 @@ BOOST_AUTO_TEST_CASE(mweb_mutated_block_is_not_permanently_invalid)
         BOOST_CHECK(state.CorruptionPossible());
     }
 
+    // A kernel whose feature bit is set over an empty field. Swapped into the
+    // body under the honest header, so it arrives with the honest block's hash
+    // and must be rejected as mutation rather than marked permanently invalid.
+    {
+        auto with_kernel = [&](const mw::Kernel& k) {
+            std::vector<mw::Kernel> kers;
+            kers.push_back(k);
+            std::vector<mw::Input> ins = mwebBlock->GetInputs();
+            std::vector<mw::Output> outs = mwebBlock->GetOutputs();
+            return std::make_shared<mw::Block>(
+                mwebBlock->GetHeader(),
+                mw::TxBody(std::move(ins), std::move(outs), std::move(kers)));
+        };
+        const mw::Kernel& good = mwebBlock->GetKernels().front();
+
+        const mw::Kernel empty_pegout(
+            good.GetFeatures() | mw::Kernel::PEGOUT_FEATURE_BIT, good.GetFee(),
+            good.GetPegIn(), std::vector<mw::PegOutCoin>(), good.GetLockHeight(),
+            good.GetExcess(), good.GetSignature());
+        BOOST_CHECK(!empty_pegout.HasCanonicalPegOutFeature());
+        BOOST_CHECK(good.HasCanonicalPegOutFeature());
+
+        LOCK(cs_main);
+        CValidationState state;
+        const CBlock mutated = makeBlock(false, true, with_kernel(empty_pegout));
+        BOOST_CHECK(mutated.GetHash() == valid.GetHash());
+        BOOST_CHECK(!MWEB::Node::ContextualCheckBlock(mutated, consensus, &prev, state));
+        BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-mweb-empty-pegout");
+        BOOST_CHECK(state.CorruptionPossible());
+
+        const mw::Kernel empty_extradata(
+            good.GetFeatures() | mw::Kernel::EXTRA_DATA_FEATURE_BIT, good.GetFee(),
+            good.GetPegIn(), good.GetLockHeight(), good.GetExcess(), good.GetSignature());
+        BOOST_CHECK(!empty_extradata.HasCanonicalExtraDataFeature());
+        BOOST_CHECK(good.HasCanonicalExtraDataFeature());
+
+        CValidationState state2;
+        const CBlock mutated2 = makeBlock(false, true, with_kernel(empty_extradata));
+        BOOST_CHECK(!MWEB::Node::ContextualCheckBlock(mutated2, consensus, &prev, state2));
+        BOOST_CHECK_EQUAL(state2.GetRejectReason(), "bad-mweb-empty-extradata");
+        BOOST_CHECK(state2.CorruptionPossible());
+    }
+
     // A body that disagrees with the header the HogAddr commits to. The HogAddr
     // pins the header hash, not the body, so this is mutation and not invalidity.
     {
