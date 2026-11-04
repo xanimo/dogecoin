@@ -171,6 +171,27 @@ void CWallet::DeriveNewChildKey(CKeyMetadata& metadata, CKey& secret)
         throw std::runtime_error(std::string(__func__) + ": Writing HD chain model failed");
 }
 
+bool CWallet::GetSilentPaymentsKeys(CKey& scan_key, CKey& spend_key) const
+{
+    // m/352'/3'/0'/{0',1'}: 352 after the BIP, 3 being Dogecoin's coin type. Hardened throughout,
+    // so a leaked scan key cannot be walked back up to the spend key.
+    CKey master;
+    if (hdChain.masterKeyID.IsNull() || !GetKey(hdChain.masterKeyID, master))
+        return false;
+
+    CExtKey masterKey, purposeKey, coinKey, accountKey, scan, spend;
+    masterKey.SetMaster(master.begin(), master.size());
+    masterKey.Derive(purposeKey, 352 | BIP32_HARDENED_KEY_LIMIT);
+    purposeKey.Derive(coinKey, BIP44_COIN_TYPE | BIP32_HARDENED_KEY_LIMIT);
+    coinKey.Derive(accountKey, 0 | BIP32_HARDENED_KEY_LIMIT);
+    accountKey.Derive(scan, 0 | BIP32_HARDENED_KEY_LIMIT);
+    accountKey.Derive(spend, 1 | BIP32_HARDENED_KEY_LIMIT);
+
+    scan_key = scan.key;
+    spend_key = spend.key;
+    return scan_key.IsValid() && spend_key.IsValid();
+}
+
 bool CWallet::AddKeyPubKey(const CKey& secret, const CPubKey &pubkey)
 {
     AssertLockHeld(cs_wallet); // mapKeyMetadata
