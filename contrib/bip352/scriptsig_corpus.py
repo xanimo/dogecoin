@@ -46,15 +46,29 @@ import os
 import sys
 import urllib.request
 from collections import Counter
+from functools import lru_cache
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'qa', 'rpc-tests'))
 from test_framework.ripemd160 import ripemd160  # noqa: E402
 
 P = 2**256 - 2**32 - 977
 
+# The test framework's RIPEMD160 is pure Python at ~200us a call, which dominates a whole-chain
+# run. Prefer a C one where it exists; OpenSSL dropped ripemd160 from hashlib's default provider.
+try:
+    from Crypto.Hash import RIPEMD160 as _RIPEMD160   # pycryptodome, optional
 
+    def _ripemd160(data):
+        return _RIPEMD160.new(data).digest()
+except ImportError:
+    _ripemd160 = ripemd160
+
+
+# Cached because the same pubkey recurs constantly: address reuse is the very habit silent
+# payments exists to end, so the corpus measuring it benefits from that habit throughout.
+@lru_cache(maxsize=1 << 18)
 def hash160(data):
-    return ripemd160(hashlib.sha256(data).digest())
+    return _ripemd160(hashlib.sha256(data).digest())
 
 
 def is_p2pkh(spk):
