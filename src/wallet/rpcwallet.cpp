@@ -19,6 +19,8 @@
 #include "timedata.h"
 #include "util.h"
 #include "utilmoneystr.h"
+#include "bip352.h"
+#include "tweakindex.h"
 #include "wallet.h"
 #include "wallet/rpcutil.h"
 #include "walletdb.h"
@@ -3301,12 +3303,252 @@ extern UniValue importprunedfunds(const JSONRPCRequest& request);
 extern UniValue removeprunedfunds(const JSONRPCRequest& request);
 extern UniValue importmulti(const JSONRPCRequest& request);
 
+// --- BIP352 silent payments -------------------------------------------------------------
+
+UniValue getsilentpaymentaddress(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp)) return NullUniValue;
+    if (request.fHelp || request.params.size() != 0)
+        throw std::runtime_error(
+            "getsilentpaymentaddress\n"
+            "\nReturns this wallet's reusable BIP352 silent payment address.\n"
+            "\nThe address is derived from the HD seed at m/352'/3'/0', so it is the same after a\n"
+            "seed restore and does not need separate backup.\n"
+            "\nResult:\n"
+            "\"address\"    (string) the bech32m silent payment address\n"
+            "\nExamples:\n"
+            + HelpExampleCli("getsilentpaymentaddress", "")
+            + HelpExampleRpc("getsilentpaymentaddress", ""));
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+    EnsureWalletIsUnlocked();
+
+    CKey scan_key, spend_key;
+    if (!pwalletMain->GetSilentPaymentsKeys(scan_key, spend_key))
+        throw JSONRPCError(RPC_WALLET_ERROR, "Wallet has no HD seed; silent payments need one");
+
+    bip352::CSilentPaymentsAddress address;
+    if (!bip352::CSilentPaymentsAddress::Create(address, scan_key.GetPubKey(), spend_key.GetPubKey()))
+        throw JSONRPCError(RPC_WALLET_ERROR, "Could not build the silent payment address");
+
+    return bip352::EncodeSilentPaymentsAddress(address, Params());
+}
+
+UniValue sendtosilentpaymentaddress(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp)) return NullUniValue;
+    if (request.fHelp || request.params.size() != 2)
+        throw std::runtime_error(
+            "sendtosilentpaymentaddress \"address\" amount\n"
+            "\nSend an amount to a BIP352 silent payment address.\n"
+            "\nThe one-time output is derived from the inputs this transaction ends up spending,\n"
+            "so it can only be computed after coin selection. Changing the inputs afterwards\n"
+            "would invalidate the output.\n"
+            "\nArguments:\n"
+            "1. \"address\"  (string, required) the silent payment address\n"
+            "2. amount     (numeric, required) the amount in " + CURRENCY_UNIT + "\n"
+            "\nResult:\n"
+            "\"txid\"        (string) the transaction id\n"
+            "\nExamples:\n"
+            + HelpExampleCli("sendtosilentpaymentaddress", "\"sp1...\" 100"));
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+    EnsureWalletIsUnlocked();
+
+    bip352::CSilentPaymentsAddress address;
+    std::string error;
+    if (!bip352::DecodeSilentPaymentsAddress(address, request.params[0].get_str(), Params(), error))
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid silent payment address: " + error);
+
+    const CAmount nAmount = AmountFromValue(request.params[1]);
+    if (nAmount <= 0) throw JSONRPCError(RPC_TYPE_ERROR, "Invalid amount for send");
+
+    // Select coins against a placeholder of the same size. Every silent payment output is P2PKH,
+    // so swapping the script afterwards cannot change the size, the fee, or the selection.
+    CReserveKey placeholder_key(pwalletMain);
+    CPubKey placeholder_pubkey;
+    if (!placeholder_key.GetReservedKey(placeholder_pubkey))
+        throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, "Keypool ran out");
+
+    std::vector<CRecipient> vecSend;
+    vecSend.push_back({GetScriptForDestination(placeholder_pubkey.GetID()), nAmount, false});
+
+    CWalletTx wtx;
+    CReserveKey change_key(pwalletMain);
+    CAmount nFeeRequired = 0;
+    int nChangePos = -1;
+    std::string strError;
+    if (!pwalletMain->CreateTransaction(vecSend, wtx, change_key, nFeeRequired, nChangePos, strError, NULL, false))
+        throw JSONRPCError(RPC_WALLET_ERROR, strError);
+
+    CMutableTransaction mtx(*wtx.tx);
+
+    // The sender needs the private key of every eligible input, which is why this cannot be done
+    // for a transaction whose inputs the wallet does not own.
+    std::vector<CKey> input_keys;
+    for (size_t i = 0; i < mtx.vin.size(); i++) {
+        const COutPoint& prevout = mtx.vin[i].prevout;
+        std::map<uint256, CWalletTx>::const_iterator it = pwalletMain->mapWallet.find(prevout.hash);
+        if (it == pwalletMain->mapWallet.end())
+            throw JSONRPCError(RPC_WALLET_ERROR, "Selected an input the wallet does not know");
+        const CScript& spk = it->second.tx->vout[prevout.n].scriptPubKey;
+
+        // Only P2PKH, because that is the whole of what the receiver's eligibility rule counts.
+        // Contributing a key the receiver will not see changes A on one side only, and the
+        // payment lands on an address neither party holds.
+        txnouttype type;
+        std::vector<std::vector<unsigned char> > solutions;
+        if (!Solver(spk, type, solutions) || type != TX_PUBKEYHASH) continue;
+        CKey key;
+        if (!pwalletMain->GetKey(CKeyID(uint160(solutions[0])), key)) continue;
+        input_keys.push_back(key);
+    }
+    if (input_keys.empty())
+        throw JSONRPCError(RPC_WALLET_ERROR, "No eligible input: every selected coin must be P2PKH");
+
+    COutPoint smallest;
+    if (!bip352::GetSmallestOutpoint(smallest, mtx.vin))
+        throw JSONRPCError(RPC_WALLET_ERROR, "Could not determine the smallest outpoint");
+
+    std::vector<bip352::CRecipient> recipients;
+    recipients.push_back(bip352::CRecipient(address, 0));
+    std::map<size_t, CScript> outputs;
+    if (!bip352::CreateOutputs(outputs, recipients, input_keys, smallest))
+        throw JSONRPCError(RPC_WALLET_ERROR, "Could not derive the silent payment output");
+
+    // Find the placeholder by script rather than by index, since change may sit on either side.
+    const CScript placeholder_script = GetScriptForDestination(placeholder_pubkey.GetID());
+    bool replaced = false;
+    for (size_t i = 0; i < mtx.vout.size(); i++) {
+        if (mtx.vout[i].scriptPubKey == placeholder_script) {
+            mtx.vout[i].scriptPubKey = outputs.begin()->second;
+            replaced = true;
+            break;
+        }
+    }
+    if (!replaced) throw JSONRPCError(RPC_WALLET_ERROR, "Placeholder output vanished");
+
+    // Signatures commit to the outputs, so they are produced only now that the script is final.
+    for (size_t i = 0; i < mtx.vin.size(); i++) {
+        const COutPoint& prevout = mtx.vin[i].prevout;
+        const CWalletTx& prev = pwalletMain->mapWallet[prevout.hash];
+        const CTxOut& utxo = prev.tx->vout[prevout.n];
+        mtx.vin[i].scriptSig.clear();
+        if (!SignSignature(*pwalletMain, utxo.scriptPubKey, mtx, i, utxo.nValue, SIGHASH_ALL))
+            throw JSONRPCError(RPC_WALLET_ERROR, strprintf("Signing input %u failed", (unsigned)i));
+    }
+
+    wtx.SetTx(MakeTransactionRef(std::move(mtx)));
+
+    CValidationState state;
+    if (!pwalletMain->CommitTransaction(wtx, change_key, g_connman.get(), state))
+        throw JSONRPCError(RPC_WALLET_ERROR, "Transaction rejected: " + state.GetRejectReason());
+
+    placeholder_key.ReturnKey();
+    return wtx.GetHash().GetHex();
+}
+
+UniValue scansilentpayments(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp)) return NullUniValue;
+    if (request.fHelp || request.params.size() > 2)
+        throw std::runtime_error(
+            "scansilentpayments ( start stop )\n"
+            "\nScan the tweak index for payments to this wallet's silent payment address, and\n"
+            "import the key for anything found so it becomes spendable.\n"
+            "\nRequires -tweakindex. One ECDH per indexed transaction, so a wide range is slow.\n"
+            "\nArguments:\n"
+            "1. start   (numeric, optional, default=0) first height\n"
+            "2. stop    (numeric, optional, default=tip) last height\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"from_height\": n,\n"
+            "  \"to_height\": n,\n"
+            "  \"scanned\": n,        (transactions examined)\n"
+            "  \"found\": [ {\"txid\":\"..\",\"vout\":n,\"amount\":x,\"address\":\"..\"} ]\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("scansilentpayments", "0 100"));
+
+    if (!ptweakindex)
+        throw JSONRPCError(RPC_MISC_ERROR, "scansilentpayments needs -tweakindex");
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+    EnsureWalletIsUnlocked();
+
+    CKey scan_key, spend_key;
+    if (!pwalletMain->GetSilentPaymentsKeys(scan_key, spend_key))
+        throw JSONRPCError(RPC_WALLET_ERROR, "Wallet has no HD seed; silent payments need one");
+    bip352::CSilentPaymentsReceiver receiver(scan_key, spend_key.GetPubKey());
+    if (!receiver.IsValid())
+        throw JSONRPCError(RPC_WALLET_ERROR, "Could not build the scanning receiver");
+
+    int from = request.params.size() > 0 ? request.params[0].get_int() : 0;
+    int to = request.params.size() > 1 ? request.params[1].get_int() : chainActive.Height();
+    if (from < 0 || to < from || to > chainActive.Height())
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid height range");
+
+    UniValue found(UniValue::VARR);
+    int64_t scanned = 0;
+
+    for (int height = from; height <= to; height++) {
+        std::vector<CTweakEntry> entries;
+        if (!ptweakindex->ReadBlock(height, entries) || entries.empty()) continue;
+
+        CBlockIndex* pindex = chainActive[height];
+        CBlock block;
+        if (!ReadBlockFromDisk(block, pindex, Params().GetConsensus(height)))
+            throw JSONRPCError(RPC_MISC_ERROR, strprintf("Could not read block %d", height));
+
+        for (size_t e = 0; e < entries.size(); e++) {
+            if (entries[e].tx_index >= block.vtx.size()) continue;
+            const CTransaction& tx = *(block.vtx[entries[e].tx_index]);
+            scanned++;
+
+            std::vector<bip352::CFoundOutput> hits;
+            if (!receiver.ScanWithTweak(hits, entries[e].tweak, tx.vout) || hits.empty()) continue;
+
+            for (size_t h = 0; h < hits.size(); h++) {
+                CKey out_key;
+                if (!bip352::CSilentPaymentsReceiver::DeriveSpendingKey(out_key, spend_key, hits[h].tweak))
+                    continue;
+                const CPubKey out_pubkey = out_key.GetPubKey();
+                if (!pwalletMain->HaveKey(out_pubkey.GetID())) {
+                    pwalletMain->mapKeyMetadata[out_pubkey.GetID()].nCreateTime = pindex->GetBlockTime();
+                    if (!pwalletMain->AddKeyPubKey(out_key, out_pubkey))
+                        throw JSONRPCError(RPC_WALLET_ERROR, "Could not import the derived key");
+                }
+                UniValue o(UniValue::VOBJ);
+                o.pushKV("txid", tx.GetHash().GetHex());
+                o.pushKV("vout", (int)hits[h].vout);
+                o.pushKV("amount", ValueFromAmount(tx.vout[hits[h].vout].nValue));
+                o.pushKV("address", CBitcoinAddress(out_pubkey.GetID()).ToString());
+                o.pushKV("height", height);
+                found.push_back(o);
+            }
+        }
+    }
+
+    // Rescan so the imported keys pick up the transactions that pay them.
+    if (found.size() > 0) pwalletMain->ScanForWalletTransactions(chainActive[from], true);
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("from_height", from);
+    result.pushKV("to_height", to);
+    result.pushKV("scanned", scanned);
+    result.pushKV("found", found);
+    return result;
+}
+
 static const CRPCCommand commands[] =
 { //  category              name                        actor (function)           okSafeMode
     //  --------------------- ------------------------    -----------------------    ----------
     { "rawtransactions",    "fundrawtransaction",       &fundrawtransaction,       false,  {"hexstring","options"} },
     { "hidden",             "resendwallettransactions", &resendwallettransactions, true,   {} },
     { "wallet",             "abandontransaction",       &abandontransaction,       false,  {"txid"} },
+    { "wallet",             "getsilentpaymentaddress",  &getsilentpaymentaddress,  true,   {} },
+    { "wallet",             "sendtosilentpaymentaddress", &sendtosilentpaymentaddress, false, {"address","amount"} },
+    { "wallet",             "scansilentpayments",       &scansilentpayments,       false,  {"start","stop"} },
     { "wallet",             "addmultisigaddress",       &addmultisigaddress,       true,   {"nrequired","keys","account"} },
     { "wallet",             "addwitnessaddress",        &addwitnessaddress,        true,   {"address"} },
     { "wallet",             "backupwallet",             &backupwallet,             true,   {"destination"} },
