@@ -709,6 +709,13 @@ public:
      */
     CPubKey GenerateNewKey();
     void DeriveNewChildKey(CKeyMetadata& metadata, CKey& secret);
+    /**
+     * The wallet's silent payment scan and spend keys, at m/352'/3'/0'/{0',1'}.
+     *
+     * Derived rather than stored so a restored HD wallet recovers the same address. Needs an
+     * unlocked HD wallet; returns false otherwise.
+     */
+    bool GetSilentPaymentsKeys(CKey& scan_key, CKey& spend_key) const;
     //! Adds a key to the store, and saves it to disk.
     bool AddKeyPubKey(const CKey& key, const CPubKey &pubkey) override;
     //! Adds a key to the store, without saving it to disk (used by LoadWallet)
