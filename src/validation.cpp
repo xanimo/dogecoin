@@ -32,6 +32,7 @@
 #include "script/standard.h"
 #include "timedata.h"
 #include "tinyformat.h"
+#include "tweakindex.h"
 #include "txdb.h"
 #include "txmempool.h"
 #include "ui_interface.h"
@@ -1578,6 +1579,13 @@ static DisconnectResult DisconnectBlock(const CBlock& block, const CBlockIndex* 
 
     bool fClean = true;
 
+    // Drop this height's tweaks before the coins go back, so a reorg cannot leave a scanner
+    // deriving against inputs the chain no longer spends.
+    if (ptweakindex) {
+        ptweakindex->EraseBlock(pindex->nHeight);
+        ptweakindex->WriteBestHeight(pindex->nHeight - 1);
+    }
+
     CBlockUndo blockUndo;
     CDiskBlockPos pos = pindex->GetUndoPos();
     if (pos.IsNull()) {
@@ -1872,6 +1880,12 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     std::vector<std::pair<uint256, CDiskTxPos> > vPos;
     vPos.reserve(block.vtx.size());
     blockundo.vtxundo.reserve(block.vtx.size() - 1);
+    // Collected here rather than after the loop: the tweak is derived from the coins this block
+    // spends, and UpdateCoins removes them from the view as it goes.
+    std::vector<CTweakEntry> tweaks;
+    if (ptweakindex && !fJustCheck && !ComputeBlockTweaks(tweaks, block, view)) {
+        return AbortNode(state, "Failed to compute silent payment tweaks");
+    }
     std::vector<PrecomputedTransactionData> txdata;
     txdata.reserve(block.vtx.size()); // Required so that pointers to individual PrecomputedTransactionData don't get invalidated
     for (unsigned int i = 0; i < block.vtx.size(); i++)
@@ -1966,6 +1980,12 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
         pindex->RaiseValidity(BLOCK_VALID_SCRIPTS);
         setDirtyBlockIndex.insert(pindex);
+    }
+
+    if (ptweakindex && !fJustCheck) {
+        if (!ptweakindex->WriteBlock(pindex->nHeight, tweaks) ||
+            !ptweakindex->WriteBestHeight(pindex->nHeight))
+            return AbortNode(state, "Failed to write silent payment tweak index");
     }
 
     // add this block to the view's block chain

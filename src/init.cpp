@@ -37,6 +37,7 @@
 #include "script/sigcache.h"
 #include "scheduler.h"
 #include "timedata.h"
+#include "tweakindex.h"
 #include "txdb.h"
 
 #include <algorithm>
@@ -274,6 +275,8 @@ void Shutdown()
         pcoinsdbview = NULL;
         delete pblocktree;
         pblocktree = NULL;
+        delete ptweakindex;
+        ptweakindex = NULL;
     }
 #ifdef ENABLE_WALLET
     if (pwalletMain)
@@ -403,6 +406,7 @@ std::string HelpMessage(HelpMessageMode mode)
             " " + _("If <type> is not supplied or if <type> = 1, indexes for all known types are enabled."));
     strUsage += HelpMessageOpt("-peerblockfilters",
             strprintf(_("Serve compact block filters to peers per BIP 157 (default: %u). Requires -blockfilterindex."), DEFAULT_PEERBLOCKFILTERS));
+    strUsage += HelpMessageOpt("-tweakindex", strprintf(_("Maintain an index of BIP352 silent payment scanning tweaks (default: %u)"), DEFAULT_TWEAKINDEX));
 
     strUsage += HelpMessageGroup(_("Connection options:"));
     strUsage += HelpMessageOpt("-addnode=<ip>", _("Add a node to connect to and attempt to keep the connection open"));
@@ -1582,8 +1586,15 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                 delete pcoinsdbview;
                 delete pcoinscatcher;
                 delete pblocktree;
+                delete ptweakindex;
+                ptweakindex = NULL;
 
                 pblocktree = new CBlockTreeDB(nBlockTreeDBCache, false, fReindex);
+                if (GetBoolArg("-tweakindex", DEFAULT_TWEAKINDEX)) {
+                    // CDBWrapper creates only the leaf directory, so the parent has to exist.
+                    TryCreateDirectory(GetDataDir() / "indexes");
+                    ptweakindex = new CTweakIndex(nBlockTreeDBCache / 8, false, fReindex || fReindexChainState);
+                }
                 pcoinsdbview = new CCoinsViewDB(nCoinDBCache, false, fReindex || fReindexChainState);
                 pcoinscatcher = new CCoinsViewErrorCatcher(pcoinsdbview);
                 pcoinsTip = new CCoinsViewCache(pcoinscatcher);
