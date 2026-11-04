@@ -164,6 +164,12 @@ std::vector<unsigned char> SerializeOutpoint(const COutPoint& outpoint)
     return ret;
 }
 
+bool ComputeScanTweak(CPubKey& out, const CPrevoutsSummary& summary)
+{
+    if (summary.IsNull()) return false;
+    return CreateSharedSecret(out, summary.pubkey_sum, summary.input_hash.begin());
+}
+
 bool GetSmallestOutpoint(COutPoint& out, const std::vector<CTxIn>& vin)
 {
     if (vin.empty()) return false;
@@ -448,6 +454,38 @@ bool CSilentPaymentsReceiver::Scan(std::vector<CFoundOutput>& found, const CPrev
     found.clear();
     if (!m_valid || summary.IsNull() || vout.empty()) return false;
 
+    // ecdh = (b_scan * input_hash) * A. Folding input_hash into the scan key first keeps this to
+    // one curve multiplication.
+    unsigned char scan_scalar[32];
+    memcpy(scan_scalar, m_scan_key.begin(), 32);
+    if (!secp256k1_ec_seckey_tweak_mul(Ctx(), scan_scalar, summary.input_hash.begin())) {
+        memory_cleanse(scan_scalar, sizeof(scan_scalar));
+        return false;
+    }
+    CPubKey shared_secret;
+    const bool got_secret = CreateSharedSecret(shared_secret, summary.pubkey_sum, scan_scalar);
+    memory_cleanse(scan_scalar, sizeof(scan_scalar));
+    if (!got_secret) return false;
+
+    return ScanWithSecret(found, shared_secret, vout);
+}
+
+bool CSilentPaymentsReceiver::ScanWithTweak(std::vector<CFoundOutput>& found, const CPubKey& tweak_point, const std::vector<CTxOut>& vout) const
+{
+    found.clear();
+    if (!m_valid || !tweak_point.IsValid() || vout.empty()) return false;
+
+    // A tweak index has already folded input_hash into A, so the scan key applies directly.
+    CPubKey shared_secret;
+    if (!CreateSharedSecret(shared_secret, tweak_point, m_scan_key.begin())) return false;
+
+    return ScanWithSecret(found, shared_secret, vout);
+}
+
+bool CSilentPaymentsReceiver::ScanWithSecret(std::vector<CFoundOutput>& found, const CPubKey& shared_secret, const std::vector<CTxOut>& vout) const
+{
+    found.clear();
+
     // Collect the pubkey hash of every P2PKH output. Everything else in the transaction cannot
     // be a silent payment under this scheme, so it never needs to be looked at again.
     std::vector<std::pair<uint160, size_t> > p2pkh;
@@ -459,18 +497,6 @@ bool CSilentPaymentsReceiver::Scan(std::vector<CFoundOutput>& found, const CPrev
         p2pkh.push_back(std::make_pair(uint160(solutions[0]), i));
     }
     if (p2pkh.empty()) return true;
-
-    // ecdh = (b_scan * input_hash) * A
-    unsigned char scan_scalar[32];
-    memcpy(scan_scalar, m_scan_key.begin(), 32);
-    if (!secp256k1_ec_seckey_tweak_mul(Ctx(), scan_scalar, summary.input_hash.begin())) {
-        memory_cleanse(scan_scalar, sizeof(scan_scalar));
-        return false;
-    }
-    CPubKey shared_secret;
-    const bool got_secret = CreateSharedSecret(shared_secret, summary.pubkey_sum, scan_scalar);
-    memory_cleanse(scan_scalar, sizeof(scan_scalar));
-    if (!got_secret) return false;
 
     // Flatten the labels once, so the per-k walk below is a plain indexed loop.
     std::vector<std::pair<uint32_t, uint256> > labels(m_labels.begin(), m_labels.end());

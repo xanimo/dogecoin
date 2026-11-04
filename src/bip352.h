@@ -160,6 +160,16 @@ enum PrevoutsSummaryError {
  */
 PrevoutsSummaryError GetPrevoutsSummary(CPrevoutsSummary& out, const std::vector<CTxIn>& vin, const std::map<COutPoint, CScript>& prevout_spks);
 
+/**
+ * The 33-byte value a scanner needs per transaction: input_hash * A, compressed.
+ *
+ * Folding the two halves of the summary together here costs the indexer one curve multiplication
+ * per transaction and saves the scanner nothing, since it multiplies by its scan key either way.
+ * It is done because this value is what goes over the wire to a light client, where 33 bytes
+ * against 65 is the difference that decides whether scanning on a phone is affordable.
+ */
+bool ComputeScanTweak(CPubKey& out, const CPrevoutsSummary& summary);
+
 /** The smallest outpoint of a transaction's inputs, by BIP352's 36-byte lexicographic order. */
 bool GetSmallestOutpoint(COutPoint& out, const std::vector<CTxIn>& vin);
 
@@ -253,12 +263,21 @@ public:
     bool Scan(std::vector<CFoundOutput>& found, const CPrevoutsSummary& summary, const std::vector<CTxOut>& vout) const;
 
     /**
+     * Scan against a precomputed tweak, input_hash * A, as a tweak index or a light client server
+     * supplies it. Equivalent to Scan, for a caller that never sees the prevouts.
+     */
+    bool ScanWithTweak(std::vector<CFoundOutput>& found, const CPubKey& tweak_point, const std::vector<CTxOut>& vout) const;
+
+    /**
      * The private key for a found output: d = b_spend + tweak (mod n). The caller supplies the
      * spend private key, which a scan-only receiver does not hold.
      */
     static bool DeriveSpendingKey(CKey& out, const CKey& spend_key, const uint256& tweak);
 
 private:
+    /** The half of scanning that both entry points share, once the shared secret is in hand. */
+    bool ScanWithSecret(std::vector<CFoundOutput>& found, const CPubKey& shared_secret, const std::vector<CTxOut>& vout) const;
+
     CKey m_scan_key;
     CPubKey m_spend_pubkey;
     //! m -> label tweak, always containing m = 0.
