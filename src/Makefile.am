@@ -156,6 +156,7 @@ BITCOIN_CORE_H = \
   threadinterrupt.h \
   timedata.h \
   torcontrol.h \
+  tweakindex.h \
   txdb.h \
   txmempool.h \
   txrequest.h \
@@ -224,6 +225,7 @@ libdogecoin_server_a_SOURCES = \
   script/ismine.cpp \
   timedata.cpp \
   torcontrol.cpp \
+  tweakindex.cpp \
   txdb.cpp \
   txmempool.cpp \
   txrequest.cpp \
