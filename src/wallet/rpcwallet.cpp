@@ -3438,6 +3438,35 @@ UniValue sendtosilentpaymentaddress(const JSONRPCRequest& request)
             throw JSONRPCError(RPC_WALLET_ERROR, strprintf("Signing input %u failed", (unsigned)i));
     }
 
+    // Prove the payment is findable before it is broadcast.
+    //
+    // The sender picks its input keys from the coins it owns; a receiver reads them back out of
+    // the scriptSigs, which do not exist until signing is done. Those are two different paths to
+    // the same set, and if they ever disagree the output lands on a key nobody holds. So rather
+    // than trust that they agree, rebuild the output the way a scanner will see it and require
+    // the result to be identical. A mismatch aborts with the coins still unspent.
+    {
+        std::vector<CKey> seen_keys;
+        for (size_t i = 0; i < mtx.vin.size(); i++) {
+            const COutPoint& prevout = mtx.vin[i].prevout;
+            const CTxOut& utxo = pwalletMain->mapWallet[prevout.hash].tx->vout[prevout.n];
+            CPubKey seen;
+            if (!bip352::GetPubKeyFromInput(seen, mtx.vin[i].scriptSig, utxo.scriptPubKey)) continue;
+            CKey key;
+            if (!pwalletMain->GetKey(seen.GetID(), key))
+                throw JSONRPCError(RPC_WALLET_ERROR, "An input a scanner will read is not ours");
+            seen_keys.push_back(key);
+        }
+
+        std::map<size_t, CScript> check;
+        if (seen_keys.empty() || !bip352::CreateOutputs(check, recipients, seen_keys, smallest))
+            throw JSONRPCError(RPC_WALLET_ERROR, "Refusing to send: cannot rederive the output");
+        if (check.begin()->second != outputs.begin()->second)
+            throw JSONRPCError(RPC_WALLET_ERROR,
+                "Refusing to send: a scanner would derive a different output, so these coins "
+                "would be unspendable by anyone");
+    }
+
     wtx.SetTx(MakeTransactionRef(std::move(mtx)));
 
     CValidationState state;
