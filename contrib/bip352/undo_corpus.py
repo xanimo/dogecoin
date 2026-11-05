@@ -34,9 +34,39 @@ import sys
 from collections import Counter
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from scriptsig_corpus import P, Stats, classify  # noqa: E402
+from scriptsig_corpus import P, Stats, classify, script_pushes  # noqa: E402
 
 VERSION_AUXPOW = 1 << 8
+
+
+def classify_p2sh(script_sig):
+    """Whether a P2SH input reveals one unambiguous public key, and if not, why not.
+
+    P2SH is 28% of all inputs and the scheme ignores every one of them, so the question of what
+    an extension could reach is worth a number rather than a guess. Classifying by standard
+    template answers it wrongly: almost no Dogecoin P2SH wraps a template, it wraps bespoke
+    scripts that happen to lead with a key. So this asks the only question that matters, how
+    many public keys the redeem script contains, and where the first one sits.
+
+    Revealing exactly one key is necessary for eligibility and nowhere near sufficient. A redeem
+    script can branch, and a participant in a collaborative transaction can re-sign down a
+    different path after the outputs were derived. This measures the ceiling, not the answer.
+    """
+    pushes = [d for d, is_push in script_pushes(script_sig) if is_push]
+    if not pushes:
+        return 'no-pushes'
+    redeem = pushes[-1]                      # P2SH puts the redeem script in the last push
+
+    if len(redeem) > 34 and redeem[0] == 0x21 and redeem[1] in (2, 3):
+        lead = 'leads-with-compressed-key'
+    elif len(redeem) > 66 and redeem[0] == 0x41 and redeem[1] == 4:
+        lead = 'leads-with-uncompressed-key'
+    else:
+        return 'multisig' if redeem[-1] == 0xae else 'no-key'
+
+    keys = sum(1 for i in range(len(redeem) - 33) if redeem[i] == 0x21 and redeem[i + 1] in (2, 3))
+    keys += sum(1 for i in range(len(redeem) - 65) if redeem[i] == 0x41 and redeem[i + 1] == 4)
+    return '%s-%s' % (lead, 'single' if keys == 1 else 'multiple(%d)' % min(keys, 9))
 
 
 def sha256d(b):
@@ -369,7 +399,11 @@ def _run_file(blocks_dir, name, magic, stats, pairing):
         txs = parsed[hit][1]
         stats.blocks += 1
         for tx_i, ins in enumerate(undo):
-            stats.add_tx('', list(zip(txs[tx_i + 1], ins)))
+            vin = txs[tx_i + 1]
+            for j, spk in enumerate(ins):
+                if len(spk) == 23 and spk[0:2] == b'\xa9\x14' and spk[22] == 0x87:
+                    pairing['p2sh:' + classify_p2sh(vin[j])] += 1
+            stats.add_tx('', list(zip(vin, ins)))
 
     pairing['blocks_without_undo'] += len(parsed) - len(used)
 
