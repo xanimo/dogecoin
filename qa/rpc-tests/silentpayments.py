@@ -74,8 +74,21 @@ class SilentPaymentsTest(BitcoinTestFramework):
         assert_equal(found['amount'], 100)
         assert_equal(found['height'], height)
 
-        # Scanning is not supposed to find things that were not sent to us.
-        assert_equal(len(sender.scansilentpayments(0, height)['found']), 0)
+        # The sender's own scan finds exactly one thing, its change, because change goes to the
+        # sender's silent payment change address, BIP352's label 0. That is what makes change
+        # recoverable by scanning from the seed rather than from the keypool; it is not a
+        # privacy gain over a fresh keypool address.
+        sender_scan = sender.scansilentpayments(0, height)['found']
+        assert_equal(len(sender_scan), 1)
+        assert_equal(sender_scan[0]['txid'], txid)
+        assert sender_scan[0]['vout'] != found['vout'], 'change collided with the payment'
+
+        # And the sender can spend that change without waiting for a scan, since the send
+        # imported the key at the time it built the transaction.
+        change_utxo = [u for u in sender.listunspent(0, 9999999, [sender_scan[0]['address']])
+                       if u['txid'] == txid]
+        assert_equal(len(change_utxo), 1)
+        assert_equal(change_utxo[0]['spendable'], True)
 
         # The derived key has to actually spend, which is the only proof that matters.
         unspent = [u for u in receiver.listunspent(0, 9999999, [found['address']])
