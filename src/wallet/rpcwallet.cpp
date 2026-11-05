@@ -3328,8 +3328,19 @@ UniValue sendtosilentpaymentaddress(const JSONRPCRequest& request)
     if (!bip352::GetSmallestOutpoint(smallest, mtx.vin))
         throw JSONRPCError(RPC_WALLET_ERROR, "Could not determine the smallest outpoint");
 
+    // Send change to our own silent payment change address rather than an ordinary one. Change
+    // paid to a normal wallet address links the payment straight back to the sender's cluster,
+    // which gives away most of what the receiver just gained.
+    CKey my_scan, my_spend;
+    bip352::CSilentPaymentsAddress change_address;
+    const bool have_sp_change = pwalletMain->GetSilentPaymentsKeys(my_scan, my_spend) &&
+        bip352::CSilentPaymentsReceiver(my_scan, my_spend.GetPubKey()).GetChangeAddress(change_address);
+
     std::vector<bip352::CRecipient> recipients;
     recipients.push_back(bip352::CRecipient(address, 0));
+    const bool do_sp_change = have_sp_change && nChangePos >= 0;
+    if (do_sp_change) recipients.push_back(bip352::CRecipient(change_address, 1));
+
     std::map<size_t, CScript> outputs;
     if (!bip352::CreateOutputs(outputs, recipients, input_keys, smallest))
         throw JSONRPCError(RPC_WALLET_ERROR, "Could not derive the silent payment output");
@@ -3345,6 +3356,8 @@ UniValue sendtosilentpaymentaddress(const JSONRPCRequest& request)
         }
     }
     if (!replaced) throw JSONRPCError(RPC_WALLET_ERROR, "Placeholder output vanished");
+
+    if (do_sp_change) mtx.vout[nChangePos].scriptPubKey = outputs[1];
 
     // Signatures commit to the outputs, so they are produced only now that the script is final.
     for (size_t i = 0; i < mtx.vin.size(); i++) {
@@ -3383,6 +3396,31 @@ UniValue sendtosilentpaymentaddress(const JSONRPCRequest& request)
             throw JSONRPCError(RPC_WALLET_ERROR,
                 "Refusing to send: a scanner would derive a different output, so these coins "
                 "would be unspendable by anyone");
+
+        // Our own change is derived the same way the recipient's output is, so recover it the
+        // same way a scanner would and import the key. Finding it here also proves the change is
+        // findable at all; leaving it to a later scan would make it look lost until then.
+        if (do_sp_change) {
+            std::map<COutPoint, CScript> spks;
+            for (size_t i = 0; i < mtx.vin.size(); i++) {
+                const COutPoint& o = mtx.vin[i].prevout;
+                spks[o] = pwalletMain->mapWallet[o.hash].tx->vout[o.n].scriptPubKey;
+            }
+            bip352::CPrevoutsSummary summary;
+            bip352::CSilentPaymentsReceiver me(my_scan, my_spend.GetPubKey());
+            std::vector<bip352::CFoundOutput> mine;
+            if (bip352::GetPrevoutsSummary(summary, mtx.vin, spks) != bip352::PREVOUTS_OK ||
+                !me.Scan(mine, summary, mtx.vout) || mine.empty())
+                throw JSONRPCError(RPC_WALLET_ERROR, "Refusing to send: cannot recover our change");
+            for (size_t i = 0; i < mine.size(); i++) {
+                CKey k;
+                if (!bip352::CSilentPaymentsReceiver::DeriveSpendingKey(k, my_spend, mine[i].tweak))
+                    throw JSONRPCError(RPC_WALLET_ERROR, "Refusing to send: cannot key our change");
+                if (!pwalletMain->HaveKey(k.GetPubKey().GetID()) &&
+                    !pwalletMain->AddKeyPubKey(k, k.GetPubKey()))
+                    throw JSONRPCError(RPC_WALLET_ERROR, "Could not import our change key");
+            }
+        }
     }
 
     wtx.SetTx(MakeTransactionRef(std::move(mtx)));
