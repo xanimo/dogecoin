@@ -1938,12 +1938,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     std::vector<std::pair<uint256, CDiskTxPos> > vPos;
     vPos.reserve(block.vtx.size());
     blockundo.vtxundo.reserve(block.vtx.size() - 1);
-    // Collected here rather than after the loop: the tweak is derived from the coins this block
-    // spends, and UpdateCoins removes them from the view as it goes.
     std::vector<CTweakEntry> tweaks;
-    if (ptweakindex && !fJustCheck && !ComputeBlockTweaks(tweaks, block, view)) {
-        return AbortNode(state, "Failed to compute silent payment tweaks");
-    }
     std::vector<PrecomputedTransactionData> txdata;
     txdata.reserve(block.vtx.size()); // Required so that pointers to individual PrecomputedTransactionData don't get invalidated
     for (unsigned int i = 0; i < block.vtx.size(); i++)
@@ -1992,6 +1987,14 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 return error("ConnectBlock(): CheckInputs on %s failed with %s",
                     tx.GetHash().ToString(), FormatStateMessage(state));
             control.Add(vChecks);
+        }
+
+        // Immediately before UpdateCoins, which is the last moment this transaction's prevouts
+        // are in the view, and the first moment at which outputs created earlier in this same
+        // block are. A transaction may spend one of those, so neither end of that window works.
+        if (ptweakindex && !fJustCheck && i > 0) {
+            CPubKey tweak;
+            if (ComputeTxTweak(tweak, tx, view)) tweaks.push_back(CTweakEntry((uint32_t)i, tweak));
         }
 
         CTxUndo undoDummy;

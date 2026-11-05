@@ -12,8 +12,8 @@
 #include <utility>
 #include <vector>
 
-class CBlock;
 class CCoinsViewCache;
+class CTransaction;
 
 /** One scannable transaction in a block: its index in vtx, and input_hash * A compressed. */
 struct CTweakEntry
@@ -64,12 +64,16 @@ private:
 };
 
 /**
- * Compute a block's tweaks from the coins its transactions are about to spend.
+ * Compute one transaction's tweak from the coins it is about to spend.
  *
- * Must be called while `view` still holds those coins, which in ConnectBlock means before
- * UpdateCoins. Transactions with no eligible input are skipped rather than recorded as empty.
+ * Must be called while `view` still holds those coins, which in ConnectBlock means immediately
+ * before UpdateCoins for this same transaction, and not earlier: a transaction may spend an
+ * output created by an earlier transaction in the same block, and that output does not exist in
+ * the view until UpdateCoins has run for the one that created it.
+ *
+ * Returns false when the transaction has no eligible input, which is not an error.
  */
-bool ComputeBlockTweaks(std::vector<CTweakEntry>& out, const CBlock& block, const CCoinsViewCache& view);
+bool ComputeTxTweak(CPubKey& out, const CTransaction& tx, const CCoinsViewCache& view);
 
 /** The active tweak index, or nullptr when -tweakindex is off. */
 extern CTweakIndex* ptweakindex;
