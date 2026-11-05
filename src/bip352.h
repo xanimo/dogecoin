@@ -149,6 +149,13 @@ enum PrevoutsSummaryError {
     //! No input revealed an eligible public key, or the eligible keys summed to infinity, so this
     //! transaction cannot carry a silent payment.
     PREVOUTS_NOT_ELIGIBLE,
+    //! A P2PKH input whose scriptSig yielded no push matching the prevout's pubkey hash.
+    //!
+    //! Never seen on mainnet: the whole chain to 6381544 has zero. It is an error rather than a
+    //! skipped input because skipping is only safe while every implementation skips identically,
+    //! and a looser reader that did recover a key would compute a different A and disagree about
+    //! where the payment went. Failing is how that disagreement surfaces instead of losing coins.
+    PREVOUTS_UNREADABLE_INPUT,
 };
 
 /**

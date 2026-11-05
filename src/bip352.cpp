@@ -293,7 +293,15 @@ PrevoutsSummaryError GetPrevoutsSummary(CPrevoutsSummary& out, const std::vector
         const std::map<COutPoint, CScript>::const_iterator it = prevout_spks.find(vin[i].prevout);
         if (it == prevout_spks.end()) return PREVOUTS_MISSING_COIN;
         CPubKey key;
-        if (!GetPubKeyFromInput(key, vin[i].scriptSig, it->second)) continue;
+        if (!GetPubKeyFromInput(key, vin[i].scriptSig, it->second)) {
+            // Distinguish "this script type is out of scope" from "this one should have worked".
+            txnouttype type;
+            std::vector<std::vector<unsigned char> > solutions;
+            if (Solver(it->second, type, solutions) && type == TX_PUBKEYHASH) {
+                return PREVOUTS_UNREADABLE_INPUT;
+            }
+            continue;
+        }
         secp256k1_pubkey point;
         if (!LoadPubKey(point, key)) continue;
         points.push_back(point);
