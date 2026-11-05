@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 The Dogecoin Core developers
+# Distributed under the MIT software license, see the accompanying
+# file COPYING or http://www.opensource.org/licenses/mit-license.php.
+"""BIP352 silent payments end to end: publish an address, pay it, scan it, spend it.
+
+Two nodes so the payment crosses a real wallet boundary rather than a wallet paying itself: node
+0 is the sender and node 1 the receiver, and node 1 never learns anything but the address string.
+
+Also covers the way this scheme loses money. Sender and receiver recover the eligible input set
+from different material, the sender from the coins it owns and the receiver from the scriptSigs,
+so if the two disagree the output commits to a key neither holds. Regtest reaches that case for
+free because its coinbases are P2PK, which the receiver's P2PKH-only rule ignores.
+"""
+
+from test_framework.test_framework import BitcoinTestFramework
+from test_framework.util import (
+    start_node,
+    start_nodes,
+    connect_nodes_bi,
+    sync_blocks,
+    sync_mempools,
+    assert_equal,
+    assert_raises_jsonrpc,
+)
+
+
+class SilentPaymentsTest(BitcoinTestFramework):
+
+    def __init__(self):
+        super().__init__()
+        self.setup_clean_chain = True
+        self.num_nodes = 2
+
+    def setup_network(self):
+        args = [['-tweakindex', '-usehd=1'], ['-tweakindex', '-usehd=1']]
+        self.nodes = start_nodes(self.num_nodes, self.options.tmpdir, args)
+        connect_nodes_bi(self.nodes, 0, 1)
+        self.is_network_split = False
+        self.sync_all()
+
+    def run_test(self):
+        sender, receiver = self.nodes[0], self.nodes[1]
+
+        sp_address = receiver.getsilentpaymentaddress()
+        assert sp_address.startswith('dsprt1'), sp_address
+        # Stable across calls: it is derived from the seed, not handed out from a pool.
+        assert_equal(sp_address, receiver.getsilentpaymentaddress())
+
+        sender.generate(200)
+        self.sync_all()
+
+        # Coinbases are P2PK, which the receiver's rule does not count. A sender that offered
+        # them anyway would compute a different A and burn the coins, so it must refuse.
+        assert_raises_jsonrpc(-4, "every selected coin must be P2PKH",
+                              sender.sendtosilentpaymentaddress, sp_address, 100)
+
+        # Give the sender P2PKH coins to spend.
+        sender.sendtoaddress(sender.getnewaddress(), 1000)
+        sender.generate(1)
+        self.sync_all()
+
+        txid = sender.sendtosilentpaymentaddress(sp_address, 100)
+        sync_mempools(self.nodes)
+        sender.generate(1)
+        sync_blocks(self.nodes)
+        height = sender.getblockcount()
+
+        # The receiver was told nothing but the address, so it has to find this itself.
+        scan = receiver.scansilentpayments(0, height)
+        assert_equal(len(scan['found']), 1)
+        found = scan['found'][0]
+        assert_equal(found['txid'], txid)
+        assert_equal(found['amount'], 100)
+        assert_equal(found['height'], height)
+
+        # Scanning is not supposed to find things that were not sent to us.
+        assert_equal(len(sender.scansilentpayments(0, height)['found']), 0)
+
+        # The derived key has to actually spend, which is the only proof that matters.
+        unspent = [u for u in receiver.listunspent(0, 9999999, [found['address']])
+                   if u['txid'] == txid and u['vout'] == found['vout']]
+        assert_equal(len(unspent), 1)
+        assert_equal(unspent[0]['spendable'], True)
+
+        raw = receiver.createrawtransaction(
+            [{'txid': txid, 'vout': found['vout']}], {sender.getnewaddress(): 99})
+        signed = receiver.signrawtransaction(raw)
+        assert_equal(signed['complete'], True)
+        spend_txid = receiver.sendrawtransaction(signed['hex'])
+        sync_mempools(self.nodes)
+        sender.generate(1)
+        sync_blocks(self.nodes)
+        assert_equal(sender.getrawtransaction(spend_txid, 1)['confirmations'], 1)
+
+        # Rescanning is idempotent: the same payment, not a second one.
+        rescan = receiver.scansilentpayments(0, sender.getblockcount())
+        assert_equal(len(rescan['found']), 1)
+
+        # Without the index there is nothing to scan, and saying so beats returning an empty set.
+        self.stop_node(1)
+        self.nodes[1] = start_node(1, self.options.tmpdir, ['-usehd=1'])
+        assert_raises_jsonrpc(-1, "needs -tweakindex",
+                              self.nodes[1].scansilentpayments, 0, 1)
+
+
+if __name__ == '__main__':
+    SilentPaymentsTest().main()
