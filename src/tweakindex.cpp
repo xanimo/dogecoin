@@ -44,35 +44,21 @@ bool CTweakIndex::ReadBestHeight(int& height) const
     return Read(DB_BEST_HEIGHT, height);
 }
 
-bool ComputeBlockTweaks(std::vector<CTweakEntry>& out, const CBlock& block, const CCoinsViewCache& view)
+bool ComputeTxTweak(CPubKey& out, const CTransaction& tx, const CCoinsViewCache& view)
 {
-    out.clear();
-    for (size_t i = 1; i < block.vtx.size(); i++) {   // the coinbase spends nothing
-        const CTransaction& tx = *(block.vtx[i]);
+    if (tx.IsCoinBase()) return false;
 
-        std::map<COutPoint, CScript> prevout_spks;
-        bool have_all = true;
-        for (size_t j = 0; j < tx.vin.size(); j++) {
-            const COutPoint& prevout = tx.vin[j].prevout;
-            const CCoins* coins = view.AccessCoins(prevout.hash);
-            if (!coins || !coins->IsAvailable(prevout.n)) {
-                have_all = false;
-                break;
-            }
-            prevout_spks[prevout] = coins->vout[prevout.n].scriptPubKey;
-        }
-        // Inputs are checked before this runs, so a miss means the caller handed us the wrong
-        // view rather than a bad block. Refuse the whole block instead of indexing part of it.
-        if (!have_all) return false;
-
-        bip352::CPrevoutsSummary summary;
-        if (bip352::GetPrevoutsSummary(summary, tx.vin, prevout_spks) != bip352::PREVOUTS_OK) {
-            continue;                                  // no eligible input, nothing to scan
-        }
-
-        CPubKey tweak;
-        if (!bip352::ComputeScanTweak(tweak, summary)) continue;
-        out.push_back(CTweakEntry((uint32_t)i, tweak));
+    std::map<COutPoint, CScript> prevout_spks;
+    for (size_t j = 0; j < tx.vin.size(); j++) {
+        const COutPoint& prevout = tx.vin[j].prevout;
+        const CCoins* coins = view.AccessCoins(prevout.hash);
+        if (!coins || !coins->IsAvailable(prevout.n)) return false;
+        prevout_spks[prevout] = coins->vout[prevout.n].scriptPubKey;
     }
-    return true;
+
+    bip352::CPrevoutsSummary summary;
+    if (bip352::GetPrevoutsSummary(summary, tx.vin, prevout_spks) != bip352::PREVOUTS_OK) {
+        return false;                              // no eligible input, nothing to scan
+    }
+    return bip352::ComputeScanTweak(out, summary);
 }
