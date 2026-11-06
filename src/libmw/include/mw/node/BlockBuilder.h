@@ -46,18 +46,22 @@ public:
                                     const mw::Header::CPtr& prevHeader = nullptr,
                                     const mw::MWEBState& prevState = mw::MWEBState());
 
-    /// Add a transaction to the block being assembled.
+    /// Add a transaction to the block being assembled. The transaction is merged
+    /// into the staged set, then the set is re-checked against both sum rules, so
+    /// a transaction that leaves the set unable to balance is rejected here
+    /// rather than at connect time. A rejected transaction leaves the builder
+    /// exactly as it was.
     /// @return true if the transaction was accepted.
     bool AddTransaction(const mw::Transaction::CPtr& pTransaction,
                         const std::vector<mw::PegInCoin>& pegins);
 
     /// Finalize and build the MWEB block.
-    /// Merges all accumulated transactions, computes the header, and
-    /// returns the complete Block.
+    /// Sorts the staged set, computes the header, and returns the complete Block.
     mw::Block::Ptr Build();
 
-    /// Returns true if any transactions have been added.
-    bool HasTransactions() const { return !m_transactions.empty(); }
+    /// Returns true if any transactions have been added. A staged transaction
+    /// carries at least one kernel, so an empty kernel set means none.
+    bool HasTransactions() const { return !m_body.GetKernels().empty(); }
 
 private:
     BlockBuilder(int32_t height, const mw::Header::CPtr& prevHeader, const mw::MWEBState& prevState);
@@ -68,7 +72,13 @@ private:
     int32_t m_height;
     mw::Header::CPtr m_prevHeader;
     mw::MWEBState m_prevState;
-    std::vector<mw::Transaction::CPtr> m_transactions;
+
+    /// The merged staged set, accumulated as transactions are added. Held unsorted
+    /// until Build(); both sums are order-independent, so staging can validate it
+    /// in whatever order transactions arrive.
+    mw::TxBody m_body;
+    BlindingFactor m_kernelOffset;
+    BlindingFactor m_stealthOffset;
 };
 
 END_NAMESPACE

@@ -1151,6 +1151,39 @@ BOOST_AUTO_TEST_CASE(mweb_blockbuilder_multiple_transactions)
     BOOST_CHECK(chainState.MatchesHeader(*block->GetHeader()));
 }
 
+// MWEB: staging a transaction re-checks the staged set against both sum rules, so
+// a transaction that leaves the set unable to balance is refused at that point
+// rather than producing a block that fails at connect. A refusal rolls back
+// cleanly: the builder is left exactly as it was.
+BOOST_AUTO_TEST_CASE(mweb_blockbuilder_rejects_unbalanced_transaction)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    mw::MWEBState chainState;
+    auto builder = mw::BlockBuilder::Create(1, /*prevHeader=*/nullptr, chainState);
+
+    // 100 pegged in against an output of 91 and a fee of 10: one too many.
+    const mw::Transaction bad =
+        mw::wallet::TxBuilder::Build({}, {{91, blind(0x81)}}, 10, /*pegin=*/100, blind(0x82));
+    BOOST_CHECK(!builder->AddTransaction(std::make_shared<mw::Transaction>(bad), bad.GetPegIns()));
+    BOOST_CHECK(!builder->HasTransactions());
+
+    // Nothing was left behind: a balanced transaction staged afterwards builds a
+    // block carrying only itself, which validates and matches the accumulator.
+    const mw::Transaction good =
+        mw::wallet::TxBuilder::Build({}, {{90, blind(0x83)}}, 10, /*pegin=*/100, blind(0x84));
+    BOOST_REQUIRE(builder->AddTransaction(std::make_shared<mw::Transaction>(good), good.GetPegIns()));
+    BOOST_CHECK(builder->HasTransactions());
+
+    mw::Block::Ptr block = builder->Build();
+    BOOST_REQUIRE(block != nullptr);
+    BOOST_CHECK_EQUAL(block->GetHeader()->GetNumTXOs(), 1u);
+    BOOST_CHECK_EQUAL(block->GetHeader()->GetNumKernels(), 1u);
+    BOOST_CHECK_NO_THROW(block->Validate());
+    BOOST_REQUIRE(chainState.ApplyBlock(*block));
+    BOOST_CHECK(chainState.MatchesHeader(*block->GetHeader()));
+}
+
 // MWEB: the accumulator rebuilds exactly from its persisted append-only log. A
 // state loaded from (output IDs, kernel IDs, leafset) reproduces the live state's
 // roots -- including which outputs are spent, since the permanent output MMR is
@@ -1512,15 +1545,18 @@ BOOST_AUTO_TEST_CASE(mweb_mutated_block_is_not_permanently_invalid)
 
     // A body that disagrees with the header the HogAddr commits to. The HogAddr
     // pins the header hash, not the body, so this is mutation and not invalidity.
+    // The substituted block balances and differs only in its blinds: the builder
+    // refuses to stage a transaction that leaves the staged set unable to
+    // balance, so an unbalanced body cannot be obtained from it.
     {
         LOCK(cs_main);
         CValidationState state;
-        const auto inflated = mw::wallet::TxBuilder::Build(
-            {}, {{91, blind(0xC1)}}, 10, /*pegin=*/100, blind(0xC2));
-        auto bad_builder = mw::BlockBuilder::Create(1, nullptr, mw::MWEBState());
-        BOOST_REQUIRE(bad_builder->AddTransaction(
-            std::make_shared<mw::Transaction>(inflated), inflated.GetPegIns()));
-        const CBlock swapped = makeBlock(false, true, bad_builder->Build());
+        const auto other = mw::wallet::TxBuilder::Build(
+            {}, {{90, blind(0xD1)}}, 10, /*pegin=*/100, blind(0xD2));
+        auto other_builder = mw::BlockBuilder::Create(1, nullptr, mw::MWEBState());
+        BOOST_REQUIRE(other_builder->AddTransaction(
+            std::make_shared<mw::Transaction>(other), other.GetPegIns()));
+        const CBlock swapped = makeBlock(false, true, other_builder->Build());
         BOOST_CHECK(swapped.GetHash() == valid.GetHash());
         BOOST_CHECK(!MWEB::Node::ContextualCheckBlock(swapped, consensus, &prev, state));
         BOOST_CHECK_EQUAL(state.GetRejectReason(), "mweb-hash-mismatch");
