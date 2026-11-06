@@ -251,7 +251,40 @@ bool mw::BlockBuilder::AddTransaction(const mw::Transaction::CPtr& pTransaction,
     if (!pTransaction) return false;
     if (pTransaction->GetKernels().empty()) return false;
 
-    m_transactions.push_back(pTransaction);
+    const size_t nInputs = m_body.GetInputs().size();
+    const size_t nOutputs = m_body.GetOutputs().size();
+    const size_t nKernels = m_body.GetKernels().size();
+    const mw::BlindingFactor kernelOffset = m_kernelOffset;
+    const mw::BlindingFactor stealthOffset = m_stealthOffset;
+
+    for (const auto& input : pTransaction->GetInputs())
+        m_body.GetInputs().push_back(input);
+    for (const auto& output : pTransaction->GetOutputs())
+        m_body.GetOutputs().push_back(output);
+    for (const auto& kernel : pTransaction->GetKernels())
+        m_body.GetKernels().push_back(kernel);
+
+    m_kernelOffset = CombineOffsets(m_kernelOffset, pTransaction->GetKernelOffset());
+    m_stealthOffset = CombineOffsets(m_stealthOffset, pTransaction->GetStealthOffset());
+
+    // Both rules run against the whole staged set, not against the new
+    // transaction alone. Balanced transactions do sum to a balanced set, but only
+    // while the block offset is the scalar sum of theirs, so checking the set
+    // checks the identity the block will be validated against rather than
+    // assuming CombineOffsets produces it. The offsets were XOR-combined once,
+    // which balanced only a one-transaction block.
+    try {
+        KernelSumValidator::Validate(m_body, m_kernelOffset);
+        StealthSumValidator::Validate(m_body, m_stealthOffset);
+    } catch (const std::exception&) {
+        m_body.GetInputs().resize(nInputs);
+        m_body.GetOutputs().resize(nOutputs);
+        m_body.GetKernels().resize(nKernels);
+        m_kernelOffset = kernelOffset;
+        m_stealthOffset = stealthOffset;
+        return false;
+    }
+
     return true;
 }
 
@@ -280,30 +313,21 @@ mw::BlindingFactor mw::BlockBuilder::CombineOffsets(const mw::BlindingFactor& a,
 mw::Block::Ptr mw::BlockBuilder::Build()
 {
     // An empty block is valid and required: once MWEB is active every block must
-    // carry an extension block, even one with no transactions. With no bodies the
-    // merge below is a no-op, the accumulator stays at the previous state, and the
-    // header commits to the unchanged roots -- exactly what the validator expects.
-
-    // Merge all transaction bodies
-    std::vector<mw::Input> allInputs;
-    std::vector<mw::Output> allOutputs;
-    std::vector<mw::Kernel> allKernels;
-    mw::BlindingFactor aggregateKernelOffset;
-    mw::BlindingFactor aggregateStealthOffset;
-
-    for (const auto& tx : m_transactions) {
-        // Merge inputs, outputs, kernels
-        for (const auto& input : tx->GetInputs())
-            allInputs.push_back(input);
-        for (const auto& output : tx->GetOutputs())
-            allOutputs.push_back(output);
-        for (const auto& kernel : tx->GetKernels())
-            allKernels.push_back(kernel);
-
-        // Combine offsets
-        aggregateKernelOffset = CombineOffsets(aggregateKernelOffset, tx->GetKernelOffset());
-        aggregateStealthOffset = CombineOffsets(aggregateStealthOffset, tx->GetStealthOffset());
-    }
+    // carry an extension block, even one with no transactions. With nothing staged
+    // the sort below is a no-op, the accumulator stays at the previous state, and
+    // the header commits to the unchanged roots -- exactly what the validator
+    // expects.
+    //
+    // The merge and the offset sums happened as each transaction was staged, and
+    // the staged set was checked against both sum rules at that point, so there is
+    // nothing left to balance here.
+    // Copied rather than moved: Build() leaves the builder usable, as it was when
+    // it merged from a transaction list held separately.
+    std::vector<mw::Input> allInputs = m_body.GetInputs();
+    std::vector<mw::Output> allOutputs = m_body.GetOutputs();
+    std::vector<mw::Kernel> allKernels = m_body.GetKernels();
+    const mw::BlindingFactor& aggregateKernelOffset = m_kernelOffset;
+    const mw::BlindingFactor& aggregateStealthOffset = m_stealthOffset;
 
     // Sort all elements by hash (required by consensus)
     std::sort(allInputs.begin(), allInputs.end(),
