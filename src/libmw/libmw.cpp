@@ -5,6 +5,8 @@
 
 #include <mw/models/block/Block.h>
 #include <mw/models/tx/Transaction.h>
+#include <mw/consensus/KernelSumValidator.h>
+#include <mw/consensus/StealthSumValidator.h>
 #include <mw/consensus/Weight.h>
 #include <mw/node/BlockBuilder.h>
 #include <mw/crypto/Bulletproof.h>
@@ -74,65 +76,11 @@ static void ValidateBodyCrypto(const TxBody& body, const BlindingFactor& kernelO
         }
     }
 
-    // Commitment balance (no inflation):
-    //   Sum(outputs) + (fees + pegouts)*H
-    //     == Sum(inputs) + Sum(kernel excesses) + pegins*H + offset*G
-    // Checked as sum-to-zero. Fees/pegs are non-negative, so the H value is split
-    // across both sides rather than committing a negative amount; zero terms are
-    // skipped (their commitment would be the point at infinity).
-    std::vector<Commitment> positive;
-    std::vector<Commitment> negative;
-
-    for (const Output& output : body.GetOutputs()) {
-        positive.push_back(output.GetCommitment());
-    }
-    for (const Input& input : body.GetInputs()) {
-        negative.push_back(input.GetCommitment());
-    }
-
-    uint64_t hPositive = 0; // fees + pegouts: value leaving the MWEB balance
-    uint64_t hNegative = 0; // pegins: value entering the MWEB balance
-    for (const Kernel& kernel : body.GetKernels()) {
-        negative.push_back(kernel.GetExcess());
-        hPositive += static_cast<uint64_t>(kernel.GetFee());
-        for (const PegOutCoin& pegout : kernel.GetPegOuts()) {
-            hPositive += static_cast<uint64_t>(pegout.GetAmount());
-        }
-        hNegative += static_cast<uint64_t>(kernel.GetPegIn());
-    }
-
-    const BlindingFactor zeroBlind;
-    if (hPositive > 0) positive.push_back(Pedersen::Commit(hPositive, zeroBlind));
-    if (hNegative > 0) negative.push_back(Pedersen::Commit(hNegative, zeroBlind));
-    if (!kernelOffset.IsNull()) {
-        negative.push_back(Pedersen::Commit(0, kernelOffset));
-    }
-
-    if (!Pedersen::VerifyBalance(positive, negative)) {
-        throw std::runtime_error("Body does not balance (inflation)");
-    }
-
-    // Stealth (owner-key) balance: the one-sided-payment keys must tie to the
-    // stealth offset the way the value blinds tie to the kernel offset --
-    //   Sum(output sender keys) - Sum(input owner keys) == stealthOffset*G.
-    // Each output's sender key is the ephemeral key the sender chose; each spent
-    // input's owner key is the one-time key of the output it consumes. Enforced
-    // only when the body carries stealth data (a sender or owner key): value-
-    // balance-only bodies (unit tests with plain outputs and unsigned inputs)
-    // have none and are unaffected. This makes owner keys non-malleable under the
-    // aggregation of transactions into a block, since the block offset is the sum
-    // of the transaction offsets.
-    std::vector<PublicKey> senderKeys;
-    std::vector<PublicKey> ownerKeys;
-    for (const Output& output : body.GetOutputs()) {
-        senderKeys.push_back(output.GetSenderPubKey()); // non-null, checked above
-    }
-    for (const Input& input : body.GetInputs()) {
-        ownerKeys.push_back(input.GetOutputPubKey()); // non-null, checked above
-    }
-    if (!Keys::VerifyKeyBalance(senderKeys, ownerKeys, stealthOffset)) {
-        throw std::runtime_error("Stealth offset does not balance");
-    }
+    // The two sum rules, in mw/consensus so a caller holding a partial set can
+    // run them against it rather than only against a merged body. The sender and
+    // owner keys they read were checked non-null above.
+    KernelSumValidator::Validate(body, kernelOffset);
+    StealthSumValidator::Validate(body, stealthOffset);
 }
 
 void Block::Validate(const std::vector<PegInCoin>& pegins, const std::vector<PegOutCoin>& pegouts) const
