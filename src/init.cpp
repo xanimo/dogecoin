@@ -903,6 +903,10 @@ bool AppInitParameterInteraction()
     if (GetArg("-prune", 0)) {
         if (GetBoolArg("-txindex", DEFAULT_TXINDEX))
             return InitError(_("Prune mode is incompatible with -txindex."));
+        // Same reasoning: a pruned node cannot replay the blocks the index is built from, so the
+        // index would have permanent holes and a scanner would read them as "nothing here".
+        if (GetBoolArg("-tweakindex", DEFAULT_TWEAKINDEX))
+            return InitError(_("Prune mode is incompatible with -tweakindex."));
     }
 
     // Make sure enough file descriptors are available
@@ -1534,6 +1538,21 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                 if (fTxIndex != GetBoolArg("-txindex", DEFAULT_TXINDEX)) {
                     strLoadError = _("You need to rebuild the database using -reindex-chainstate to change -txindex");
                     break;
+                }
+
+                // Refuse a tweak index that does not cover the chain. Turning -tweakindex on for
+                // the first time on a synced node would otherwise start indexing at the tip, and
+                // a scan of earlier history would return no payments rather than an error, which
+                // reads to a user as "nobody ever paid me".
+                if (ptweakindex && !fReindex && !fReindexChainState && chainActive.Tip() != NULL) {
+                    int indexed = -1;
+                    if (!ptweakindex->ReadBestHeight(indexed) || indexed < chainActive.Height()) {
+                        strLoadError = strprintf(
+                            _("The silent payment tweak index covers blocks up to %d but the chain is at %d. "
+                              "Rebuild it with -reindex-chainstate, or start without -tweakindex."),
+                            indexed, chainActive.Height());
+                        break;
+                    }
                 }
 
                 // Check for changed -prune state.  What we are concerned about is a user who has pruned blocks
