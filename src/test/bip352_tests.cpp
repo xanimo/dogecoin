@@ -181,6 +181,38 @@ BOOST_AUTO_TEST_CASE(bip352_address_rejects_malformed)
 }
 
 // The reason the eligibility rule walks every scriptSig push instead of taking the last one.
+BOOST_AUTO_TEST_CASE(bip352_rejects_hybrid_pubkey_encoding)
+{
+    // libsecp256k1 parses the hybrid encodings 0x06 and 0x07 as well as 0x04, so an
+    // implementation that only calls the parser would accept a key that one checking the prefix
+    // rejects. The two would then sum a different A and derive different outputs. The chain has
+    // no such input, which is why this is pinned here rather than left to be discovered.
+    CKey key;
+    key.MakeNewKey(false);                       // uncompressed
+    const CPubKey pubkey = key.GetPubKey();
+    BOOST_REQUIRE(pubkey.size() == CPubKey::SIZE && pubkey[0] == 0x04);
+
+    std::vector<unsigned char> hybrid(pubkey.begin(), pubkey.end());
+    hybrid[0] = (pubkey[CPubKey::SIZE - 1] & 1) ? 0x07 : 0x06;   // parity must match y
+
+    // The prevout commits to the hybrid encoding, so the push does hash to it: the only thing
+    // standing between this input and eligibility is the prefix rule.
+    const CScript hybrid_spk = CScript() << OP_DUP << OP_HASH160
+                                         << ToByteVector(Hash160(hybrid))
+                                         << OP_EQUALVERIFY << OP_CHECKSIG;
+    const std::vector<unsigned char> sig(72, 0x30);
+    CPubKey found;
+    const CScript hybrid_sig = CScript() << sig << hybrid;
+    BOOST_CHECK(!bip352::GetPubKeyFromInput(found, hybrid_sig, hybrid_spk));
+
+    // Positive control: the same key in its 0x04 form is eligible, so the rejection above is the
+    // prefix and not something else about this key.
+    const CScript spk = GetScriptForDestination(CTxDestination(pubkey.GetID()));
+    const CScript ok = CScript() << sig << ToByteVector(pubkey);
+    BOOST_CHECK(bip352::GetPubKeyFromInput(found, ok, spk));
+    BOOST_CHECK(found == pubkey);
+}
+
 BOOST_AUTO_TEST_CASE(bip352_input_pubkey_extraction)
 {
     const CKey key = KeyFromHex("eadc78165ff1f8ea94ad7cfdc54990738a4c53f6e0507b42154201b8e5dff3b1");
