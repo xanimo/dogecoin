@@ -3562,8 +3562,20 @@ UniValue scansilentpayments(const JSONRPCRequest& request)
     int64_t scanned = 0;
 
     for (int height = from; height <= to; height++) {
+        // Genesis is never connected through ConnectBlock, so it has no index entry and never
+        // will. It holds one coinbase and no spendable input, so there is nothing to scan.
+        if (height == 0) continue;
+
         std::vector<CTweakEntry> entries;
-        if (!ptweakindex->ReadBlock(height, entries) || entries.empty()) continue;
+        // A height that was never indexed must not look like a height with nothing in it.
+        // ConnectBlock writes a key for every block including empty ones, so a missing key means
+        // the index does not cover this height, and continuing would report "no payments" for a
+        // range that was simply never scanned.
+        if (!ptweakindex->ReadBlock(height, entries))
+            throw JSONRPCError(RPC_MISC_ERROR, strprintf(
+                "The tweak index has no entry for block %d, so this range was never indexed. "
+                "Rebuild with -reindex-chainstate -tweakindex.", height));
+        if (entries.empty()) continue;
 
         CBlockIndex* pindex = chainActive[height];
         CBlock block;

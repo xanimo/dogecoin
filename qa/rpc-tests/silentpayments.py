@@ -13,6 +13,8 @@ so if the two disagree the output commits to a key neither holds. Regtest reache
 free because its coinbases are P2PK, which the receiver's P2PKH-only rule ignores.
 """
 
+import os
+
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     start_node,
@@ -115,6 +117,28 @@ class SilentPaymentsTest(BitcoinTestFramework):
         self.nodes[1] = start_node(1, self.options.tmpdir, ['-usehd=1'])
         assert_raises_jsonrpc(-1, "needs -tweakindex",
                               self.nodes[1].scansilentpayments, 0, 1)
+        connect_nodes_bi(self.nodes, 0, 1)   # start_node drops the peer connection
+
+        # An index that does not cover the chain must refuse to start rather than quietly answer
+        # "no payments" for the heights it never saw. Let the chain advance while the index is
+        # off, which is exactly what happens the first time someone enables -tweakindex.
+        sender.generate(5)
+        sync_blocks(self.nodes)
+        self.stop_node(1)
+        try:
+            self.nodes[1] = start_node(1, self.options.tmpdir, ['-usehd=1', '-tweakindex'])
+            started = True
+        except Exception:
+            started = False
+        assert not started, 'node started with a tweak index that does not cover the chain'
+        log = os.path.join(self.options.tmpdir, 'node1', 'regtest', 'debug.log')
+        with open(log) as f:
+            assert 'tweak index covers blocks up to' in f.read(), 'wrong refusal reason'
+
+        # Bring it back without the index so the framework has a live node to shut down. The
+        # rebuild path the error recommends is already what the rest of this test exercises.
+        self.nodes[1] = start_node(1, self.options.tmpdir, ['-usehd=1'])
+        connect_nodes_bi(self.nodes, 0, 1)
 
 
 if __name__ == '__main__':
