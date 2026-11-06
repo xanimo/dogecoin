@@ -6,10 +6,11 @@ port. sorted by the buckets that writeup argues for: applicable, applicable with
 a different shape, and not-applicable-for-absence, which is a different claim
 than behavioural equivalence and is recorded as such.
 
-five commits. one is not applicable, three are ported, one remains.
+five commits. one is not applicable, four are ported, none remain.
 
 ported since this was written: a399fc4ca73d (572178a88c), 70ea696f361c
-(2006d32c76), b4313c34d27b (e80074b396, with f9fd39dac6 ahead of it). each
+(2006d32c76), b4313c34d27b (e80074b396, with f9fd39dac6 ahead of it),
+f6afd2682620 (c9e495011b and 1088cc11e1). each
 section below records what actually landed, which in two cases is not the shape
 the upstream diff has.
 
@@ -42,16 +43,26 @@ which is what the consensus rule is for.
 
 ## f6afd2682620  mweb: validate staged block aggregates incrementally  (2026-09-05)
 
-applicable, UNPORTED. the only one left.
+PORTED in c9e495011b and 1088cc11e1.
 
 validates kernel and stealth aggregates as transactions are staged into a block
 rather than only when the block is built, so a staged set that cannot balance is
 rejected at the point it stops balancing.
 
 upstream carries this in `KernelSumValidator.h` and `StealthSumValidator.h`. the
-port has no such files: both sums are inline in `ValidateBodyCrypto`
-(`libmw.cpp`), which the divergence writeup records. the fix therefore applies to
-the port's `BlockBuilder` but cannot be taken as a diff.
+port had no such files: both sums were inline in `ValidateBodyCrypto`
+(`libmw.cpp`), which the divergence writeup records, so the fix could not be
+taken as a diff. c9e495011b extracts the two sums into headers of those names
+under `mw/consensus` with no behaviour change, and 1088cc11e1 has
+`BlockBuilder::AddTransaction` merge into a running body, run both rules over
+it, and roll the merge back on failure. `Build()` consumes that body rather than
+re-merging, so there is one accumulation.
+
+the port checks the whole staged set where upstream carries running sum state.
+the two agree on what they reject: balanced transactions sum to a balanced set
+whenever the block offset is the scalar sum of theirs. checking the set does not
+assume `CombineOffsets` produces that sum, which is the bug the XOR aggregation
+had. the cost is a sum over the staged set per addition, paid by the builder.
 
 ## 70ea696f361c  mweb: harden same-hash block mutation handling  (2026-09-05)
 
@@ -109,14 +120,12 @@ that order was followed, with one correction found on the way: b4313c34d27b
 could not land as written until the hogex accounting moved, so f9fd39dac6 went
 ahead of it. a399fc4ca73d followed with both halves of its pair.
 
-f6afd2682620 remains, and still needs the port's inline sums restructured before
-the fix has anywhere to go.
+f6afd2682620 went last, since it needed the port's inline sums restructured
+before the fix had anywhere to go. nothing in the list remains.
 
 ## not verified here
 
-the three ported fixes carry unit tests and, for the reindex half, a functional
-one; f6afd2682620's classification is still only from reading the upstream diff
-against the port's corresponding path.
+every ported fix carries unit tests and, for the reindex half, a functional one.
 
 the mweb functional tests could not run in the sanitiser tree at all, which is
 configured `--disable-wallet`, so `mweb-version6-activation.py` and
