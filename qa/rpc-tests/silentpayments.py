@@ -14,6 +14,7 @@ free because its coinbases are P2PK, which the receiver's P2PKH-only rule ignore
 """
 
 import os
+import subprocess
 
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
@@ -165,15 +166,25 @@ class SilentPaymentsTest(BitcoinTestFramework):
         sender.generate(5)
         sync_blocks(self.nodes)
         self.stop_node(1)
+
+        # Launched directly rather than through start_node: this startup is meant to fail, and
+        # the framework lets the resulting stderr escape to the aggregate runner, which reports
+        # the whole file as failed even though this test passed. Capture it here, assert on the
+        # exit status and the diagnostic, and reap the process so nothing is left behind.
+        datadir = os.path.join(self.options.tmpdir, 'node1')
+        binary = os.getenv('DOGECOIND', 'dogecoind')
+        proc = subprocess.Popen(
+            [binary, '-datadir=' + datadir, '-server', '-keypool=1', '-discover=0',
+             '-usehd=1', '-tweakindex'],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         try:
-            self.nodes[1] = start_node(1, self.options.tmpdir, ['-usehd=1', '-tweakindex'])
-            started = True
-        except Exception:
-            started = False
-        assert not started, 'node started with a tweak index that does not cover the chain'
-        log = os.path.join(self.options.tmpdir, 'node1', 'regtest', 'debug.log')
-        with open(log) as f:
-            assert 'tweak index covers blocks up to' in f.read(), 'wrong refusal reason'
+            _, stderr = proc.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            raise AssertionError('node did not exit; it should refuse an index behind the chain')
+        assert_equal(proc.returncode, 1)
+        assert 'tweak index covers blocks up to' in stderr, 'wrong refusal reason: %s' % stderr
 
         # Bring it back without the index so the framework has a live node to shut down. The
         # rebuild path the error recommends is already what the rest of this test exercises.
