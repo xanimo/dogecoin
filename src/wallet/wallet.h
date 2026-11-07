@@ -716,6 +716,26 @@ public:
      * unlocked HD wallet; returns false otherwise.
      */
     bool GetSilentPaymentsKeys(CKey& scan_key, CKey& spend_key) const;
+
+    /** One silent payment found while scanning, already spendable by this wallet. */
+    struct CSilentPaymentFound {
+        uint256 txid;
+        uint32_t vout;
+        CAmount amount;
+        CKeyID keyid;
+        int height;
+    };
+
+    /**
+     * Scan a height range of the tweak index for payments to this wallet, importing the key for
+     * anything found so it becomes spendable.
+     *
+     * One ECDH per indexed transaction, so the cost is the range, not the wallet. Requires
+     * -tweakindex; a height the index never covered is an error rather than an empty result,
+     * because reporting "no payments" for a range that was never scanned reads as "nobody paid
+     * me". Returns false and sets error on any such problem.
+     */
+    bool ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFound>& found, std::string& error);
     //! Adds a key to the store, and saves it to disk.
     bool AddKeyPubKey(const CKey& key, const CPubKey &pubkey) override;
     //! Adds a key to the store, without saving it to disk (used by LoadWallet)

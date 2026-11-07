@@ -3449,90 +3449,41 @@ UniValue scansilentpayments(const JSONRPCRequest& request)
             "{\n"
             "  \"from_height\": n,\n"
             "  \"to_height\": n,\n"
-            "  \"scanned\": n,        (transactions examined)\n"
             "  \"found\": [ {\"txid\":\"..\",\"vout\":n,\"amount\":x,\"address\":\"..\"} ]\n"
             "}\n"
             "\nExamples:\n"
             + HelpExampleCli("scansilentpayments", "0 100"));
 
-    if (!ptweakindex)
-        throw JSONRPCError(RPC_MISC_ERROR, "scansilentpayments needs -tweakindex");
-
     LOCK2(cs_main, pwalletMain->cs_wallet);
     EnsureWalletIsUnlocked();
 
-    CKey scan_key, spend_key;
-    if (!pwalletMain->GetSilentPaymentsKeys(scan_key, spend_key))
-        throw JSONRPCError(RPC_WALLET_ERROR, "Wallet has no HD seed; silent payments need one");
-    bip352::CSilentPaymentsReceiver receiver(scan_key, spend_key.GetPubKey());
-    if (!receiver.IsValid())
-        throw JSONRPCError(RPC_WALLET_ERROR, "Could not build the scanning receiver");
+    const int tip = chainActive.Height();
+    const int from = request.params.size() > 0 ? request.params[0].get_int() : 0;
+    const int to = request.params.size() > 1 ? request.params[1].get_int() : tip;
 
-    int from = request.params.size() > 0 ? request.params[0].get_int() : 0;
-    int to = request.params.size() > 1 ? request.params[1].get_int() : chainActive.Height();
-    if (from < 0 || to < from || to > chainActive.Height())
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid height range");
+    // The scan itself lives on CWallet so this and the block-connect path cannot drift apart.
+    std::vector<CWallet::CSilentPaymentFound> hits;
+    std::string error;
+    if (!pwalletMain->ScanSilentPayments(from, to, hits, error))
+        throw JSONRPCError(RPC_MISC_ERROR, error);
 
     UniValue found(UniValue::VARR);
-    int64_t scanned = 0;
-
-    for (int height = from; height <= to; height++) {
-        // Genesis is never connected through ConnectBlock, so it has no index entry and never
-        // will. It holds one coinbase and no spendable input, so there is nothing to scan.
-        if (height == 0) continue;
-
-        std::vector<CTweakEntry> entries;
-        // A height that was never indexed must not look like a height with nothing in it.
-        // ConnectBlock writes a key for every block including empty ones, so a missing key means
-        // the index does not cover this height, and continuing would report "no payments" for a
-        // range that was simply never scanned.
-        if (!ptweakindex->ReadBlock(height, entries))
-            throw JSONRPCError(RPC_MISC_ERROR, strprintf(
-                "The tweak index has no entry for block %d, so this range was never indexed. "
-                "Rebuild with -reindex-chainstate -tweakindex.", height));
-        if (entries.empty()) continue;
-
-        CBlockIndex* pindex = chainActive[height];
-        CBlock block;
-        if (!ReadBlockFromDisk(block, pindex, Params().GetConsensus(height)))
-            throw JSONRPCError(RPC_MISC_ERROR, strprintf("Could not read block %d", height));
-
-        for (size_t e = 0; e < entries.size(); e++) {
-            if (entries[e].tx_index >= block.vtx.size()) continue;
-            const CTransaction& tx = *(block.vtx[entries[e].tx_index]);
-            scanned++;
-
-            std::vector<bip352::CFoundOutput> hits;
-            if (!receiver.ScanWithTweak(hits, entries[e].tweak, tx.vout) || hits.empty()) continue;
-
-            for (size_t h = 0; h < hits.size(); h++) {
-                CKey out_key;
-                if (!bip352::CSilentPaymentsReceiver::DeriveSpendingKey(out_key, spend_key, hits[h].tweak))
-                    continue;
-                const CPubKey out_pubkey = out_key.GetPubKey();
-                if (!pwalletMain->HaveKey(out_pubkey.GetID())) {
-                    pwalletMain->mapKeyMetadata[out_pubkey.GetID()].nCreateTime = pindex->GetBlockTime();
-                    if (!pwalletMain->AddKeyPubKey(out_key, out_pubkey))
-                        throw JSONRPCError(RPC_WALLET_ERROR, "Could not import the derived key");
-                }
-                UniValue o(UniValue::VOBJ);
-                o.pushKV("txid", tx.GetHash().GetHex());
-                o.pushKV("vout", (int)hits[h].vout);
-                o.pushKV("amount", ValueFromAmount(tx.vout[hits[h].vout].nValue));
-                o.pushKV("address", CBitcoinAddress(out_pubkey.GetID()).ToString());
-                o.pushKV("height", height);
-                found.push_back(o);
-            }
-        }
+    for (size_t i = 0; i < hits.size(); i++) {
+        UniValue o(UniValue::VOBJ);
+        o.pushKV("txid", hits[i].txid.GetHex());
+        o.pushKV("vout", (int)hits[i].vout);
+        o.pushKV("amount", ValueFromAmount(hits[i].amount));
+        o.pushKV("address", CBitcoinAddress(hits[i].keyid).ToString());
+        o.pushKV("height", hits[i].height);
+        found.push_back(o);
     }
 
     // Rescan so the imported keys pick up the transactions that pay them.
-    if (found.size() > 0) pwalletMain->ScanForWalletTransactions(chainActive[from], true);
+    if (!hits.empty()) pwalletMain->ScanForWalletTransactions(chainActive[from], true);
 
     UniValue result(UniValue::VOBJ);
     result.pushKV("from_height", from);
     result.pushKV("to_height", to);
-    result.pushKV("scanned", scanned);
     result.pushKV("found", found);
     return result;
 }

@@ -7,6 +7,7 @@
 #include "wallet/wallet.h"
 
 #include "base58.h"
+#include "bip352.h"
 #include "checkpoints.h"
 #include "chain.h"
 #include "dogecoin.h"
@@ -25,6 +26,7 @@
 #include "script/script.h"
 #include "script/sign.h"
 #include "timedata.h"
+#include "tweakindex.h"
 #include "txmempool.h"
 #include "util.h"
 #include "ui_interface.h"
@@ -188,6 +190,87 @@ bool CWallet::GetSilentPaymentsKeys(CKey& scan_key, CKey& spend_key) const
     scan_key = scan.key;
     spend_key = spend.key;
     return scan_key.IsValid() && spend_key.IsValid();
+}
+
+bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFound>& found, std::string& error)
+{
+    AssertLockHeld(cs_main);
+    AssertLockHeld(cs_wallet);
+    found.clear();
+
+    if (!ptweakindex) {
+        error = "scanning silent payments needs -tweakindex";
+        return false;
+    }
+    if (from < 0 || to < from || to > chainActive.Height()) {
+        error = "invalid height range";
+        return false;
+    }
+
+    CKey scan_key, spend_key;
+    if (!GetSilentPaymentsKeys(scan_key, spend_key)) {
+        error = "wallet has no HD seed; silent payments need one";
+        return false;
+    }
+    bip352::CSilentPaymentsReceiver receiver(scan_key, spend_key.GetPubKey());
+    if (!receiver.IsValid()) {
+        error = "could not build the scanning receiver";
+        return false;
+    }
+
+    for (int height = from; height <= to; height++) {
+        // Genesis is never connected through ConnectBlock, so it has no entry and never will.
+        // It holds one coinbase and no spendable input, so there is nothing to scan.
+        if (height == 0) continue;
+
+        std::vector<CTweakEntry> entries;
+        // A height the index never covered must not look like a height with nothing in it.
+        // ConnectBlock writes a key for every block including empty ones, so a missing key means
+        // this range was never indexed, and carrying on would report no payments for it.
+        if (!ptweakindex->ReadBlock(height, entries)) {
+            error = strprintf("the tweak index has no entry for block %d, so this range was never "
+                              "indexed; rebuild with -reindex-chainstate -tweakindex", height);
+            return false;
+        }
+        if (entries.empty()) continue;
+
+        CBlockIndex* pindex = chainActive[height];
+        CBlock block;
+        if (!ReadBlockFromDisk(block, pindex, Params().GetConsensus(height))) {
+            error = strprintf("could not read block %d", height);
+            return false;
+        }
+
+        for (size_t e = 0; e < entries.size(); e++) {
+            if (entries[e].tx_index >= block.vtx.size()) continue;
+            const CTransaction& tx = *(block.vtx[entries[e].tx_index]);
+
+            std::vector<bip352::CFoundOutput> hits;
+            if (!receiver.ScanWithTweak(hits, entries[e].tweak, tx.vout) || hits.empty()) continue;
+
+            for (size_t h = 0; h < hits.size(); h++) {
+                CKey out_key;
+                if (!bip352::CSilentPaymentsReceiver::DeriveSpendingKey(out_key, spend_key, hits[h].tweak))
+                    continue;
+                const CPubKey out_pubkey = out_key.GetPubKey();
+                if (!HaveKey(out_pubkey.GetID())) {
+                    mapKeyMetadata[out_pubkey.GetID()].nCreateTime = pindex->GetBlockTime();
+                    if (!AddKeyPubKey(out_key, out_pubkey)) {
+                        error = "could not import the derived key";
+                        return false;
+                    }
+                }
+                CSilentPaymentFound f;
+                f.txid = tx.GetHash();
+                f.vout = (uint32_t)hits[h].vout;
+                f.amount = tx.vout[hits[h].vout].nValue;
+                f.keyid = out_pubkey.GetID();
+                f.height = height;
+                found.push_back(f);
+            }
+        }
+    }
+    return true;
 }
 
 bool CWallet::AddKeyPubKey(const CKey& secret, const CPubKey &pubkey)
