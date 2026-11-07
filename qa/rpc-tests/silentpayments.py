@@ -111,6 +111,37 @@ class SilentPaymentsTest(BitcoinTestFramework):
         rescan = receiver.scansilentpayments(0, sender.getblockcount())
         assert_equal(len(rescan['found']), 1)
 
+        # Two payments in one block where the second spends the first's change. The tweak is
+        # derived from the coins a transaction spends, and for the second of these one of those
+        # coins is an output of the first, which does not exist in the view until UpdateCoins has
+        # run for it. Computing a block's tweaks up front rather than per transaction aborted the
+        # node on mainnet at height 1181 for exactly this. Regtest only reaches it deliberately,
+        # because every other block here holds a single transaction.
+        before = sender.getblockcount()
+        first = sender.sendtosilentpaymentaddress(sp_address, 50)
+        # Lock every other coin so the second send has nothing to spend but the first's change.
+        # Without this, coin selection picks an unrelated utxo and no chain forms.
+        others = [{'txid': u['txid'], 'vout': u['vout']}
+                  for u in sender.listunspent(0) if u['txid'] != first]
+        if others:
+            sender.lockunspent(False, others)
+        second = sender.sendtosilentpaymentaddress(sp_address, 25)
+        sender.lockunspent(True, others) if others else None
+        sync_mempools(self.nodes)
+        sender.generate(1)
+        sync_blocks(self.nodes)
+        chained_height = sender.getblockcount()
+        assert_equal(chained_height, before + 1)
+
+        block = sender.getblock(sender.getblockhash(chained_height))
+        assert first in block['tx'] and second in block['tx'], 'expected both in one block'
+        # The second must actually spend the first, otherwise this proves nothing.
+        spends = [vin['txid'] for vin in sender.getrawtransaction(second, 1)['vin']]
+        assert first in spends, 'second transaction did not spend the first'
+
+        chained = receiver.scansilentpayments(chained_height, chained_height)['found']
+        assert_equal(sorted(f['amount'] for f in chained), [25, 50])
+
         # Without the index there is nothing to scan, and saying so beats returning an empty set.
         self.stop_node(1)
         self.nodes[1] = start_node(1, self.options.tmpdir, ['-usehd=1'])
