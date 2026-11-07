@@ -71,7 +71,9 @@ synced to height 6381544, block hash
 
 --cache-dir checkpoints each blk file as it finishes, so an interrupted run resumes instead of
 starting over; the pass takes hours. the full json report this produced is in
-bip352-reports/corpus_fullchain.json here.
+bip352-reports/corpus_fullchain.json here, and the 1357 per-file checkpoints it was summed from
+are in bip352-reports/per-file/. those let a single blk file be checked without re-running the
+chain, and they add up to the aggregate.
 
 the classifier was tightened afterwards, in e2daafd05d, to refuse hybrid pubkey prefixes. that
 does not change the result and the report was not regenerated: a hybrid key would have been
