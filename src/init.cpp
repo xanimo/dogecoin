@@ -407,6 +407,7 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-peerblockfilters",
             strprintf(_("Serve compact block filters to peers per BIP 157 (default: %u). Requires -blockfilterindex."), DEFAULT_PEERBLOCKFILTERS));
     strUsage += HelpMessageOpt("-tweakindex", strprintf(_("Maintain an index of BIP352 silent payment scanning tweaks (default: %u)"), DEFAULT_TWEAKINDEX));
+    strUsage += HelpMessageOpt("-silentpaymentscan", _("Scan each new block for silent payments to this wallet, importing keys as they are found. Requires -tweakindex. Costs one ECDH per indexed transaction per block (default: 0)"));
 
     strUsage += HelpMessageGroup(_("Connection options:"));
     strUsage += HelpMessageOpt("-addnode=<ip>", _("Add a node to connect to and attempt to keep the connection open"));

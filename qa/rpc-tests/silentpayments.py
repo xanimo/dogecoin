@@ -35,7 +35,8 @@ class SilentPaymentsTest(BitcoinTestFramework):
         self.num_nodes = 2
 
     def setup_network(self):
-        args = [['-tweakindex', '-usehd=1'], ['-tweakindex', '-usehd=1']]
+        args = [['-tweakindex', '-usehd=1'],
+                ['-tweakindex', '-usehd=1', '-silentpaymentscan']]
         self.nodes = start_nodes(self.num_nodes, self.options.tmpdir, args)
         connect_nodes_bi(self.nodes, 0, 1)
         self.is_network_split = False
@@ -67,6 +68,14 @@ class SilentPaymentsTest(BitcoinTestFramework):
         sender.generate(1)
         sync_blocks(self.nodes)
         height = sender.getblockcount()
+
+        # The receiver runs -silentpaymentscan, so the payment should already be spendable
+        # without anyone calling the rpc. This is the whole point of live scanning: a wallet
+        # notices it was paid when the block arrives, not when its owner thinks to ask.
+        live = [u for u in receiver.listunspent(0, 9999999)
+                if u['txid'] == txid and u['amount'] == 100]
+        assert_equal(len(live), 1)
+        assert_equal(live[0]['spendable'], True)
 
         # The receiver was told nothing but the address, so it has to find this itself.
         scan = receiver.scansilentpayments(0, height)

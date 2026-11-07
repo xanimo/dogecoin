@@ -811,6 +811,16 @@ public:
     void BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex *pindex, const std::vector<CTransactionRef>& vtxConflicted) override;
     void BlockDisconnected(const std::shared_ptr<const CBlock>& pblock) override;
     bool AddToWalletIfInvolvingMe(const CTransactionRef& tx, const CBlockIndex* pIndex, int posInBlock, bool fUpdate);
+
+    /**
+     * Scan each newly connected block for silent payments, when -silentpaymentscan is on.
+     *
+     * One block at a time rather than a range, so the locks are held for a block's worth of
+     * tweaks and no longer. The historical catch-up is deliberately not done here: a wallet
+     * that has fallen far behind should use scansilentpayments, where the caller chooses the
+     * range and knows it will take a while.
+     */
+    void UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload) override;
     CBlockIndex* ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate = false);
     void TransactionRemovedFromMempool(const CTransactionRef &ptx) override;
     void ReacceptWalletTransactions();

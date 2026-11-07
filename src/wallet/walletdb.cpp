@@ -154,6 +154,17 @@ bool CWalletDB::WriteOrderPosNext(int64_t nOrderPosNext)
     return Write(std::string("orderposnext"), nOrderPosNext);
 }
 
+bool CWalletDB::WriteSilentPaymentScanHeight(int height)
+{
+    nWalletDBUpdateCounter++;
+    return Write(std::string("spscanheight"), height);
+}
+
+bool CWalletDB::ReadSilentPaymentScanHeight(int& height)
+{
+    return Read(std::string("spscanheight"), height);
+}
+
 bool CWalletDB::WriteDefaultKey(const CPubKey& vchPubKey)
 {
     nWalletDBUpdateCounter++;

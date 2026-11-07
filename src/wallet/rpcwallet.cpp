@@ -3563,9 +3563,6 @@ UniValue scansilentpayments(const JSONRPCRequest& request)
         found.push_back(o);
     }
 
-    // Rescan so the imported keys pick up the transactions that pay them.
-    if (!hits.empty()) pwalletMain->ScanForWalletTransactions(chainActive[from], true);
-
     UniValue result(UniValue::VOBJ);
     result.pushKV("from_height", from);
     result.pushKV("to_height", to);
