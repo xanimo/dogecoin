@@ -368,6 +368,7 @@ std::string HelpMessage(HelpMessageMode mode)
 #endif
     strUsage += HelpMessageOpt("-txindex", strprintf(_("Maintain a full transaction index, used by the getrawtransaction rpc call (default: %u)"), DEFAULT_TXINDEX));
     strUsage += HelpMessageOpt("-tweakindex", strprintf(_("Maintain an index of BIP352 silent payment scanning tweaks (default: %u)"), DEFAULT_TWEAKINDEX));
+    strUsage += HelpMessageOpt("-silentpaymentscan", _("Scan each new block for silent payments to this wallet, importing keys as they are found. Requires -tweakindex. Costs one ECDH per indexed transaction per block (default: 0)"));
 
     strUsage += HelpMessageGroup(_("Connection options:"));
     strUsage += HelpMessageOpt("-addnode=<ip>", _("Add a node to connect to and attempt to keep the connection open"));

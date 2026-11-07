@@ -787,6 +787,16 @@ public:
     bool AddToWallet(const CWalletTx& wtxIn, bool fFlushOnClose=true);
     bool LoadToWallet(const CWalletTx& wtxIn);
     void SyncTransaction(const CTransaction& tx, const CBlockIndex *pindex, int posInBlock) override;
+
+    /**
+     * Scan each newly connected block for silent payments, when -silentpaymentscan is on.
+     *
+     * One block at a time rather than a range, so the locks are held for a block's worth of
+     * tweaks and no longer. The historical catch-up is deliberately not done here: a wallet
+     * that has fallen far behind should use scansilentpayments, where the caller chooses the
+     * range and knows it will take a while.
+     */
+    void UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload) override;
     bool AddToWalletIfInvolvingMe(const CTransaction& tx, const CBlockIndex* pIndex, int posInBlock, bool fUpdate);
     CBlockIndex* ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate = false);
     void ReacceptWalletTransactions();

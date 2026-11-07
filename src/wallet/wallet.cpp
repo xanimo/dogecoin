@@ -192,6 +192,49 @@ bool CWallet::GetSilentPaymentsKeys(CKey& scan_key, CKey& spend_key) const
     return scan_key.IsValid() && spend_key.IsValid();
 }
 
+void CWallet::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload)
+{
+    if (fInitialDownload || !ptweakindex || pindexNew == NULL) return;
+    if (!GetBoolArg("-silentpaymentscan", false)) return;
+
+    LOCK2(cs_main, cs_wallet);
+    if (IsLocked()) return;        // cannot derive without the seed; catch up on unlock
+
+    CWalletDB db(strWalletFile);
+    int scanned_to = -1;
+    if (!db.ReadSilentPaymentScanHeight(scanned_to)) {
+        // First time on: start here rather than sweeping history. A wallet that wants the past
+        // asks for it explicitly, where the cost is the caller's choice.
+        db.WriteSilentPaymentScanHeight(pindexNew->nHeight);
+        return;
+    }
+
+    // A reorg can move the tip below the watermark; resume from the fork rather than skipping
+    // the blocks that replaced the ones we had already scanned.
+    if (pindexFork != NULL && pindexFork->nHeight < scanned_to) scanned_to = pindexFork->nHeight;
+    if (scanned_to >= pindexNew->nHeight) return;
+
+    std::vector<CSilentPaymentFound> found;
+    std::string error;
+    for (int h = scanned_to + 1; h <= pindexNew->nHeight; h++) {
+        std::vector<CSilentPaymentFound> one;
+        if (!ScanSilentPayments(h, h, one, error)) {
+            LogPrintf("silent payments: stopping live scan at height %d: %s\n", h, error);
+            break;
+        }
+        found.insert(found.end(), one.begin(), one.end());
+        db.WriteSilentPaymentScanHeight(h);
+    }
+
+    if (!found.empty()) {
+        LogPrintf("silent payments: found %u output(s) in blocks %d-%d\n",
+                  (unsigned)found.size(), scanned_to + 1, pindexNew->nHeight);
+        for (size_t i = 0; i < found.size(); i++) {
+            NotifyTransactionChanged(this, found[i].txid, CT_NEW);
+        }
+    }
+}
+
 bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFound>& found, std::string& error)
 {
     AssertLockHeld(cs_main);
@@ -260,6 +303,12 @@ bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFou
                         return false;
                     }
                 }
+                // Tell the wallet about this transaction now that we hold its key. SyncTransaction
+                // already passed over it without the key and ignored it, so without this the key
+                // is present and the output invisible. Targeted, so neither caller needs a
+                // blanket rescan to see what it just found.
+                AddToWalletIfInvolvingMe(tx, pindex, (int)entries[e].tx_index, true);
+
                 CSilentPaymentFound f;
                 f.txid = tx.GetHash();
                 f.vout = (uint32_t)hits[h].vout;

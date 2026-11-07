@@ -143,6 +143,10 @@ public:
 
     bool WriteOrderPosNext(int64_t nOrderPosNext);
 
+    //! Height this wallet has scanned the tweak index up to. Absent means never scanned.
+    bool WriteSilentPaymentScanHeight(int height);
+    bool ReadSilentPaymentScanHeight(int& height);
+
     bool WriteDefaultKey(const CPubKey& vchPubKey);
 
     bool ReadPool(int64_t nPool, CKeyPool& keypool);
