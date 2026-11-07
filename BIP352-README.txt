@@ -59,6 +59,38 @@ reveal one compressed key, but 97% of those are
 `<key> OP_CHECKSIGVERIFY` followed by a run of OP_DROPs, which is the
 reveal side of a data carrier rather than a wallet anyone would pay.
 
+reproducing the measurements
+----------------------------
+
+whole-chain corpus. run at contrib/bip352/undo_corpus.py as of cc00b0ac87, against a node
+synced to height 6381544, block hash
+4c38566f20178bad6ec3e5835b22dfa26ad12d02dc4da7077f92a5391b1cd6dc:
+
+    ./contrib/bip352/undo_corpus.py --datadir /mnt/bigdata/dogecoin \
+        --jobs 7 --cache-dir /path/to/ckpt --out corpus_fullchain.json
+
+--cache-dir checkpoints each blk file as it finishes, so an interrupted run resumes instead of
+starting over; the pass takes hours. the full json report this produced is in
+bip352-reports/corpus_fullchain.json here.
+
+the classifier was tightened afterwards, in e2daafd05d, to refuse hybrid pubkey prefixes. that
+does not change the result and the report was not regenerated: a hybrid key would have been
+counted eligible under an off_curve key type, and the report has no off_curve bucket at all, its
+526056252 compressed plus 25372780 uncompressed summing to the whole 551429032 eligible.
+
+key encodings by era, and the p2sh breakdown, are samples rather than whole-chain. the era
+sample reads blk00100, blk00400, blk00900, blk01200 and blk01356; the p2sh sample reads
+blk00700, blk01000, blk01200 and blk01356. both drive _run_file from undo_corpus.py directly
+rather than through the cli, so reproducing them means a short script, not a flag.
+
+index size. measured with the node stopped, so nothing is mid-compaction:
+
+    du -sb /mnt/bigdata/dogecoin/indexes/tweakindex
+    10771497975
+
+which is 10283 MiB, over 278571058 entries, so 38.7 bytes each against 33 bytes of payload.
+entries are batched per block rather than per transaction, which is why the overhead is small.
+
 building and testing
 --------------------
 
