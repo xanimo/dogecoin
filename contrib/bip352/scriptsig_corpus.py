@@ -133,6 +133,13 @@ def classify(script_sig, spk):
     for data, is_push in pushes:
         if not is_push or len(data) not in (33, 65):
             continue
+        # 0x02/0x03 compressed, 0x04 uncompressed. The hybrid encodings 0x06 and 0x07 are
+        # refused, matching src/bip352.cpp. libsecp256k1 parses them, so a reader built on it
+        # would accept a key a prefix-checking reader rejects, and the two would sum a different
+        # A. A hybrid key here therefore yields no_match, which is what the C++ reports for the
+        # same input, rather than an eligible input with a misleading key type.
+        if data[0] not in (0x02, 0x03, 0x04):
+            continue
         if hash160(data) == pubkey_hash:
             matches.add(data)
 
