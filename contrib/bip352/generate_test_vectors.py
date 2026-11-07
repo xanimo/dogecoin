@@ -61,10 +61,19 @@ def ser_compressed(point):
 
 
 def parse_point(data):
-    """Parse a 33-byte compressed or 65-byte uncompressed point."""
+    """Parse a 33-byte compressed or 65-byte uncompressed point.
+
+    Accepts exactly the prefixes the eligibility rule accepts: 0x02, 0x03 and 0x04. The hybrid
+    encodings 0x06 and 0x07 are refused here rather than parsed, because libsecp256k1 does parse
+    them and an implementation built on it would otherwise accept a key this one rejects. A
+    hybrid reaching this function is an ineligible input, not a malformed one, so it says so.
+    """
+    if len(data) == 65 and data[0] in (6, 7):
+        raise ValueError('hybrid pubkey encoding 0x%02x is not eligible: %s' % (data[0], data.hex()))
     if len(data) == 65 and data[0] == 4:
         return (int.from_bytes(data[1:33], 'big'), int.from_bytes(data[33:65], 'big'))
-    assert len(data) == 33 and data[0] in (2, 3), data.hex()
+    if len(data) != 33 or data[0] not in (2, 3):
+        raise ValueError('not an eligible pubkey encoding: %s' % data.hex())
     x = int.from_bytes(data[1:], 'big')
     y = pow((x * x * x + 7) % P, (P + 1) // 4, P)
     if y % 2 != data[0] - 2:
