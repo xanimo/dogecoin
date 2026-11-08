@@ -24,15 +24,32 @@ the port signs the same fields: `Output::GetSignatureMessage` hashes the commitm
 
 ## balance equations
 
-value: `sum(outputs) + (fees + pegouts)*H == sum(inputs) + sum(excesses) + pegins*H + kernel_offset*G`, checked as sum-to-zero with `secp256k1_pedersen_verify_tally` (`libmw.cpp:63-99`). this is litecoin's `KernelSumValidator` identity with the supply change folded into the `H` terms rather than a signed transparent commitment. a block validates the merged body against a single offset which is the scalar sum of its transactions' offsets (`libmw.cpp:302-322`), matching litecoin's header offset.
+value: `sum(outputs) + (fees + pegouts)*H == sum(inputs) + sum(excesses) + pegins*H + kernel_offset*G`, checked as sum-to-zero with `secp256k1_pedersen_verify_tally` (`mw/consensus/KernelSumValidator.h:31`). this is litecoin's `KernelSumValidator` identity with the supply change folded into the `H` terms rather than a signed transparent commitment. a block validates the merged body against a single offset which is the scalar sum of its transactions' offsets (`libmw.cpp:291-311`), matching litecoin's header offset.
 
-stealth: `sum(output sender keys) - sum(input owner keys) == stealth_offset*G` (`libmw.cpp:101-127`), where each input's owner key is the receiver one-time key of the output it spends. litecoin's equation is `sum(K_s) + sum(K_i) == sum(E') + x'*G + sum(K_o)` (`include/mw/consensus/StealthSumValidator.h:14`). remove the input stealth keys `K_i` and kernel stealth excesses `E'`, the two key classes the port does not use, and litecoin's equation reduces to the port's, so the port's stealth balance is the litecoin balance restricted to the keys that exist here. sender keys remain non-malleable under it: substituting a sender key or the offset requires the original sender's secret to compute the compensating delta.
+stealth: `sum(output sender keys) - sum(input owner keys) == stealth_offset*G` (`mw/consensus/StealthSumValidator.h:33`), where each input's owner key is the receiver one-time key of the output it spends. litecoin's equation is `sum(K_s) + sum(K_i) == sum(E') + x'*G + sum(K_o)` (`include/mw/consensus/StealthSumValidator.h:14`). remove the input stealth keys `K_i` and kernel stealth excesses `E'`, the two key classes the port does not use, and litecoin's equation reduces to the port's, so the port's stealth balance is the litecoin balance restricted to the keys that exist here. sender keys remain non-malleable under it: substituting a sender key or the offset requires the original sender's secret to compute the compensating delta.
+
+## error ordering
+
+`ValidateBodyCrypto` checks range proofs, then output sender signatures, then
+input owner signatures, then kernel signatures, then the two sums
+(`libmw.cpp:30-84`). a body failing more than one rule reports the first in that
+order, and splitting the sums into their own headers did not move them: they are
+still last, in the same sequence.
+
+`BlockBuilder::AddTransaction` runs only the two sums (`libmw.cpp:277-278`), with
+no signature or range-proof check, because the staged set is re-checked as each
+transaction is merged in and the miner has already validated each transaction at
+mempool acceptance. a miner staging a body that is both unbalanced and badly
+signed therefore sees "Body does not balance (inflation)" where connect-time
+validation would have reported the signature failure first. litecoin runs its
+sum validators from the same two places, so the divergence is in which rule the
+port reaches first at staging, not in which bodies either accepts.
 
 ## what this leaves open
 
 output binding was the hole and is now closed. a relaying peer that rewrites an output's receiver key, key-exchange pubkey, view tag or masked value invalidates the sender signature, which consensus verifies, so the transaction is rejected rather than confirmed with the payment destroyed. what the rewrite could never do, then or now, is steal: spending needs the blind and an ecdh secret between keys the relay holds neither of, and substituting the sender key is what the stealth balance prevents.
 
-the value-balance-only carve-outs were consensus, not test scaffolding, and are also closed. an input with no owner key is rejected rather than having its signature skipped (`libmw.cpp:59`), the stealth balance runs on every body rather than only those carrying a stealth key (`libmw.cpp:134`), and connect rejects a null claimed key instead of matching it against an output created without a receiver key (`src/mweb/mweb_db.cpp:117`). outputs spendable by anyone who knows the blind are no longer accepted by the network, not merely absent from what the wallet creates.
+the value-balance-only carve-outs were consensus, not test scaffolding, and are also closed. an input with no owner key is rejected rather than having its signature skipped (`libmw.cpp:59`), the stealth balance runs on every body rather than only those carrying a stealth key (`libmw.cpp:83`), and connect rejects a null claimed key instead of matching it against an output created without a receiver key (`src/mweb/mweb_db.cpp:117`). outputs spendable by anyone who knows the blind are no longer accepted by the network, not merely absent from what the wallet creates.
 
 what is left is narrower than the above. the rangeproof carries no extra commit data, so a verifier that checks proofs without checking signatures sees an unbound message; `TxBuilder` derives a sender key by hashing the coin's blind when the caller supplies none, which is deterministic rather than ephemeral and is a stand-in for a wallet-supplied key; and the kernel stealth excess and input stealth key remain parsed, committed and inert, as described above.
 
