@@ -3454,12 +3454,18 @@ UniValue scansilentpayments(const JSONRPCRequest& request)
             "\nExamples:\n"
             + HelpExampleCli("scansilentpayments", "0 100"));
 
-    LOCK2(cs_main, pwalletMain->cs_wallet);
-    EnsureWalletIsUnlocked();
+    int from, to;
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+        EnsureWalletIsUnlocked();
+        const int tip = chainActive.Height();
+        from = request.params.size() > 0 ? request.params[0].get_int() : 0;
+        to = request.params.size() > 1 ? request.params[1].get_int() : tip;
+    }
 
-    const int tip = chainActive.Height();
-    const int from = request.params.size() > 0 ? request.params[0].get_int() : 0;
-    const int to = request.params.size() > 1 ? request.params[1].get_int() : tip;
+    // Deliberately not holding cs_main across the call below. ScanSilentPayments takes both
+    // locks a batch at a time, and holding them here would defeat that and leave the node
+    // unresponsive for the length of the scan, which on a whole-chain range is hours.
 
     // The scan itself lives on CWallet so this and the block-connect path cannot drift apart.
     std::vector<CWallet::CSilentPaymentFound> hits;
