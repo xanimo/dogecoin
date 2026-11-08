@@ -13,6 +13,7 @@
 
 #include <list>
 #include <stdint.h>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -146,6 +147,11 @@ public:
     //! Height this wallet has scanned the tweak index up to. Absent means never scanned.
     bool WriteSilentPaymentScanHeight(int height);
     bool ReadSilentPaymentScanHeight(int& height);
+
+    //! Labels handed out as silent payment addresses. A label not recorded here is a label the
+    //! scanner will not look for, so payments to it are invisible.
+    bool WriteSilentPaymentLabel(uint32_t m);
+    bool ReadSilentPaymentLabels(std::set<uint32_t>& labels);
 
     bool WriteDefaultKey(const CPubKey& vchPubKey);
 

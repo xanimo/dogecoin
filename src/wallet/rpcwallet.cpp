@@ -3226,26 +3226,44 @@ extern UniValue importmulti(const JSONRPCRequest& request);
 UniValue getsilentpaymentaddress(const JSONRPCRequest& request)
 {
     if (!EnsureWalletIsAvailable(request.fHelp)) return NullUniValue;
-    if (request.fHelp || request.params.size() != 0)
+    if (request.fHelp || request.params.size() > 1)
         throw std::runtime_error(
-            "getsilentpaymentaddress\n"
+            "getsilentpaymentaddress ( label )\n"
             "\nReturns this wallet's reusable BIP352 silent payment address.\n"
             "\nThe address is derived from the HD seed at m/352'/3'/0', so it is the same after a\n"
             "seed restore and does not need separate backup.\n"
+            "\nArguments:\n"
+            "1. label   (numeric, optional) return a labelled address instead. Labels let one\n"
+            "           wallet hand out distinguishable addresses, but each one registered costs\n"
+            "           another hash160 per candidate on every transaction scanned thereafter,\n"
+            "           so hand them out sparingly. 0 is reserved for change.\n"
             "\nResult:\n"
             "\"address\"    (string) the bech32m silent payment address\n"
             "\nExamples:\n"
             + HelpExampleCli("getsilentpaymentaddress", "")
+            + HelpExampleCli("getsilentpaymentaddress", "7")
             + HelpExampleRpc("getsilentpaymentaddress", ""));
 
     LOCK2(cs_main, pwalletMain->cs_wallet);
     EnsureWalletIsUnlocked();
 
+    bip352::CSilentPaymentsAddress address;
+    std::string error;
+
+    if (request.params.size() == 1) {
+        const int64_t m = request.params[0].get_int64();
+        if (m <= 0 || m > std::numeric_limits<uint32_t>::max())
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                "label must be a positive number; 0 is reserved for change");
+        if (!pwalletMain->GetSilentPaymentsLabeledAddress(address, (uint32_t)m, error))
+            throw JSONRPCError(RPC_WALLET_ERROR, error);
+        return bip352::EncodeSilentPaymentsAddress(address, Params());
+    }
+
     CKey scan_key, spend_key;
     if (!pwalletMain->GetSilentPaymentsKeys(scan_key, spend_key))
         throw JSONRPCError(RPC_WALLET_ERROR, "Wallet has no HD seed; silent payments need one");
 
-    bip352::CSilentPaymentsAddress address;
     if (!bip352::CSilentPaymentsAddress::Create(address, scan_key.GetPubKey(), spend_key.GetPubKey()))
         throw JSONRPCError(RPC_WALLET_ERROR, "Could not build the silent payment address");
 
@@ -3497,7 +3515,7 @@ static const CRPCCommand commands[] =
     { "rawtransactions",    "fundrawtransaction",       &fundrawtransaction,       false,  {"hexstring","options"} },
     { "hidden",             "resendwallettransactions", &resendwallettransactions, true,   {} },
     { "wallet",             "abandontransaction",       &abandontransaction,       false,  {"txid"} },
-    { "wallet",             "getsilentpaymentaddress",  &getsilentpaymentaddress,  true,   {} },
+    { "wallet",             "getsilentpaymentaddress",  &getsilentpaymentaddress,  true,   {"label"} },
     { "wallet",             "sendtosilentpaymentaddress", &sendtosilentpaymentaddress, false, {"address","amount"} },
     { "wallet",             "scansilentpayments",       &scansilentpayments,       false,  {"start","stop"} },
     { "wallet",             "addmultisigaddress",       &addmultisigaddress,       true,   {"nrequired","keys","account"} },
