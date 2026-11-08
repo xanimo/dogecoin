@@ -165,6 +165,33 @@ bool CWalletDB::ReadSilentPaymentScanHeight(int& height)
     return Read(std::string("spscanheight"), height);
 }
 
+bool CWalletDB::WriteSilentPaymentLabel(uint32_t m)
+{
+    nWalletDBUpdateCounter++;
+    return Write(std::make_pair(std::string("splabel"), m), true);
+}
+
+bool CWalletDB::ReadSilentPaymentLabels(std::set<uint32_t>& labels)
+{
+    labels.clear();
+    Dbc* cursor = GetCursor();
+    if (!cursor) return false;
+    while (true) {
+        CDataStream key(SER_DISK, CLIENT_VERSION), value(SER_DISK, CLIENT_VERSION);
+        const int ret = ReadAtCursor(cursor, key, value);
+        if (ret == DB_NOTFOUND) break;
+        if (ret != 0) { cursor->close(); return false; }
+        std::string type;
+        key >> type;
+        if (type != "splabel") continue;
+        uint32_t m;
+        key >> m;
+        labels.insert(m);
+    }
+    cursor->close();
+    return true;
+}
+
 bool CWalletDB::WriteDefaultKey(const CPubKey& vchPubKey)
 {
     nWalletDBUpdateCounter++;

@@ -43,6 +43,7 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "getnetworkhashps", 1, "height" },
     { "sendtoaddress", 1, "amount" },
     { "sendtosilentpaymentaddress", 1, "amount" },
+    { "getsilentpaymentaddress", 0, "label" },
     { "scansilentpayments", 0, "start" },
     { "scansilentpayments", 1, "stop" },
     { "sendtoaddress", 4, "subtractfeefromamount" },

@@ -244,6 +244,9 @@ struct CFoundOutput
 class CSilentPaymentsReceiver
 {
 public:
+    /** Constructs invalid, so a receiver can be declared and built later. IsValid() says so. */
+    CSilentPaymentsReceiver() : m_valid(false) {}
+
     CSilentPaymentsReceiver(const CKey& scan_key, const CPubKey& spend_pubkey);
 
     bool IsValid() const { return m_valid; }

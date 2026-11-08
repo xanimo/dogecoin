@@ -250,28 +250,72 @@ struct CScanBatchLock {
 };
 } // namespace
 
-bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFound>& found, std::string& error)
+bool CWallet::BuildSilentPaymentsReceiver(bip352::CSilentPaymentsReceiver& out, CKey& spend_key, std::string& error)
 {
-    found.clear();
-
-    if (!ptweakindex) {
-        error = "scanning silent payments needs -tweakindex";
-        return false;
-    }
-    if (from < 0 || to < from || to > chainActive.Height()) {
-        error = "invalid height range";
-        return false;
-    }
-
-    CKey scan_key, spend_key;
+    CKey scan_key;
     if (!GetSilentPaymentsKeys(scan_key, spend_key)) {
         error = "wallet has no HD seed; silent payments need one";
         return false;
     }
-    bip352::CSilentPaymentsReceiver receiver(scan_key, spend_key.GetPubKey());
-    if (!receiver.IsValid()) {
+    out = bip352::CSilentPaymentsReceiver(scan_key, spend_key.GetPubKey());
+    if (!out.IsValid()) {
         error = "could not build the scanning receiver";
         return false;
+    }
+
+    // Every label ever handed out, or payments to the ones missed are invisible.
+    std::set<uint32_t> labels;
+    if (!CWalletDB(strWalletFile).ReadSilentPaymentLabels(labels)) {
+        error = "could not read the silent payment labels";
+        return false;
+    }
+    for (std::set<uint32_t>::const_iterator it = labels.begin(); it != labels.end(); ++it) {
+        bip352::CSilentPaymentsAddress unused;
+        if (!out.GenerateLabeledAddress(unused, *it)) {
+            error = strprintf("could not restore label %u", *it);
+            return false;
+        }
+    }
+    return true;
+}
+
+bool CWallet::GetSilentPaymentsLabeledAddress(bip352::CSilentPaymentsAddress& out, uint32_t m, std::string& error)
+{
+    bip352::CSilentPaymentsReceiver receiver;
+    CKey spend_key;
+    if (!BuildSilentPaymentsReceiver(receiver, spend_key, error)) return false;
+
+    // Recorded before it is handed out. An address whose label was not persisted is one the
+    // next scan will not look for.
+    if (!CWalletDB(strWalletFile).WriteSilentPaymentLabel(m)) {
+        error = "could not record the label";
+        return false;
+    }
+    if (!receiver.GenerateLabeledAddress(out, m)) {
+        error = strprintf("could not derive an address for label %u", m);
+        return false;
+    }
+    return true;
+}
+
+bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFound>& found, std::string& error)
+{
+    found.clear();
+
+    bip352::CSilentPaymentsReceiver receiver;
+    CKey spend_key;
+    {
+        // Under the lock: chainActive and the wallet's keys and labels are all read here.
+        LOCK2(cs_main, cs_wallet);
+        if (!ptweakindex) {
+            error = "scanning silent payments needs -tweakindex";
+            return false;
+        }
+        if (from < 0 || to < from || to > chainActive.Height()) {
+            error = "invalid height range";
+            return false;
+        }
+        if (!BuildSilentPaymentsReceiver(receiver, spend_key, error)) return false;
     }
 
     std::unique_ptr<CScanBatchLock> batch;

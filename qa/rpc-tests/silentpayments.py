@@ -153,6 +153,37 @@ class SilentPaymentsTest(BitcoinTestFramework):
         chained = receiver.scansilentpayments(chained_height, chained_height)['found']
         assert_equal(sorted(f['amount'] for f in chained), [25, 50])
 
+        # Labels. A labelled address is a different string paying the same wallet, and the label
+        # must outlive the process: hand one out, restart, and a payment to it still has to be
+        # found. A label the scanner has forgotten is a payment nobody sees.
+        labelled = receiver.getsilentpaymentaddress(7)
+        assert labelled != sp_address, 'labelled address should differ from the plain one'
+        assert labelled.startswith('dsprt1'), labelled
+        assert_equal(labelled, receiver.getsilentpaymentaddress(7))
+        assert_raises_jsonrpc(-8, "reserved for change", receiver.getsilentpaymentaddress, 0)
+
+        self.stop_node(1)
+        self.nodes[1] = start_node(1, self.options.tmpdir,
+                                   ['-usehd=1', '-tweakindex', '-silentpaymentscan'])
+        connect_nodes_bi(self.nodes, 0, 1)
+        sync_blocks(self.nodes)
+        receiver = self.nodes[1]
+        assert_equal(receiver.getsilentpaymentaddress(7), labelled)
+
+        label_txid = sender.sendtosilentpaymentaddress(labelled, 40)
+        sync_mempools(self.nodes)
+        sender.generate(1)
+        sync_blocks(self.nodes)
+        label_height = sender.getblockcount()
+
+        hit = [f for f in receiver.scansilentpayments(label_height, label_height)['found']
+               if f['txid'] == label_txid and f['amount'] == 40]
+        assert_equal(len(hit), 1)
+        spendable = [u for u in receiver.listunspent(0, 9999999, [hit[0]['address']])
+                     if u['txid'] == label_txid]
+        assert_equal(len(spendable), 1)
+        assert_equal(spendable[0]['spendable'], True)
+
         # Without the index there is nothing to scan, and saying so beats returning an empty set.
         self.stop_node(1)
         self.nodes[1] = start_node(1, self.options.tmpdir, ['-usehd=1'])

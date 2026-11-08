@@ -8,6 +8,7 @@
 #define BITCOIN_WALLET_WALLET_H
 
 #include "amount.h"
+#include "bip352.h"
 #include "auxpow.h"
 #include "dogecoin-fees.h"
 #include "streams.h"
@@ -757,6 +758,18 @@ public:
      * me". Returns false and sets error on any such problem.
      */
     bool ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFound>& found, std::string& error);
+
+    /**
+     * Build a scanning receiver carrying every label this wallet has handed out.
+     *
+     * One place, so a caller cannot construct a receiver that is missing a label and then
+     * silently fail to see payments made to it. Each label costs another hash160 per k on every
+     * transaction scanned, which is why they are handed out one at a time and recorded.
+     */
+    bool BuildSilentPaymentsReceiver(bip352::CSilentPaymentsReceiver& out, CKey& spend_key, std::string& error);
+
+    /** Register label m and return the address for it, remembering it for future scans. */
+    bool GetSilentPaymentsLabeledAddress(bip352::CSilentPaymentsAddress& out, uint32_t m, std::string& error);
     //! Adds a key to the store, and saves it to disk.
     bool AddKeyPubKey(const CKey& key, const CPubKey &pubkey) override;
     //! Adds a key to the store, without saving it to disk (used by LoadWallet)
