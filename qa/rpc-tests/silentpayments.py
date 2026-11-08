@@ -14,10 +14,13 @@ free because its coinbases are P2PK, which the receiver's P2PKH-only rule ignore
 """
 
 import os
+import socket
 import subprocess
+import time
 
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
+    rpc_port,
     start_node,
     start_nodes,
     connect_nodes_bi,
@@ -26,6 +29,37 @@ from test_framework.util import (
     assert_equal,
     assert_raises_jsonrpc,
 )
+
+
+def wait_for_port_free(port, timeout=60):
+    """Wait until nothing is listening on `port`.
+
+    A node that fails during startup has already bound its rpc port, and the next node can race
+    it: "Binding RPC on address ::1 port N failed" is a flake, not a result, and it only showed
+    up on the slower debug build.
+
+    Probes by connecting rather than binding. Binding to test would leave this process's own
+    sockets in TIME_WAIT and poison the port for the next poll.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        listening = False
+        for family, addr in ((socket.AF_INET6, '::1'), (socket.AF_INET, '127.0.0.1')):
+            sock = socket.socket(family, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            try:
+                sock.connect((addr, port))
+                listening = True
+            except OSError:
+                pass
+            finally:
+                sock.close()
+            if listening:
+                break
+        if not listening:
+            return
+        time.sleep(0.5)
+    raise AssertionError('something is still listening on rpc port %d' % port)
 
 
 class SilentPaymentsTest(BitcoinTestFramework):
@@ -162,6 +196,7 @@ class SilentPaymentsTest(BitcoinTestFramework):
         assert_raises_jsonrpc(-8, "reserved for change", receiver.getsilentpaymentaddress, 0)
 
         self.stop_node(1)
+        wait_for_port_free(rpc_port(1))
         self.nodes[1] = start_node(1, self.options.tmpdir,
                                    ['-usehd=1', '-tweakindex', '-silentpaymentscan'])
         connect_nodes_bi(self.nodes, 0, 1)
@@ -185,6 +220,7 @@ class SilentPaymentsTest(BitcoinTestFramework):
 
         # Without the index there is nothing to scan, and saying so beats returning an empty set.
         self.stop_node(1)
+        wait_for_port_free(rpc_port(1))
         self.nodes[1] = start_node(1, self.options.tmpdir, ['-usehd=1'])
         assert_raises_jsonrpc(-1, "needs -tweakindex",
                               self.nodes[1].scansilentpayments, 0, 1)
@@ -215,6 +251,7 @@ class SilentPaymentsTest(BitcoinTestFramework):
             raise AssertionError('node did not exit; it should refuse an index behind the chain')
         assert_equal(proc.returncode, 1)
         assert 'tweak index covers blocks up to' in stderr, 'wrong refusal reason: %s' % stderr
+        wait_for_port_free(rpc_port(1))
 
         # Bring it back without the index so the framework has a live node to shut down. The
         # rebuild path the error recommends is already what the rest of this test exercises.
