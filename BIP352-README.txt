@@ -111,15 +111,14 @@ known gaps
 
 no dip filed, so nothing here is ratified.
 
-no live scanning: payments are found by running scansilentpayments over
-a height range, not as blocks arrive. live scanning wants a scan
-watermark stored in the wallet, which is a wallet format addition.
-
 no light client. the tweak index is the server half of one; the client
 half needs bip158 filters to test candidate outputs against a block
 without downloading it, and those live on another branch.
 
-no labels beyond change. the machinery is there and no rpc exposes it.
+the index is built from ConnectBlock and so needs a reindex to populate
+over blocks already on disk. the newer index framework on the bip157
+branch syncs in the background instead, which would remove that cost,
+and is the shape this should take once those filters land.
 
 review status: one external review has been through the eligibility
 rule, the index, the connectblock hooks and the harnesses. it found the
