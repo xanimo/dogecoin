@@ -9,6 +9,7 @@
 #include "base58.h"
 #include "bip352.h"
 #include "checkpoints.h"
+#include "init.h"
 #include "chain.h"
 #include "dogecoin.h"
 #include "dogecoin-fees.h"
@@ -238,10 +239,19 @@ void CWallet::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *p
     }
 }
 
+//! Blocks scanned per lock acquisition, so a long scan leaves gaps for everything else.
+static const int SILENT_PAYMENT_SCAN_BATCH = 500;
+
+namespace {
+//! Holds cs_main and cs_wallet for the life of one batch.
+struct CScanBatchLock {
+    CScanBatchLock() { ENTER_CRITICAL_SECTION(cs_main); ENTER_CRITICAL_SECTION(pwalletMain->cs_wallet); }
+    ~CScanBatchLock() { LEAVE_CRITICAL_SECTION(pwalletMain->cs_wallet); LEAVE_CRITICAL_SECTION(cs_main); }
+};
+} // namespace
+
 bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFound>& found, std::string& error)
 {
-    AssertLockHeld(cs_main);
-    AssertLockHeld(cs_wallet);
     found.clear();
 
     if (!ptweakindex) {
@@ -264,7 +274,32 @@ bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFou
         return false;
     }
 
+    std::unique_ptr<CScanBatchLock> batch;
+
     for (int height = from; height <= to; height++) {
+        // Re-taken once per batch rather than held across the whole range: a whole-chain scan is
+        // hours of disk reads and curve multiplication, and holding cs_main throughout makes the
+        // node unresponsive for the duration. The chain can therefore move between batches, so
+        // that is checked rather than assumed away.
+        if ((height - from) % SILENT_PAYMENT_SCAN_BATCH == 0) {
+            if (batch.get() != NULL) {
+                batch.reset();
+                // Releasing and immediately re-taking wins the race every time: cs_main is not
+                // fair, so a waiter never gets in and the node stays blocked for the whole scan
+                // despite the lock being dropped. Yield so something else can actually run.
+                MilliSleep(1);
+            }
+            if (ShutdownRequested()) {
+                error = strprintf("interrupted at height %d", height);
+                return false;
+            }
+            batch.reset(new CScanBatchLock());
+            if (height > chainActive.Height()) {
+                error = strprintf("chain reorganised below height %d during the scan", height);
+                return false;
+            }
+        }
+
         // Genesis is never connected through ConnectBlock, so it has no entry and never will.
         // It holds one coinbase and no spendable input, so there is nothing to scan.
         if (height == 0) continue;
