@@ -141,13 +141,15 @@ public:
         std::sort(outs.begin(), outs.end(),
                   [](const Output& a, const Output& b) { return a.GetHash() < b.GetHash(); });
 
-        // Stealth (owner-key) offset: negate the sum of the signed inputs' spend
-        // keys. Since these inputs carry those keys' public keys as their owner
-        // keys, this makes the stealth balance
+        // Stealth (owner-key) offset: the sum of the outputs' sender keys less
+        // the sum of the signed inputs' spend keys, which is what the stealth
+        // balance checks:
         //   Sum(output sender keys) - Sum(input owner keys) == stealthOffset*G
-        // hold for a body whose outputs have no sender key (plain outputs, and
-        // pure peg-outs with no MWEB output). A stealth output added afterwards
-        // via WithStealthOutput folds its ephemeral sender key into this offset.
+        // Every output gets a sender key, derived from its blind when the coin
+        // supplies none, so every output contributes a term. A caller that
+        // substitutes a stealth output afterwards must therefore build its coin
+        // with the same sender key that output carries, or the term computed
+        // here is not the one the body ends up with.
         const BlindingFactor stealthOffset = ComputeStealthOffset(inputs, outputs);
 
         std::vector<Kernel> kers; kers.push_back(kernel);
