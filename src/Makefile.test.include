@@ -161,12 +161,17 @@ endif
 
 test_test_dogecoin_SOURCES = $(BITCOIN_TESTS) $(JSON_TEST_FILES) $(RAW_TEST_FILES)
 test_test_dogecoin_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) -I$(builddir)/test/ $(TESTDEFS) $(EVENT_CFLAGS)
-test_test_dogecoin_LDADD = $(LIBDOGECOIN_SERVER) $(LIBDOGECOIN_CLI) $(LIBDOGECOIN_COMMON) $(LIBDOGECOIN_UTIL) $(LIBDOGECOIN_CONSENSUS) $(LIBDOGECOIN_CRYPTO) $(LIBUNIVALUE) $(LIBLEVELDB) $(LIBMEMENV) \
+# The wallet library comes first: it references server symbols, and ld resolves static archives
+# left to right. With the server first, a wallet reference only resolved when some other object
+# had already pulled the defining member in for its own reasons.
+if ENABLE_WALLET
+test_test_dogecoin_LDADD = $(LIBDOGECOIN_WALLET)
+else
+test_test_dogecoin_LDADD =
+endif
+test_test_dogecoin_LDADD += $(LIBDOGECOIN_SERVER) $(LIBDOGECOIN_CLI) $(LIBDOGECOIN_COMMON) $(LIBDOGECOIN_UTIL) $(LIBDOGECOIN_CONSENSUS) $(LIBDOGECOIN_CRYPTO) $(LIBUNIVALUE) $(LIBLEVELDB) $(LIBMEMENV) \
   $(BOOST_LIBS) $(BOOST_UNIT_TEST_FRAMEWORK_LIB) $(LIBSECP256K1) $(EVENT_LIBS)
 test_test_dogecoin_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-if ENABLE_WALLET
-test_test_dogecoin_LDADD += $(LIBDOGECOIN_WALLET)
-endif
 
 test_test_dogecoin_LDADD += $(LIBDOGECOIN_CONSENSUS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS)
 test_test_dogecoin_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) -static
