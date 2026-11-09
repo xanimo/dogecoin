@@ -20,7 +20,7 @@
 #include "util.h"
 #include "utilmoneystr.h"
 #include "bip352.h"
-#include "tweakindex.h"
+#include "index/tweakindex.h"
 #include "wallet.h"
 #include "wallet/rpcutil.h"
 #include "walletdb.h"
@@ -3556,6 +3556,10 @@ UniValue scansilentpayments(const JSONRPCRequest& request)
             "}\n"
             "\nExamples:\n"
             + HelpExampleCli("scansilentpayments", "0 100"));
+
+    // The index syncs in its own thread, so without this a scan issued right after a block
+    // arrived can read a height the index has not written yet and fail on it.
+    if (g_tweakindex) g_tweakindex->BlockUntilSyncedToCurrentChain();
 
     int from, to;
     {

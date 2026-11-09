@@ -7,6 +7,7 @@
 #include "base58.h"
 #include "clientversion.h"
 #include "index/blockfilterindex.h"
+#include "index/tweakindex.h"
 #include "index/txindex.h"
 #include "init.h"
 #include "net.h"
@@ -589,6 +590,10 @@ UniValue getindexinfo(const JSONRPCRequest& request)
 
     if (g_txindex) {
         result.pushKVs(SummaryToJSON(g_txindex->GetSummary(), index_name));
+    }
+
+    if (g_tweakindex) {
+        result.pushKVs(SummaryToJSON(g_tweakindex->GetSummary(), index_name));
     }
 
     ForEachBlockFilterIndex([&result, &index_name](const BlockFilterIndex& index) {

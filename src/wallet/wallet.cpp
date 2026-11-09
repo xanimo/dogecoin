@@ -28,7 +28,7 @@
 #include "script/sign.h"
 #include "scheduler.h"
 #include "timedata.h"
-#include "tweakindex.h"
+#include "index/tweakindex.h"
 #include "txmempool.h"
 #include "util.h"
 #include "ui_interface.h"
@@ -197,7 +197,7 @@ bool CWallet::GetSilentPaymentsKeys(CKey& scan_key, CKey& spend_key) const
 
 void CWallet::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload)
 {
-    if (fInitialDownload || !ptweakindex || pindexNew == NULL) return;
+    if (fInitialDownload || !g_tweakindex || pindexNew == NULL) return;
     if (!GetBoolArg("-silentpaymentscan", false)) return;
 
     LOCK2(cs_main, cs_wallet);
@@ -307,7 +307,7 @@ bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFou
     {
         // Under the lock: chainActive and the wallet's keys and labels are all read here.
         LOCK2(cs_main, cs_wallet);
-        if (!ptweakindex) {
+        if (!g_tweakindex) {
             error = "scanning silent payments needs -tweakindex";
             return false;
         }
@@ -344,17 +344,16 @@ bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFou
             }
         }
 
-        // Genesis is never connected through ConnectBlock, so it has no entry and never will.
-        // It holds one coinbase and no spendable input, so there is nothing to scan.
+        // Genesis holds one coinbase and no spendable input, so there is nothing to scan.
         if (height == 0) continue;
 
         std::vector<CTweakEntry> entries;
-        // A height the index never covered must not look like a height with nothing in it.
-        // ConnectBlock writes a key for every block including empty ones, so a missing key means
-        // this range was never indexed, and carrying on would report no payments for it.
-        if (!ptweakindex->ReadBlock(height, entries)) {
-            error = strprintf("the tweak index has no entry for block %d, so this range was never "
-                              "indexed; rebuild with -reindex-chainstate -tweakindex", height);
+        // A height the index has not reached must not look like a height with nothing in it. The
+        // index writes a key for every block including empty ones, so a missing key means it has
+        // not got here yet, and carrying on would report no payments for this range.
+        if (!g_tweakindex->ReadBlock(height, entries)) {
+            error = strprintf("the tweak index has not reached block %d yet; wait for it to "
+                              "finish syncing and scan again", height);
             return false;
         }
         if (entries.empty()) continue;
@@ -385,11 +384,12 @@ bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFou
                         return false;
                     }
                 }
-                // Tell the wallet about this transaction now that we hold its key. SyncTransaction
+                // Tell the wallet about this transaction now that we hold its key. BlockConnected
                 // already passed over it without the key and ignored it, so without this the key
                 // is present and the output invisible. Targeted, so neither caller needs a
                 // blanket rescan to see what it just found.
-                AddToWalletIfInvolvingMe(tx, pindex, (int)entries[e].tx_index, true);
+                AddToWalletIfInvolvingMe(block.vtx[entries[e].tx_index], pindex,
+                                         (int)entries[e].tx_index, true);
 
                 CSilentPaymentFound f;
                 f.txid = tx.GetHash();

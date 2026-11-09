@@ -1,9 +1,9 @@
 bip352 silent payments over p2pkh, dogecoin core 1.14 line
 ==========================================================
 
-this is a snapshot of the feature/bip352-silent-payments branch,
-branched off b7cb494581 (merge of #4085 on master). the head it was cut
-at is in the archive filename. the source tree here is the branch at
+this is a snapshot of the silent payments branch stacked on the bip157
+and bip158 compact filter backport, so its base is that branch rather
+than master. the head it was cut at is in the archive filename. the source tree here is the branch at
 that head; bip352-patches/ holds the commits on top of the base as a
 git format-patch series, applicable with `git am`.
 
@@ -15,7 +15,8 @@ what it adds
 
 src/bech32.{h,cpp}        bech32 and bech32m codec (new, no segwit dependency)
 src/bip352.{h,cpp}        address derivation, ecdh shared secret, output scan
-src/tweakindex.{h,cpp}    per-block index of scanning tweaks
+src/index/tweakindex.{h,cpp}
+                          per-block index of scanning tweaks
 src/wallet/               silent payment keys derived from the hd seed
 src/wallet/rpcwallet.cpp  getsilentpaymentaddress, sendtosilentpaymentaddress,
                           scansilentpayments
@@ -113,13 +114,17 @@ no dip filed, so nothing here is ratified.
 
 no light client. the tweak index is the server half of one; the client
 half needs bip158 filters to test candidate outputs against a block
-without downloading it, and those live on another branch.
+without downloading it, and nothing here does that yet.
 
-the index is built from ConnectBlock and so needs a reindex to populate
-over blocks already on disk. the newer index framework on the bip157
-branch syncs in the background instead, which would remove that cost,
-and is the shape this should take once those filters land.
+the index now syncs in its own thread off the BaseIndex framework, so
+enabling -tweakindex on a synced node no longer needs a reindex, and
+getindexinfo reports its progress. tweaks are derived from block undo
+data rather than the utxo set, which is what the corpus harness already
+reads, so an input created and spent in the same block needs no special
+handling.
 
 review status: one external review has been through the eligibility
 rule, the index, the connectblock hooks and the harnesses. it found the
 index completeness bug and the hybrid key divergence, both fixed here.
+that review predates the move to BaseIndex, so the background sync and
+the undo derivation have not been built or reviewed by anyone else.

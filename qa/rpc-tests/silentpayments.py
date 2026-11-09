@@ -13,9 +13,7 @@ so if the two disagree the output commits to a key neither holds. Regtest reache
 free because its coinbases are P2PK, which the receiver's P2PKH-only rule ignores.
 """
 
-import os
 import socket
-import subprocess
 import time
 
 from test_framework.test_framework import BitcoinTestFramework
@@ -63,6 +61,21 @@ def wait_for_port_free(port, timeout=60):
             return
         time.sleep(0.5)
     raise AssertionError('something is still listening on rpc port %d' % port)
+
+
+def wait_for_index_sync(node, name, timeout=60):
+    """Wait until the named index reports itself synced.
+
+    The index catches up in its own thread, so there is a window after startup where a scan would
+    read a height it has not written yet.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        info = node.getindexinfo(name)
+        if info.get(name, {}).get('synced'):
+            return
+        time.sleep(0.5)
+    raise AssertionError('%s did not finish syncing: %s' % (name, node.getindexinfo(name)))
 
 
 class SilentPaymentsTest(BitcoinTestFramework):
@@ -230,37 +243,35 @@ class SilentPaymentsTest(BitcoinTestFramework):
                               self.nodes[1].scansilentpayments, 0, 1)
         connect_nodes_bi(self.nodes, 0, 1)   # start_node drops the peer connection
 
-        # An index that does not cover the chain must refuse to start rather than quietly answer
-        # "no payments" for the heights it never saw. Let the chain advance while the index is
-        # off, which is exactly what happens the first time someone enables -tweakindex.
+        # Enabling the index on a node that is already synced must not need a reindex. The index
+        # syncs the blocks it missed in its own thread, so a payment made while it was switched
+        # off is still found afterwards. Pay while node 1 has no index at all, which is the state
+        # a node is in the first time someone sets -tweakindex.
+        offline_txid = sender.sendtosilentpaymentaddress(sp_address, 30)
+        sync_mempools(self.nodes)
         sender.generate(5)
         sync_blocks(self.nodes)
+        offline_height = sender.getblockcount()
+
         self.stop_node(1)
-
-        # Launched directly rather than through start_node: this startup is meant to fail, and
-        # the framework lets the resulting stderr escape to the aggregate runner, which reports
-        # the whole file as failed even though this test passed. Capture it here, assert on the
-        # exit status and the diagnostic, and reap the process so nothing is left behind.
-        datadir = os.path.join(self.options.tmpdir, 'node1')
-        binary = os.getenv('DOGECOIND', 'dogecoind')
-        proc = subprocess.Popen(
-            [binary, '-datadir=' + datadir, '-server', '-keypool=1', '-discover=0',
-             '-usehd=1', '-tweakindex'],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-        try:
-            _, stderr = proc.communicate(timeout=60)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.communicate()
-            raise AssertionError('node did not exit; it should refuse an index behind the chain')
-        assert_equal(proc.returncode, 1)
-        assert 'tweak index covers blocks up to' in stderr, 'wrong refusal reason: %s' % stderr
         wait_for_port_free(rpc_port(1))
-
-        # Bring it back without the index so the framework has a live node to shut down. The
-        # rebuild path the error recommends is already what the rest of this test exercises.
-        self.nodes[1] = start_node(1, self.options.tmpdir, ['-usehd=1'])
+        self.nodes[1] = start_node(1, self.options.tmpdir, ['-usehd=1', '-tweakindex'])
         connect_nodes_bi(self.nodes, 0, 1)
+        sync_blocks(self.nodes)
+        receiver = self.nodes[1]
+
+        # No -reindex and no -reindex-chainstate anywhere in that restart.
+        wait_for_index_sync(receiver, 'tweakindex')
+        assert_equal(receiver.getindexinfo('tweakindex')['tweakindex']['best_block_height'],
+                     receiver.getblockcount())
+
+        caught_up = [f for f in receiver.scansilentpayments(0, offline_height)['found']
+                     if f['txid'] == offline_txid and f['amount'] == 30]
+        assert_equal(len(caught_up), 1)
+        spendable = [u for u in receiver.listunspent(0, 9999999, [caught_up[0]['address']])
+                     if u['txid'] == offline_txid]
+        assert_equal(len(spendable), 1)
+        assert_equal(spendable[0]['spendable'], True)
 
 
 if __name__ == '__main__':

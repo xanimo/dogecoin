@@ -37,7 +37,7 @@
 #include "script/sigcache.h"
 #include "scheduler.h"
 #include "timedata.h"
-#include "tweakindex.h"
+#include "index/tweakindex.h"
 #include "txdb.h"
 
 #include <algorithm>
@@ -190,6 +190,9 @@ void Interrupt(boost::thread_group& threadGroup)
     if (g_txindex) {
         g_txindex->Interrupt();
     }
+    if (g_tweakindex) {
+        g_tweakindex->Interrupt();
+    }
     ForEachBlockFilterIndex([](BlockFilterIndex& index) { index.Interrupt(); });
     threadGroup.interrupt_all();
 }
@@ -222,11 +225,13 @@ void Shutdown()
     if (peerLogic) UnregisterValidationInterface(peerLogic.get());
     if (g_connman) g_connman->Stop();
     if (g_txindex) g_txindex->Stop();
+    if (g_tweakindex) g_tweakindex->Stop();
     ForEachBlockFilterIndex([](BlockFilterIndex& index) { index.Stop(); });
     StopTorControl();
     peerLogic.reset();
     g_connman.reset();
     g_txindex.reset();
+    g_tweakindex.reset();
     // Ordering is load-bearing: GetBlockFilterIndex() hands out a raw pointer after
     // releasing g_cs_block_filter_indexes, so the lock protects the map but not the
     // lifetime of what it returns. g_connman->Stop() above joins threadMessageHandler,
@@ -275,8 +280,6 @@ void Shutdown()
         pcoinsdbview = NULL;
         delete pblocktree;
         pblocktree = NULL;
-        delete ptweakindex;
-        ptweakindex = NULL;
     }
 #ifdef ENABLE_WALLET
     if (pwalletMain)
@@ -1591,15 +1594,8 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                 delete pcoinsdbview;
                 delete pcoinscatcher;
                 delete pblocktree;
-                delete ptweakindex;
-                ptweakindex = NULL;
 
                 pblocktree = new CBlockTreeDB(nBlockTreeDBCache, false, fReindex);
-                if (GetBoolArg("-tweakindex", DEFAULT_TWEAKINDEX)) {
-                    // CDBWrapper creates only the leaf directory, so the parent has to exist.
-                    TryCreateDirectory(GetDataDir() / "indexes");
-                    ptweakindex = new CTweakIndex(nBlockTreeDBCache / 8, false, fReindex || fReindexChainState);
-                }
                 pcoinsdbview = new CCoinsViewDB(nCoinDBCache, false, fReindex || fReindexChainState);
                 pcoinscatcher = new CCoinsViewErrorCatcher(pcoinsdbview);
                 pcoinsTip = new CCoinsViewCache(pcoinscatcher);
@@ -1640,21 +1636,6 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                 if (!InitBlockIndex(chainparams)) {
                     strLoadError = _("Error initializing block database");
                     break;
-                }
-
-                // Refuse a tweak index that does not cover the chain. Turning -tweakindex on for
-                // the first time on a synced node would otherwise start indexing at the tip, and
-                // a scan of earlier history would return no payments rather than an error, which
-                // reads to a user as "nobody ever paid me".
-                if (ptweakindex && !fReindex && !fReindexChainState && chainActive.Tip() != NULL) {
-                    int indexed = -1;
-                    if (!ptweakindex->ReadBestHeight(indexed) || indexed < chainActive.Height()) {
-                        strLoadError = strprintf(
-                            _("The silent payment tweak index covers blocks up to %d but the chain is at %d. "
-                              "Rebuild it with -reindex-chainstate, or start without -tweakindex."),
-                            indexed, chainActive.Height());
-                        break;
-                    }
                 }
 
                 // Check for changed -prune state.  What we are concerned about is a user who has pruned blocks
@@ -1748,6 +1729,12 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     for (const auto& filter_type : g_enabled_filter_types) {
         InitBlockFilterIndex(filter_type, filter_index_cache, false, fReindex);
         GetBlockFilterIndex(filter_type)->Start();
+    }
+
+    if (GetBoolArg("-tweakindex", DEFAULT_TWEAKINDEX)) {
+        fs::create_directories(GetDataDir() / "indexes");
+        g_tweakindex.reset(new CTweakIndex(nBlockTreeDBCache / 8, false, fReindex));
+        g_tweakindex->Start();
     }
 
     // ********************************************************* Step 9: load wallet
