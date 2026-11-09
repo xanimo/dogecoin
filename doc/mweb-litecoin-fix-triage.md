@@ -133,6 +133,11 @@ configured `--disable-wallet`, so `mweb-version6-activation.py` and
 wallet-enabled build is needed for them, and running them is what surfaced the
 stealth-offset bug fixed in 9fa5e61bed.
 
+they have now run against the branch tip in a wallet-enabled tree:
+`mweb-version6-activation.py` and `mweb-p2p-relay.py` both pass, 300/300 unit
+suites, 37/37 mweb cases. that covers the miner path the staging change
+touches, which the `--disable-wallet` tree cannot reach.
+
 the commit list is everything touching those two directories after the pinned
 tag; fixes landing elsewhere in litecoin that affect mweb indirectly are not
 covered.
