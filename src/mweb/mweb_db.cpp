@@ -120,12 +120,6 @@ bool CMWEBStateDB::ConnectBlock(const mw::Block& block,
             spentOutput.GetReceiverPubKey() == mw::PublicKey()) {
             return false; // unbound spend: no one-time key to prove ownership of
         }
-        /* Reject null keys first: a null owner key equals a null receiver key,
-           so the comparison below would bind nothing. */
-        if (input.GetOutputPubKey() == mw::PublicKey() ||
-            spentOutput.GetReceiverPubKey() == mw::PublicKey()) {
-            return false; // unbound spend: no one-time key to prove ownership of
-        }
         if (input.GetCommitment() != spentOutput.GetCommitment() ||
             input.GetOutputPubKey() != spentOutput.GetReceiverPubKey()) {
             return false; // input does not match the output it claims to spend
