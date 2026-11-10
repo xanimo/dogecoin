@@ -15,6 +15,7 @@
 #include <mw/node/MWEBState.h>
 
 #include <memory>
+#include <set>
 #include <vector>
 
 MW_NAMESPACE
@@ -79,6 +80,13 @@ private:
     mw::TxBody m_body;
     BlindingFactor m_kernelOffset;
     BlindingFactor m_stealthOffset;
+
+    /// Running totals and identity sets, so the caps and uniqueness rules cost
+    /// the candidate rather than a rescan of everything already staged.
+    size_t m_numInputs;
+    size_t m_weight;
+    std::set<mw::Hash> m_stagedOutputs;
+    std::set<mw::Hash> m_stagedKernels;
 };
 
 END_NAMESPACE

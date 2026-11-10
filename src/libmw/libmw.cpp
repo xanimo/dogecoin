@@ -238,7 +238,8 @@ void mw::Transaction::Validate() const
 //
 
 mw::BlockBuilder::BlockBuilder(int32_t height, const mw::Header::CPtr& prevHeader, const mw::MWEBState& prevState)
-    : m_height(height), m_prevHeader(prevHeader), m_prevState(prevState) {}
+    : m_height(height), m_prevHeader(prevHeader), m_prevState(prevState),
+      m_numInputs(0), m_weight(0) {}
 
 mw::BlockBuilder::Ptr mw::BlockBuilder::Create(int32_t height, const mw::Header::CPtr& prevHeader, const mw::MWEBState& prevState)
 {
@@ -250,6 +251,62 @@ bool mw::BlockBuilder::AddTransaction(const mw::Transaction::CPtr& pTransaction,
 {
     if (!pTransaction) return false;
     if (pTransaction->GetKernels().empty()) return false;
+
+    // Resource caps, counted against what is already staged rather than against
+    // the candidate alone. Block::Validate enforces the same two limits, but only
+    // once the block exists; refusing here keeps the template inside them.
+    const size_t nNewInputs = pTransaction->GetInputs().size();
+    if (m_numInputs + nNewInputs > mw::MAX_NUM_INPUTS) return false;
+
+    const size_t nNewWeight = Weight::Calculate(pTransaction->GetBody());
+    if (m_weight + nNewWeight > mw::MAX_BLOCK_WEIGHT) return false;
+
+    // The peg-in list the caller names must be exactly the one the transaction
+    // carries. The canonical peg-in outputs are paid in block.vtx while the
+    // kernels live in the extension block, so a mismatch here becomes a block
+    // whose two halves disagree about how much entered the MWEB.
+    {
+        const std::vector<mw::PegInCoin> carried = pTransaction->GetPegIns();
+        if (carried.size() != pegins.size()) return false;
+
+        std::set<mw::Hash> namedKernels;
+        CAmount namedTotal = 0;
+        for (const mw::PegInCoin& pegin : pegins) {
+            if (!namedKernels.insert(pegin.GetKernelID()).second) return false; // duplicate
+            namedTotal += pegin.GetAmount();
+        }
+        if (namedTotal != pTransaction->GetPegInAmount()) return false;
+
+        for (const mw::PegInCoin& pegin : carried) {
+            auto it = namedKernels.find(pegin.GetKernelID());
+            if (it == namedKernels.end()) return false;
+        }
+    }
+
+    // Revalidate rather than trust the caller. The miner has already checked this
+    // at mempool acceptance, but the builder is reachable from elsewhere and a
+    // template is cheaper to refuse than a block is to discard.
+    try {
+        pTransaction->Validate();
+    } catch (const std::exception&) {
+        return false;
+    }
+
+    // Identity rules across the staged set. Duplicate kernels or outputs make a
+    // body Block::Validate rejects, and an input must spend something that either
+    // exists unspent on chain or was created by a transaction already staged.
+    for (const mw::Kernel& kernel : pTransaction->GetKernels()) {
+        if (m_stagedKernels.count(kernel.GetKernelID()) > 0) return false;
+    }
+    for (const mw::Output& output : pTransaction->GetOutputs()) {
+        const mw::Hash id = output.GetOutputID();
+        if (m_stagedOutputs.count(id) > 0) return false;
+        if (m_prevState.HasOutput(id)) return false;
+    }
+    for (const mw::Input& input : pTransaction->GetInputs()) {
+        const mw::Hash id = input.GetOutputID();
+        if (!m_prevState.IsUnspentByOutputID(id) && m_stagedOutputs.count(id) == 0) return false;
+    }
 
     const size_t nInputs = m_body.GetInputs().size();
     const size_t nOutputs = m_body.GetOutputs().size();
@@ -284,6 +341,13 @@ bool mw::BlockBuilder::AddTransaction(const mw::Transaction::CPtr& pTransaction,
         m_stealthOffset = stealthOffset;
         return false;
     }
+
+    m_numInputs += nNewInputs;
+    m_weight += nNewWeight;
+    for (const mw::Output& output : pTransaction->GetOutputs())
+        m_stagedOutputs.insert(output.GetOutputID());
+    for (const mw::Kernel& kernel : pTransaction->GetKernels())
+        m_stagedKernels.insert(kernel.GetKernelID());
 
     return true;
 }

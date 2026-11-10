@@ -145,6 +145,19 @@ public:
     const std::vector<uint8_t>& GetLeafsetBytes() const { return m_leafset.ToBytes(); }
 
     bool IsUnspent(uint64_t leafIndex) const { return m_leafset.Contains(leafIndex); }
+
+    // Non-destructive lookups by output ID, for callers that need to ask about an
+    // output without spending it. SpendByOutputID mutates, so staging cannot use it.
+    bool HasOutput(const mw::Hash& outputID) const
+    {
+        return m_outputIndex.find(outputID) != m_outputIndex.end();
+    }
+
+    bool IsUnspentByOutputID(const mw::Hash& outputID) const
+    {
+        auto it = m_outputIndex.find(outputID);
+        return it != m_outputIndex.end() && m_leafset.Contains(it->second);
+    }
     uint64_t NumUnspent() const { return m_leafset.Size(); }
     uint64_t NumOutputs() const { return m_outputMMR.NumLeaves(); }
     uint64_t NumKernels() const { return m_kernelMMR.NumLeaves(); }

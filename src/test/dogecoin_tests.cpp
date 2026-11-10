@@ -1184,6 +1184,90 @@ BOOST_AUTO_TEST_CASE(mweb_blockbuilder_rejects_unbalanced_transaction)
     BOOST_CHECK(chainState.MatchesHeader(*block->GetHeader()));
 }
 
+// MWEB: the staging rules Litecoin's BlockBuilder::AddTransaction enforces and
+// the port previously left to Block::Validate. Each is checked against what is
+// already staged, so a template cannot be assembled past them and then fail.
+BOOST_AUTO_TEST_CASE(mweb_blockbuilder_staging_rules)
+{
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    mw::MWEBState chainState;
+
+    // The caller's peg-in list must be exactly what the transaction carries.
+    {
+        auto builder = mw::BlockBuilder::Create(1, /*prevHeader=*/nullptr, chainState);
+        const mw::Transaction tx =
+            mw::wallet::TxBuilder::Build({}, {{90, blind(0x91)}}, 10, /*pegin=*/100, blind(0x92));
+        const std::shared_ptr<mw::Transaction> ptx = std::make_shared<mw::Transaction>(tx);
+
+        // Empty list against a transaction that pegs in.
+        BOOST_CHECK(!builder->AddTransaction(ptx, {}));
+
+        // Right count, wrong amount.
+        std::vector<mw::PegInCoin> wrongAmount;
+        for (const mw::PegInCoin& p : tx.GetPegIns())
+            wrongAmount.emplace_back(p.GetAmount() + 1, p.GetKernelID());
+        BOOST_CHECK(!builder->AddTransaction(ptx, wrongAmount));
+
+        // Right amount, kernel the transaction does not carry.
+        std::vector<mw::PegInCoin> wrongKernel;
+        for (const mw::PegInCoin& p : tx.GetPegIns())
+            wrongKernel.emplace_back(p.GetAmount(), mw::Hash(std::vector<uint8_t>(32, 0xAB)));
+        BOOST_CHECK(!builder->AddTransaction(ptx, wrongKernel));
+
+        BOOST_CHECK(!builder->HasTransactions());
+
+        // The matching list is accepted, and none of the refusals left state.
+        BOOST_REQUIRE(builder->AddTransaction(ptx, tx.GetPegIns()));
+        BOOST_CHECK(builder->HasTransactions());
+    }
+
+    // The same transaction twice is a duplicate kernel and a duplicate output.
+    {
+        auto builder = mw::BlockBuilder::Create(1, /*prevHeader=*/nullptr, chainState);
+        const mw::Transaction tx =
+            mw::wallet::TxBuilder::Build({}, {{90, blind(0x93)}}, 10, /*pegin=*/100, blind(0x94));
+        const std::shared_ptr<mw::Transaction> ptx = std::make_shared<mw::Transaction>(tx);
+
+        BOOST_REQUIRE(builder->AddTransaction(ptx, tx.GetPegIns()));
+        BOOST_CHECK(!builder->AddTransaction(ptx, tx.GetPegIns()));
+
+        // Refused before the merge, so the block still carries one of each.
+        mw::Block::Ptr block = builder->Build();
+        BOOST_REQUIRE(block != nullptr);
+        BOOST_CHECK_EQUAL(block->GetHeader()->GetNumTXOs(), 1u);
+        BOOST_CHECK_EQUAL(block->GetHeader()->GetNumKernels(), 1u);
+        BOOST_CHECK_NO_THROW(block->Validate());
+    }
+
+    // An input must spend something the accumulator knows and has not spent.
+    {
+        // Build a chain state holding one real output, then spend it twice.
+        mw::MWEBState state;
+        auto seedBuilder = mw::BlockBuilder::Create(1, /*prevHeader=*/nullptr, state);
+        const mw::Transaction seed =
+            mw::wallet::TxBuilder::Build({}, {{90, blind(0x95)}}, 10, /*pegin=*/100, blind(0x96));
+        BOOST_REQUIRE(seedBuilder->AddTransaction(std::make_shared<mw::Transaction>(seed), seed.GetPegIns()));
+        mw::Block::Ptr seedBlock = seedBuilder->Build();
+        BOOST_REQUIRE(seedBlock != nullptr);
+        BOOST_REQUIRE(state.ApplyBlock(*seedBlock));
+
+        const mw::Hash realID = seedBlock->GetOutputs().front().GetOutputID();
+        BOOST_CHECK(state.HasOutput(realID));
+        BOOST_CHECK(state.IsUnspentByOutputID(realID));
+
+        // An output the accumulator has never seen is not spendable.
+        const mw::Hash unknownID(std::vector<uint8_t>(32, 0xCD));
+        BOOST_CHECK(!state.HasOutput(unknownID));
+        BOOST_CHECK(!state.IsUnspentByOutputID(unknownID));
+
+        // And once spent, it stops being available.
+        BOOST_REQUIRE(state.SpendByOutputID(realID));
+        BOOST_CHECK(state.HasOutput(realID));
+        BOOST_CHECK(!state.IsUnspentByOutputID(realID));
+    }
+}
+
 // MWEB: the accumulator rebuilds exactly from its persisted append-only log. A
 // state loaded from (output IDs, kernel IDs, leafset) reproduces the live state's
 // roots -- including which outputs are spent, since the permanent output MMR is
