@@ -6,6 +6,7 @@
 #define MW_WALLET_TXBUILDER_H
 
 #include <mw/common/Macros.h>
+#include <mw/consensus/KernelKey.h>
 #include <mw/models/tx/Transaction.h>
 #include <mw/crypto/Pedersen.h>
 #include <mw/crypto/Bulletproof.h>
@@ -69,13 +70,19 @@ public:
     //   Sum(input values) + pegin == Sum(output values) + fee + Sum(pegout amounts).
     // The result passes Transaction::Validate. Needs at least one output or input
     // (a pure peg-out may have no MWEB outputs).
+    // `stealthBlind`, when non-null, gives the kernel a stealth excess E' =
+    // stealthBlind*G: the kernel sets STEALTH_EXCESS_FEATURE_BIT, signs with the
+    // weighted key the verifier rebuilds (KernelKey.h), and the stealth offset
+    // below absorbs the new term. Opt-in, so a caller that does not ask for one
+    // builds exactly the kernel it did before.
     static Transaction Build(
         const std::vector<Coin>& inputs,
         const std::vector<Coin>& outputs,
         uint64_t fee,
         uint64_t pegin,
         std::vector<PegOutCoin> pegouts,
-        const BlindingFactor& offset)
+        const BlindingFactor& offset,
+        const SecretKey& stealthBlind = SecretKey())
     {
         // Inputs: commit to each spent coin. When the caller supplies the output
         // ID of the coin being spent, reference it so the accumulator can find and
@@ -127,13 +134,28 @@ public:
         uint8_t features = Kernel::FEE_FEATURE_BIT;
         if (pegin > 0) features |= Kernel::PEGIN_FEATURE_BIT;
         if (!pegouts.empty()) features |= Kernel::PEGOUT_FEATURE_BIT;
+        if (!stealthBlind.IsNull()) features |= Kernel::STEALTH_EXCESS_FEATURE_BIT;
         const CAmount feeAmt = static_cast<CAmount>(fee);
         const CAmount peginAmt = static_cast<CAmount>(pegin);
+
+        // With a stealth excess the signing key is weighted to match the key the
+        // verifier rebuilds: k = excess*H(X||X_s) + stealthBlind. Both keys are in
+        // the signed message, so the coefficient is fixed before the signature.
+        const PublicKey stealthExcess =
+            stealthBlind.IsNull() ? PublicKey() : Keys::PublicKeyFrom(stealthBlind);
+        SecretKey sigKey = excess;
+        if (!stealthBlind.IsNull()) {
+            const SecretKey coefficient =
+                StealthExcessCoefficient(Pedersen::ToPublicKey(excessCommit), stealthExcess);
+            sigKey = Keys::AddSecretKeys(Keys::MulSecretKeys(excess, coefficient), stealthBlind);
+        }
+
         const mw::Hash message =
-            Kernel(features, feeAmt, peginAmt, pegouts, 0, excessCommit, Signature())
+            Kernel(features, feeAmt, peginAmt, pegouts, 0, stealthExcess, excessCommit,
+                   Signature())
                 .GetSignatureMessage();
-        Kernel kernel(features, feeAmt, peginAmt, std::move(pegouts), 0, excessCommit,
-                      Schnorr::Sign(excess, message.data()));
+        Kernel kernel(features, feeAmt, peginAmt, std::move(pegouts), 0, stealthExcess,
+                      excessCommit, Schnorr::Sign(sigKey, message.data()));
 
         // Bodies must be sorted by hash for Validate to accept them.
         std::sort(ins.begin(), ins.end(),
@@ -150,7 +172,8 @@ public:
         // substitutes a stealth output afterwards must therefore build its coin
         // with the same sender key that output carries, or the term computed
         // here is not the one the body ends up with.
-        const BlindingFactor stealthOffset = ComputeStealthOffset(inputs, outputs);
+        const BlindingFactor stealthOffset =
+            ComputeStealthOffset(inputs, outputs, stealthBlind);
 
         std::vector<Kernel> kers; kers.push_back(kernel);
         return Transaction(offset, stealthOffset,
@@ -178,12 +201,15 @@ private:
         return SecretKey(std::vector<uint8_t>(h.begin(), h.end()));
     }
 
-    // Sum(the outputs' sender keys) - Sum(the inputs' spend keys), which is what
-    // the stealth balance checks against stealthOffset*G. Every input is signed
-    // and every output carries a sender key, so every term contributes; an empty
-    // body gives the null offset (identity).
+    // Sum(the outputs' sender keys) - Sum(the inputs' spend keys) - the kernel's
+    // stealth blind, which is what the stealth balance checks against
+    // stealthOffset*G. Every input is signed and every output carries a sender
+    // key, so every term contributes; an empty body gives the null offset
+    // (identity). The stealth blind is subtracted because its public counterpart
+    // sits on the same side of the validator's equation as the owner keys.
     static BlindingFactor ComputeStealthOffset(const std::vector<Coin>& inputs,
-                                               const std::vector<Coin>& outputs)
+                                               const std::vector<Coin>& outputs,
+                                               const SecretKey& stealthBlind)
     {
         bool have = false;
         SecretKey acc;
@@ -195,6 +221,11 @@ private:
         for (const Coin& c : inputs) {
             if (c.spendKey.IsNull()) continue;
             const SecretKey neg = Keys::NegateSecretKey(c.spendKey);
+            acc = have ? Keys::AddSecretKeys(acc, neg) : neg;
+            have = true;
+        }
+        if (!stealthBlind.IsNull()) {
+            const SecretKey neg = Keys::NegateSecretKey(stealthBlind);
             acc = have ? Keys::AddSecretKeys(acc, neg) : neg;
             have = true;
         }

@@ -21,6 +21,8 @@ extern "C" {
         const secp256k1_context* ctx, unsigned char* seckey, const unsigned char* tweak);
     int secp256k1_ec_privkey_negate(
         const secp256k1_context* ctx, unsigned char* seckey);
+    int secp256k1_ec_privkey_tweak_mul(
+        const secp256k1_context* ctx, unsigned char* seckey, const unsigned char* tweak);
     int secp256k1_ecdh(
         const secp256k1_context* ctx, unsigned char* result,
         const secp256k1_pubkey* pubkey, const unsigned char* privkey);
@@ -96,6 +98,24 @@ PublicKey AddPublicKeys(const PublicKey& a, const PublicKey& b)
         throw std::runtime_error("Keys: public key combine failed");
     }
     return Serialize(combined);
+}
+
+SecretKey MulSecretKeys(const SecretKey& a, const SecretKey& b)
+{
+    std::vector<uint8_t> product(a.data(), a.data() + SecretKey::SIZE);
+    if (!secp256k1_ec_privkey_tweak_mul(Ctx(), product.data(), b.data())) {
+        throw std::runtime_error("Keys: secret key product out of range");
+    }
+    return SecretKey(product);
+}
+
+PublicKey MulPublicKey(const PublicKey& p, const SecretKey& k)
+{
+    secp256k1_pubkey parsed = Parse(p);
+    if (!secp256k1_ec_pubkey_tweak_mul(Ctx(), &parsed, k.data())) {
+        throw std::runtime_error("Keys: public key tweak_mul failed");
+    }
+    return Serialize(parsed);
 }
 
 SecretKey ECDH(const SecretKey& mine, const PublicKey& theirs)

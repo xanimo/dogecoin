@@ -5,6 +5,7 @@
 
 #include <mw/models/block/Block.h>
 #include <mw/models/tx/Transaction.h>
+#include <mw/consensus/KernelKey.h>
 #include <mw/consensus/KernelSumValidator.h>
 #include <mw/consensus/StealthSumValidator.h>
 #include <mw/consensus/Weight.h>
@@ -66,12 +67,13 @@ static void ValidateBodyCrypto(const TxBody& body, const BlindingFactor& kernelO
         }
     }
 
-    // Kernel signatures: the excess (a commitment to zero, excess*G) is also the
-    // public key the signature must verify against.
+    // Kernel signatures: the excess (a commitment to zero, excess*G) is the
+    // public key the signature must verify against, weighted against the stealth
+    // excess when the kernel carries one (see KernelVerificationKey).
     for (const Kernel& kernel : body.GetKernels()) {
-        const PublicKey excessPubKey = Pedersen::ToPublicKey(kernel.GetExcess());
+        const PublicKey verificationKey = mw::KernelVerificationKey(kernel);
         const mw::Hash message = kernel.GetSignatureMessage();
-        if (!Schnorr::Verify(kernel.GetSignature(), excessPubKey, message.data())) {
+        if (!Schnorr::Verify(kernel.GetSignature(), verificationKey, message.data())) {
             throw std::runtime_error("Invalid kernel signature");
         }
     }

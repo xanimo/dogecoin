@@ -11,6 +11,7 @@
 #include <mw/crypto/Schnorr.h>
 #include <mw/crypto/Bulletproof.h>
 #include <mw/crypto/Keys.h>
+#include <mw/consensus/KernelKey.h>
 #include <mw/models/tx/Transaction.h>
 #include <mw/models/block/Block.h>
 #include <mw/models/block/Header.h>
@@ -961,6 +962,164 @@ BOOST_AUTO_TEST_CASE(mweb_stealth_offset_balance)
     // Correct offset (the ephemeral) balances; a wrong offset does not.
     BOOST_CHECK_NO_THROW(assemble(mw::BlindingFactor(ephemeral.vec())).Validate());
     BOOST_CHECK_THROW(assemble(blind(0x55)).Validate(), std::runtime_error);
+}
+
+// Scalar multiplication is homomorphic across the two key types, which is what
+// lets the kernel signer weight a secret and the verifier weight the matching
+// point and arrive at the same aggregate.
+BOOST_AUTO_TEST_CASE(mweb_keys_scalar_mul_homomorphism)
+{
+    auto sk = [](uint8_t b) { return mw::SecretKey(std::vector<uint8_t>(32, b)); };
+
+    const mw::SecretKey a = sk(0x07);
+    const mw::SecretKey b = sk(0x0b);
+
+    BOOST_CHECK(mw::Keys::PublicKeyFrom(mw::Keys::MulSecretKeys(a, b))
+                == mw::Keys::MulPublicKey(mw::Keys::PublicKeyFrom(a), b));
+
+    // Commutative in the scalars, so the signer may fold in either order.
+    BOOST_CHECK(mw::Keys::MulSecretKeys(a, b) == mw::Keys::MulSecretKeys(b, a));
+}
+
+// MWEB kernel stealth excess: a kernel may carry E' = x_s*G, and then its
+// signature must verify against the weighted aggregate X*H(X||X_s) + X_s rather
+// than the excess alone, with E' entering the stealth balance.
+BOOST_AUTO_TEST_CASE(mweb_kernel_stealth_excess)
+{
+    auto sk = [](uint8_t b) { return mw::SecretKey(std::vector<uint8_t>(32, b)); };
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    const mw::SecretKey stealthBlind = sk(0x5a);
+    const mw::Transaction tx = mw::wallet::TxBuilder::Build(
+        {}, {{100, blind(0x21)}}, /*fee=*/0, /*pegin=*/100,
+        std::vector<mw::PegOutCoin>{}, blind(0x44), stealthBlind);
+
+    // The kernel advertises the excess and carries the matching key.
+    BOOST_REQUIRE_EQUAL(tx.GetKernels().size(), 1u);
+    const mw::Kernel& kernel = tx.GetKernels()[0];
+    BOOST_CHECK(kernel.HasStealthExcess());
+    BOOST_CHECK(kernel.GetStealthExcess() == mw::Keys::PublicKeyFrom(stealthBlind));
+    BOOST_CHECK(kernel.HasCanonicalStealthExcessFeature());
+    BOOST_CHECK(kernel.IsStandard()); // 0x10 is below EXTRA_DATA, so it relays
+
+    // It validates, and the verification key is not the bare excess.
+    BOOST_CHECK_NO_THROW(tx.Validate());
+    BOOST_CHECK(mw::KernelVerificationKey(kernel)
+                != mw::Pedersen::ToPublicKey(kernel.GetExcess()));
+
+    // A kernel with no stealth excess still verifies against the bare excess.
+    const mw::Transaction plain = mw::wallet::TxBuilder::Build(
+        {}, {{100, blind(0x21)}}, /*fee=*/0, /*pegin=*/100, blind(0x44));
+    BOOST_CHECK(!plain.GetKernels()[0].HasStealthExcess());
+    BOOST_CHECK(mw::KernelVerificationKey(plain.GetKernels()[0])
+                == mw::Pedersen::ToPublicKey(plain.GetKernels()[0].GetExcess()));
+}
+
+// The hash coefficient is load-bearing. Signing the unweighted aggregate
+// excess + x_s is what a signer could do having chosen X_s = K - X without
+// knowing the secret behind X_s, so that signature must not verify.
+BOOST_AUTO_TEST_CASE(mweb_kernel_stealth_excess_requires_weighting)
+{
+    auto sk = [](uint8_t b) { return mw::SecretKey(std::vector<uint8_t>(32, b)); };
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    const mw::SecretKey stealthBlind = sk(0x5a);
+    const mw::Transaction tx = mw::wallet::TxBuilder::Build(
+        {}, {{100, blind(0x21)}}, /*fee=*/0, /*pegin=*/100,
+        std::vector<mw::PegOutCoin>{}, blind(0x44), stealthBlind);
+    const mw::Kernel& good = tx.GetKernels()[0];
+
+    // Recover the excess secret the builder used, so the forged signature is
+    // over the same message with only the key aggregation changed.
+    const mw::SecretKey excess = mw::Keys::AddSecretKeys(
+        mw::SecretKey(std::vector<uint8_t>(32, 0x21)),
+        mw::Keys::NegateSecretKey(mw::SecretKey(std::vector<uint8_t>(32, 0x44))));
+    BOOST_REQUIRE(mw::Pedersen::ToPublicKey(good.GetExcess())
+                  == mw::Keys::PublicKeyFrom(excess));
+
+    auto resign = [&](const mw::SecretKey& key) {
+        const mw::Kernel k(good.GetFeatures(), good.GetFee(), good.GetPegIn(),
+                           good.GetPegOuts(), good.GetLockHeight(),
+                           good.GetStealthExcess(), good.GetExcess(), mw::Signature());
+        return mw::Kernel(good.GetFeatures(), good.GetFee(), good.GetPegIn(),
+                          good.GetPegOuts(), good.GetLockHeight(),
+                          good.GetStealthExcess(), good.GetExcess(),
+                          mw::Schnorr::Sign(key, k.GetSignatureMessage().data()));
+    };
+
+    auto withKernel = [&](const mw::Kernel& k) {
+        std::vector<mw::Input>  vin  = tx.GetInputs();
+        std::vector<mw::Output> vout = tx.GetOutputs();
+        std::vector<mw::Kernel> vker = { k };
+        return mw::Transaction(tx.GetKernelOffset(), tx.GetStealthOffset(),
+            mw::TxBody(std::move(vin), std::move(vout), std::move(vker)));
+    };
+
+    // The unweighted aggregate is rejected; so is the excess alone.
+    BOOST_CHECK_THROW(
+        withKernel(resign(mw::Keys::AddSecretKeys(excess, stealthBlind))).Validate(),
+        std::runtime_error);
+    BOOST_CHECK_THROW(withKernel(resign(excess)).Validate(), std::runtime_error);
+
+    // The weighted key the builder actually used is the one that passes.
+    const mw::SecretKey coefficient = mw::StealthExcessCoefficient(
+        mw::Pedersen::ToPublicKey(good.GetExcess()), good.GetStealthExcess());
+    BOOST_CHECK_NO_THROW(withKernel(resign(mw::Keys::AddSecretKeys(
+        mw::Keys::MulSecretKeys(excess, coefficient), stealthBlind))).Validate());
+}
+
+// The stealth excess must be accounted for in the stealth balance: the offset
+// that balanced the same body without one no longer does.
+BOOST_AUTO_TEST_CASE(mweb_kernel_stealth_excess_enters_balance)
+{
+    auto sk = [](uint8_t b) { return mw::SecretKey(std::vector<uint8_t>(32, b)); };
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    const mw::SecretKey stealthBlind = sk(0x5a);
+    const mw::Transaction tx = mw::wallet::TxBuilder::Build(
+        {}, {{100, blind(0x21)}}, /*fee=*/0, /*pegin=*/100,
+        std::vector<mw::PegOutCoin>{}, blind(0x44), stealthBlind);
+    const mw::Transaction plain = mw::wallet::TxBuilder::Build(
+        {}, {{100, blind(0x21)}}, /*fee=*/0, /*pegin=*/100, blind(0x44));
+
+    // Same body, so the only difference is the stealth excess and the offset
+    // that absorbs it. The two offsets differ by exactly the stealth blind.
+    BOOST_CHECK(tx.GetStealthOffset() != plain.GetStealthOffset());
+    BOOST_CHECK(mw::Keys::AddSecretKeys(
+                    mw::SecretKey(tx.GetStealthOffset().vec()), stealthBlind)
+                == mw::SecretKey(plain.GetStealthOffset().vec()));
+
+    // Swapping in the offset that ignores the excess breaks the balance.
+    std::vector<mw::Input>  vin  = tx.GetInputs();
+    std::vector<mw::Output> vout = tx.GetOutputs();
+    std::vector<mw::Kernel> vker = tx.GetKernels();
+    const mw::Transaction mismatched(tx.GetKernelOffset(), plain.GetStealthOffset(),
+        mw::TxBody(std::move(vin), std::move(vout), std::move(vker)));
+    BOOST_CHECK_THROW(mismatched.Validate(), std::runtime_error);
+}
+
+// A stealth excess feature bit with no key behind it: the all-zero key is not a
+// curve point, so it is rejected as non-canonical rather than reaching the key
+// arithmetic.
+BOOST_AUTO_TEST_CASE(mweb_kernel_empty_stealth_excess_is_noncanonical)
+{
+    // A real excess commitment, so the rejection below comes from the null
+    // stealth excess and not from parsing an all-zero commitment.
+    const mw::Commitment excess =
+        mw::Pedersen::Commit(0, mw::BlindingFactor(std::vector<uint8_t>(32, 0x21)));
+    BOOST_REQUIRE_NO_THROW(mw::Pedersen::ToPublicKey(excess));
+
+    const mw::Kernel empty(mw::Kernel::FEE_FEATURE_BIT | mw::Kernel::STEALTH_EXCESS_FEATURE_BIT,
+                           0, 0, std::vector<mw::PegOutCoin>{}, 0,
+                           mw::PublicKey(), excess, mw::Signature());
+    BOOST_CHECK(!empty.HasCanonicalStealthExcessFeature());
+    BOOST_CHECK_THROW(mw::KernelVerificationKey(empty), std::runtime_error);
+
+    // The same kernel without the bit is canonical and keys off the excess alone.
+    const mw::Kernel plain(mw::Kernel::FEE_FEATURE_BIT, 0, 0,
+                           std::vector<mw::PegOutCoin>{}, 0, excess, mw::Signature());
+    BOOST_CHECK(plain.HasCanonicalStealthExcessFeature());
+    BOOST_CHECK(mw::KernelVerificationKey(plain) == mw::Pedersen::ToPublicKey(excess));
 }
 
 // MWEB output signatures: an output's sender key signs the output, so the

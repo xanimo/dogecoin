@@ -49,6 +49,12 @@ public:
         : m_features(features), m_fee(fee), m_pegin(pegin), m_pegouts(std::move(pegouts)),
           m_lockHeight(lockHeight), m_excess(std::move(excess)), m_signature(std::move(signature)) {}
 
+    Kernel(uint8_t features, CAmount fee, CAmount pegin, std::vector<PegOutCoin> pegouts,
+           int32_t lockHeight, PublicKey stealthExcess, Commitment excess, Signature signature)
+        : m_features(features), m_fee(fee), m_pegin(pegin), m_pegouts(std::move(pegouts)),
+          m_lockHeight(lockHeight), m_stealthExcess(std::move(stealthExcess)),
+          m_excess(std::move(excess)), m_signature(std::move(signature)) {}
+
     // Getters
     uint8_t GetFeatures() const { return m_features; }
     CAmount GetFee() const { return m_fee; }
@@ -56,6 +62,7 @@ public:
     const std::vector<PegOutCoin>& GetPegOuts() const { return m_pegouts; }
     int32_t GetLockHeight() const { return m_lockHeight; }
     const Commitment& GetExcess() const { return m_excess; }
+    const PublicKey& GetStealthExcess() const { return m_stealthExcess; }
     const Signature& GetSignature() const { return m_signature; }
     const mw::Hash& GetKernelID() const { return GetHash(); }
 
@@ -79,6 +86,14 @@ public:
     bool HasCanonicalExtraDataFeature() const noexcept
     {
         return !(m_features & EXTRA_DATA_FEATURE_BIT) || !m_extraData.empty();
+    }
+
+    /// A stealth excess of all zeroes is not a curve point, so the weighted
+    /// verification key cannot be built from it. The bit set with a null key is
+    /// rejected here rather than left to fail inside the key arithmetic.
+    bool HasCanonicalStealthExcessFeature() const noexcept
+    {
+        return !(m_features & STEALTH_EXCESS_FEATURE_BIT) || !m_stealthExcess.IsNull();
     }
 
     /// The supply change introduced by this kernel (pegin - pegout amounts)

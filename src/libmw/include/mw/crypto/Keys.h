@@ -35,6 +35,14 @@ namespace Keys {
     // PublicKeyFrom(AddSecretKeys(a,b)) == AddPublicKeys(PublicKeyFrom(a), PublicKeyFrom(b)).
     PublicKey AddPublicKeys(const PublicKey& a, const PublicKey& b);
 
+    // Scalar product (a * b) mod n. Pairs with MulPublicKey to build the
+    // hash-weighted keys a kernel stealth excess needs.
+    SecretKey MulSecretKeys(const SecretKey& a, const SecretKey& b);
+
+    // Point scalar multiple k*P. Homomorphic partner of MulSecretKeys:
+    // PublicKeyFrom(MulSecretKeys(a,b)) == MulPublicKey(PublicKeyFrom(a), b).
+    PublicKey MulPublicKey(const PublicKey& p, const SecretKey& k);
+
     // ECDH shared secret (32 bytes) between our secret key and their public key.
     // Symmetric: ECDH(a, P_b) == ECDH(b, P_a). Basis for stealth-address scanning.
     SecretKey ECDH(const SecretKey& mine, const PublicKey& theirs);

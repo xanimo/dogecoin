@@ -18,12 +18,19 @@ MW_NAMESPACE
 /// The one-sided-payment keys must tie to the stealth offset the way the value
 /// blinds tie to the kernel offset:
 ///
-///   Sum(output sender keys) - Sum(input owner keys) == stealthOffset*G
+///   Sum(output sender keys) - Sum(input owner keys)
+///       - Sum(kernel stealth excesses) == stealthOffset*G
 ///
 /// Each output's sender key is the ephemeral key the sender chose; each spent
-/// input's owner key is the one-time key of the output it consumes. This makes
-/// owner keys non-malleable under the aggregation of transactions into a block,
-/// since the block offset is the sum of the transaction offsets.
+/// input's owner key is the one-time key of the output it consumes; each kernel
+/// stealth excess is a key the kernel signer owns, proven by the weighted
+/// verification key (see KernelKey.h). This makes owner keys non-malleable under
+/// the aggregation of transactions into a block, since the block offset is the
+/// sum of the transaction offsets.
+///
+/// Litecoin's equation is `Sum(K_s) + Sum(K_i) == Sum(E') + x'*G + Sum(K_o)`.
+/// This is that identity with the input stealth keys `K_i` dropped, the one key
+/// class the port does not use.
 class StealthSumValidator
 {
 public:
@@ -40,6 +47,11 @@ public:
         }
         for (const Input& input : body.GetInputs()) {
             ownerKeys.push_back(input.GetOutputPubKey());
+        }
+        for (const Kernel& kernel : body.GetKernels()) {
+            if (kernel.HasStealthExcess()) {
+                ownerKeys.push_back(kernel.GetStealthExcess());
+            }
         }
 
         if (!Keys::VerifyKeyBalance(senderKeys, ownerKeys, stealthOffset)) {

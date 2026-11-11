@@ -133,6 +133,10 @@ bool Node::ContextualCheckBlock(
             return state.DoS(100, false, REJECT_INVALID, "bad-mweb-empty-extradata",
                 true, "Extra data feature set without extra data");
         }
+        if (!kernel.HasCanonicalStealthExcessFeature()) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-mweb-empty-stealthexcess",
+                true, "Stealth excess feature set without a key");
+        }
     }
 
     // The HogEx accounting is NOT checked here. It reads the previous block's
