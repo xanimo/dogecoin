@@ -65,6 +65,16 @@ public:
 
     /** Look up one block's tweaks. False means the height was never indexed. */
     bool ReadBlock(int height, std::vector<CTweakEntry>& entries) const;
+
+    /**
+     * Look up a range of blocks on a chain, oldest first.
+     *
+     * Walks back from stop_index rather than forward from start_height, so the range follows one
+     * chain rather than whatever is at each height now. False if any height in it is unindexed,
+     * because a short answer would read to a client as "no payments in those blocks".
+     */
+    bool LookupTweakRange(int start_height, const CBlockIndex* stop_index,
+                          std::vector<std::vector<CTweakEntry> >& tweaks_out) const;
 };
 
 /**
@@ -86,5 +96,6 @@ bool ComputeTxTweak(CPubKey& out, const CTransaction& tx, const CTxUndo& tx_undo
 extern std::unique_ptr<CTweakIndex> g_tweakindex;
 
 static const bool DEFAULT_TWEAKINDEX = false;
+static const bool DEFAULT_PEERSPTWEAKS = false;
 
 #endif // BITCOIN_INDEX_TWEAKINDEX_H

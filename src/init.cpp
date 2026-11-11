@@ -409,6 +409,8 @@ std::string HelpMessage(HelpMessageMode mode)
             " " + _("If <type> is not supplied or if <type> = 1, indexes for all known types are enabled."));
     strUsage += HelpMessageOpt("-peerblockfilters",
             strprintf(_("Serve compact block filters to peers per BIP 157 (default: %u). Requires -blockfilterindex."), DEFAULT_PEERBLOCKFILTERS));
+    strUsage += HelpMessageOpt("-peersptweaks",
+            strprintf(_("Serve BIP352 scanning tweaks to peers (default: %u). Requires -tweakindex."), DEFAULT_PEERSPTWEAKS));
     strUsage += HelpMessageOpt("-tweakindex", strprintf(_("Maintain an index of BIP352 silent payment scanning tweaks (default: %u)"), DEFAULT_TWEAKINDEX));
     strUsage += HelpMessageOpt("-silentpaymentscan", _("Scan each new block for silent payments to this wallet, importing keys as they are found. Requires -tweakindex. Costs one ECDH per indexed transaction per block (default: 0)"));
 
@@ -970,6 +972,17 @@ bool AppInitParameterInteraction()
         }
 
         nLocalServices = ServiceFlags(nLocalServices | NODE_COMPACT_FILTERS);
+    }
+
+    // Signal NODE_SP_TWEAKS if -peersptweaks and the tweak index are both on. Serving tweaks
+    // without filters is close to useless, since a client needs both to decide whether a block
+    // is worth fetching, but requiring filters here would make this option depend on two others.
+    if (GetBoolArg("-peersptweaks", DEFAULT_PEERSPTWEAKS)) {
+        if (!GetBoolArg("-tweakindex", DEFAULT_TWEAKINDEX)) {
+            return InitError(_("Cannot set -peersptweaks without -tweakindex."));
+        }
+
+        nLocalServices = ServiceFlags(nLocalServices | NODE_SP_TWEAKS);
     }
 
     // if using block pruning, then disallow txindex

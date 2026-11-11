@@ -282,6 +282,16 @@ extern const char *GETCFCHECKPT;
  * evenly spaced filter headers for blocks on the requested chain.
  */
 extern const char *CFCHECKPT;
+/**
+ * getsptweaks requests BIP352 scanning tweaks for a range of blocks.
+ * Only available with service bit NODE_SP_TWEAKS.
+ */
+extern const char *GETSPTWEAKS;
+/**
+ * sptweaks is a response to a getsptweaks request, carrying one block's
+ * scanning tweaks.
+ */
+extern const char *SPTWEAKS;
 };
 
 /* Get a vector of all valid message types (see above) */
@@ -312,6 +322,11 @@ enum ServiceFlags : uint64_t {
     // NODE_COMPACT_FILTERS means the node will service basic block filter requests.
     // See BIP157 and BIP158 for details on how this is implemented.
     NODE_COMPACT_FILTERS = (1 << 6),
+    // NODE_SP_TWEAKS means the node will serve BIP352 scanning tweaks per block.
+    // Dogecoin-specific, so it takes a high bit rather than the next free one, to
+    // keep out of the way of upstream service bit assignments. The number is not
+    // ratified; it is wire-visible and changing it later is a compatibility break.
+    NODE_SP_TWEAKS = (1 << 25),
 
     // Bits 24-31 are reserved for temporary experiments. Just pick a bit that
     // isn't getting used, or one not being used much, and notify the

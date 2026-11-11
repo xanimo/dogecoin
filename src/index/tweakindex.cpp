@@ -25,6 +25,23 @@ bool CTweakIndex::ReadBlock(int height, std::vector<CTweakEntry>& entries) const
     return m_db->Read(std::make_pair(DB_TWEAKS, height), entries);
 }
 
+bool CTweakIndex::LookupTweakRange(int start_height, const CBlockIndex* stop_index,
+                                   std::vector<std::vector<CTweakEntry> >& tweaks_out) const
+{
+    if (start_height < 0 || stop_index == NULL || stop_index->nHeight < start_height) return false;
+
+    tweaks_out.clear();
+    tweaks_out.resize(stop_index->nHeight - start_height + 1);
+
+    for (const CBlockIndex* p = stop_index; p != NULL && p->nHeight >= start_height; p = p->pprev) {
+        if (!ReadBlock(p->nHeight, tweaks_out[p->nHeight - start_height])) {
+            tweaks_out.clear();
+            return false;
+        }
+    }
+    return true;
+}
+
 bool CTweakIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex)
 {
     std::vector<CTweakEntry> entries;

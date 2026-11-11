@@ -14,6 +14,7 @@
 #include "consensus/validation.h"
 #include "hash.h"
 #include "index/blockfilterindex.h"
+#include "index/tweakindex.h"
 #include "init.h"
 #include "validation.h"
 #include "merkleblock.h"
@@ -73,6 +74,10 @@ static constexpr int64_t GETDATA_TX_INTERVAL = 30 * 1000000; // 30 seconds
 static const unsigned int MAX_GETDATA_SZ = 1000;
 /** Maximum number of compact filters that may be requested with one getcfilters. See BIP 157. */
 static constexpr uint32_t MAX_GETCFILTERS_SIZE = 1000;
+/** Maximum number of blocks of scanning tweaks to serve for one getsptweaks. A block's
+ *  tweaks are unbounded in principle, so this caps blocks rather than bytes; the send
+ *  buffer limit is what actually bounds a peer that asks for dense history. */
+static constexpr uint32_t MAX_GETSPTWEAKS_SIZE = 1000;
 /** Maximum number of cf hashes that may be requested with one getcfheaders. See BIP 157. */
 static constexpr uint32_t MAX_GETCFHEADERS_SIZE = 2000;
 
@@ -1457,6 +1462,68 @@ static bool PrepareBlockFilterRequest(CNode* pfrom, const CChainParams& chain_pa
  * @param[in]   chain_params    Chain parameters
  * @param[in]   connman         Pointer to the connection manager
  */
+static void ProcessGetSPTweaks(CNode* pfrom, CDataStream& vRecv, CConnman& connman)
+{
+    uint32_t start_height;
+    uint256 stop_hash;
+
+    vRecv >> start_height >> stop_hash;
+
+    if (!(pfrom->GetLocalServices() & NODE_SP_TWEAKS)) {
+        LogPrint("net", "peer %d requested sp tweaks without the service offered\n", pfrom->id);
+        pfrom->fDisconnect = true;
+        return;
+    }
+
+    const CBlockIndex* stop_index;
+    {
+        LOCK(cs_main);
+        stop_index = LookupBlockIndex(stop_hash);
+
+        // Same rule as the filter requests: the stop block has to be on the active chain, so a
+        // range always describes one chain rather than whatever sat at each height.
+        if (!stop_index || !chainActive.Contains(stop_index)) {
+            LogPrint("net", "peer %d requested sp tweaks for an invalid block hash: %s\n",
+                     pfrom->id, stop_hash.ToString());
+            pfrom->fDisconnect = true;
+            return;
+        }
+    }
+
+    uint32_t stop_height = stop_index->nHeight;
+    if (start_height > stop_height) {
+        LogPrint("net", "peer %d sent getsptweaks with start height %d and stop height %d\n",
+                 pfrom->id, start_height, stop_height);
+        pfrom->fDisconnect = true;
+        return;
+    }
+    if (stop_height - start_height >= MAX_GETSPTWEAKS_SIZE) {
+        LogPrint("net", "peer %d requested too many sp tweaks: %d / %d\n",
+                 pfrom->id, stop_height - start_height + 1, MAX_GETSPTWEAKS_SIZE);
+        pfrom->fDisconnect = true;
+        return;
+    }
+
+    if (!g_tweakindex) {
+        LogPrint("net", "sp tweak index not available to serve peer %d\n", pfrom->id);
+        return;
+    }
+
+    std::vector<std::vector<CTweakEntry> > tweaks;
+    if (!g_tweakindex->LookupTweakRange(start_height, stop_index, tweaks)) {
+        // Not an error the peer caused: the index has not reached these heights yet. Saying
+        // nothing beats sending empty vectors, which read as "no payments in those blocks".
+        LogPrint("net", "sp tweak index has no entry in range %d..%d for peer %d\n",
+                 start_height, stop_height, pfrom->id);
+        return;
+    }
+
+    for (size_t i = 0; i < tweaks.size(); i++) {
+        connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(
+            NetMsgType::SPTWEAKS, (uint32_t)(start_height + i), tweaks[i]));
+    }
+}
+
 static void ProcessGetCFilters(CNode* pfrom, CDataStream& vRecv, const CChainParams& chain_params,
                                CConnman& connman)
 {
@@ -3044,6 +3111,11 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
 
     else if (strCommand == NetMsgType::GETCFILTERS) {
         ProcessGetCFilters(pfrom, vRecv, chainparams, connman);
+        return true;
+    }
+
+    else if (strCommand == NetMsgType::GETSPTWEAKS) {
+        ProcessGetSPTweaks(pfrom, vRecv, connman);
         return true;
     }
 
