@@ -484,6 +484,36 @@ bool CSilentPaymentsReceiver::Scan(std::vector<CFoundOutput>& found, const CPrev
     return ScanWithSecret(found, shared_secret, vout);
 }
 
+bool CSilentPaymentsReceiver::GetCandidateScripts(std::vector<CScript>& scripts,
+                                                 const CPubKey& tweak_point, uint32_t k_max) const
+{
+    scripts.clear();
+    if (!m_valid || !tweak_point.IsValid() || k_max == 0) return false;
+
+    CPubKey shared_secret;
+    if (!CreateSharedSecret(shared_secret, tweak_point, m_scan_key.begin())) return false;
+
+    const std::vector<std::pair<uint32_t, uint256> > labels(m_labels.begin(), m_labels.end());
+
+    for (uint32_t k = 0; k < std::min(k_max, RECIPIENT_GROUP_LIMIT); ++k) {
+        uint256 t_k;
+        CPubKey unlabeled;
+        if (!CreateOutputTweak(t_k, shared_secret, k)) return false;
+        if (!TweakPubKeyAdd(unlabeled, m_spend_pubkey, t_k)) return false;
+        scripts.push_back(GetScriptForDestination(CTxDestination(unlabeled.GetID())));
+
+        // Every label is a separate script here, for the same reason it is a separate hash in
+        // the scan: paying to a hash leaves nothing to subtract, so labels cannot be recovered
+        // and have to be enumerated. A receiver holding many labels queries a wider filter set.
+        for (size_t i = 0; i < labels.size(); ++i) {
+            CPubKey candidate;
+            if (!TweakPubKeyAdd(candidate, unlabeled, labels[i].second)) continue;
+            scripts.push_back(GetScriptForDestination(CTxDestination(candidate.GetID())));
+        }
+    }
+    return !scripts.empty();
+}
+
 bool CSilentPaymentsReceiver::ScanWithTweak(std::vector<CFoundOutput>& found, const CPubKey& tweak_point, const std::vector<CTxOut>& vout) const
 {
     found.clear();

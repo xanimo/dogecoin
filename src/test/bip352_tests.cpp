@@ -397,6 +397,56 @@ BOOST_AUTO_TEST_CASE(bip352_send_and_receive_vectors)
 }
 
 // A receiver must not find anything in a transaction it was not paid in.
+// A light client has to decide whether a block is worth downloading before it has the block, so
+// it derives the scripts it would own from the tweak alone and asks a BIP158 filter about them.
+// That only works if the script derived without the outputs is the script the sender actually
+// created. Everything about the client rests on this equality.
+BOOST_AUTO_TEST_CASE(bip352_candidate_script_matches_the_real_output)
+{
+    SelectParams(CBaseChainParams::MAIN);
+    const UniValue vectors = LoadVectors();
+    const UniValue& c = vectors[0];
+
+    std::vector<CTxIn> vin;
+    std::map<COutPoint, CScript> spks;
+    std::vector<CKey> input_keys;
+    BuildInputs(c["given"]["vin"], vin, spks, input_keys);
+
+    bip352::CPrevoutsSummary summary;
+    BOOST_REQUIRE(bip352::GetPrevoutsSummary(summary, vin, spks) == bip352::PREVOUTS_OK);
+
+    // The receiver the vectors are addressed to.
+    const CKey scan = KeyFromHex(c["given"]["scan_priv_key"].get_str());
+    const CKey spend = KeyFromHex(c["given"]["spend_priv_key"].get_str());
+    bip352::CSilentPaymentsReceiver receiver(scan, spend.GetPubKey());
+    BOOST_REQUIRE(receiver.IsValid());
+
+    // What the index would hold for this transaction.
+    CPubKey tweak;
+    BOOST_REQUIRE(bip352::ComputeScanTweak(tweak, summary));
+
+    std::vector<CScript> candidates;
+    BOOST_REQUIRE(receiver.GetCandidateScripts(candidates, tweak));
+    BOOST_CHECK(!candidates.empty());
+
+    // The k = 0 output the sender produced has to be among them, derived with no sight of it.
+    const CScript real = ScriptFromHex(c["expected"]["outputs"][0]["script"].get_str());
+    BOOST_CHECK_MESSAGE(std::find(candidates.begin(), candidates.end(), real) != candidates.end(),
+                        "the client would not have asked the filter about the real output");
+
+    // And a stranger derives something else, otherwise the filter query would match for
+    // everyone and the client would download every block.
+    const CKey other_scan = KeyFromHex("2222222222222222222222222222222222222222222222222222222222222222");
+    const CKey other_spend = KeyFromHex("3333333333333333333333333333333333333333333333333333333333333333");
+    bip352::CSilentPaymentsReceiver stranger(other_scan, other_spend.GetPubKey());
+    BOOST_REQUIRE(stranger.IsValid());
+
+    std::vector<CScript> stranger_candidates;
+    BOOST_REQUIRE(stranger.GetCandidateScripts(stranger_candidates, tweak));
+    BOOST_CHECK(std::find(stranger_candidates.begin(), stranger_candidates.end(), real) ==
+                stranger_candidates.end());
+}
+
 BOOST_AUTO_TEST_CASE(bip352_scan_ignores_unrelated)
 {
     SelectParams(CBaseChainParams::MAIN);

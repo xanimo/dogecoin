@@ -285,6 +285,19 @@ public:
     bool ScanWithTweak(std::vector<CFoundOutput>& found, const CPubKey& tweak_point, const std::vector<CTxOut>& vout) const;
 
     /**
+     * Build the output scripts this receiver would own in a transaction with this tweak, for
+     * every k below k_max and every label held.
+     *
+     * This is the one thing Scan cannot do for a light client: it needs the scripts before it
+     * has the outputs, so it can ask a BIP158 filter whether the block is worth downloading at
+     * all. k_max = 1 is enough to answer that, because a sender that created output k also
+     * created every smaller one, so a transaction paying this receiver always has a k = 0
+     * output. Scanning the block it fetches still walks k properly.
+     */
+    bool GetCandidateScripts(std::vector<CScript>& scripts, const CPubKey& tweak_point,
+                             uint32_t k_max = 1) const;
+
+    /**
      * The private key for a found output: d = b_spend + tweak (mod n). The caller supplies the
      * spend private key, which a scan-only receiver does not hold.
      */
