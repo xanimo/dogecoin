@@ -325,13 +325,12 @@ BOOST_AUTO_TEST_CASE(a_body_with_no_kernel_stealth_excess_can_be_readdressed)
     BOOST_CHECK(spendConnects == CMWEBStateDB::ConnectResult::OK);
 }
 
-// the other half of what litecoin's wallet says the stealth blind is for, "or when no change": a
-// body that spends and creates nothing. with no kernel stealth excess its stealth offset is the
-// negated sum of the one-time keys it spends, so a body that spends one output publishes that
-// output's key. the key moves nothing by itself, since another kernel has to absorb the output's
-// blind, and whoever paid the output derived that blind to build it. policy refuses the body, and
-// TxBuilder never builds one.
-BOOST_AUTO_TEST_CASE(a_bare_spend_gives_its_input_to_whoever_paid_it)
+// a body that spends and creates nothing, with no kernel stealth excess. on the reference branch
+// its stealth offset is the negated one-time key of the output it spends, and whoever paid that
+// output can take it. here every spend carries an input key, derived from the spend key and the
+// output being spent, and the offset is that key less the one-time key, so the body publishes
+// neither and the payer's spend is refused. policy refuses the body either way.
+BOOST_AUTO_TEST_CASE(a_bare_spend_keeps_the_key_it_spends)
 {
     const Keys2 k;
     const CAmount pegin = 10 * COIN, value = pegin - FEE;
@@ -358,8 +357,9 @@ BOOST_AUTO_TEST_CASE(a_bare_spend_gives_its_input_to_whoever_paid_it)
     BOOST_REQUIRE(mine.value == static_cast<uint64_t>(value));
     const CScript owner = CScript() << OP_DUP << OP_HASH160 << std::vector<unsigned char>(20, 0x0a) << OP_EQUALVERIFY << OP_CHECKSIG;
     const mw::BlindingFactor off = RandomOffset();
+    const mw::SecretKey sb = K(0x77);
     const mw::Transaction built = mw::wallet::TxBuilder::Build(
-        {mine}, {}, FEE, 0, {mw::PegOutCoin(value - FEE, owner)}, off);
+        {mine}, {}, FEE, 0, {mw::PegOutCoin(value - FEE, owner)}, off, sb);
     BOOST_REQUIRE_NO_THROW(built.Validate());
     BOOST_REQUIRE(built.IsStandard());
     // as the wallet builds it the offset says nothing about the key
@@ -377,12 +377,14 @@ BOOST_AUTO_TEST_CASE(a_bare_spend_gives_its_input_to_whoever_paid_it)
                                     mw::PublicKey(), bk.GetExcess(), mw::Signature()).GetSignatureMessage();
     const mw::Kernel bareKernel(features, bk.GetFee(), bk.GetPegIn(), bk.GetPegOuts(), bk.GetLockHeight(),
                                 mw::PublicKey(), bk.GetExcess(), mw::Schnorr::Sign(x, msg.data()));
-    const mw::Transaction bare = Reassemble(off, mw::BlindingFactor(mw::Keys::NegateSecretKey(mine.spendKey).vec()),
+    // the offset the wallet built with the blind put back: the input key less the one-time key
+    const mw::Transaction bare = Reassemble(off, mw::BlindingFactor(mw::Keys::AddSecretKeys(mw::SecretKey(built.GetStealthOffset().vec()), sb).vec()),
                                             built.GetInputs(), {}, {bareKernel});
     bool bareValidates = true;
     try { bare.Validate(); } catch (const std::exception& ex) { bareValidates = false; printf("  rejected: %s\n", ex.what()); }
 
-    // from here on only the bytes of `bare` are used, and what the payer kept: sr.blind and the value
+    // from here on only the bytes of `bare` are used, and what the payer kept: sr.blind and the
+    // value. the payer does what works on the reference branch and takes the negated offset for the key.
     const mw::SecretKey leaked = mw::Keys::NegateSecretKey(mw::SecretKey(bare.GetStealthOffset().vec()));
     const bool offsetIsInputKey = (mw::Keys::PublicKeyFrom(leaked) == bare.GetInputs()[0].GetOutputPubKey());
 
@@ -421,21 +423,18 @@ BOOST_AUTO_TEST_CASE(a_bare_spend_gives_its_input_to_whoever_paid_it)
 
     printf("[bare spend] Transaction::Validate %d, IsStandard %d; -(offset)*G == the one-time key of the output it spends %d (with the stealth blind: %d)\n",
            bareValidates, (int)bare.IsStandard(), offsetIsInputKey, blindedOffsetIsKey);
-    printf("[bare spend] a spend by the payer, from that key and the blind it kept: Validate %d, IsStandard %d, matches the output in the state %d, pays the payer %d, connects: %s\n",
+    printf("[bare spend] a spend by the payer, from the negated offset and the blind it kept: Validate %d, IsStandard %d, matches the output in the state %d, pays the payer %d, connects: %s\n",
            takenValidates, (int)takenStandard, takenMatches, pegoutIsPayers, Name(takenConnects));
     printf("[bare spend] the same spend with the blind and another key: Validate %d, matches the output in the state %d\n",
            guessValidates, guessMatches);
 
     BOOST_CHECK(bareValidates);
     BOOST_CHECK(!bare.IsStandard());
-    BOOST_CHECK(offsetIsInputKey);
+    BOOST_CHECK(!offsetIsInputKey);
     BOOST_CHECK(!blindedOffsetIsKey);
     BOOST_CHECK(takenValidates);
-    BOOST_CHECK(takenStandard);
-    BOOST_CHECK(pegoutIsPayers);
-    BOOST_CHECK(takenMatches);
-    BOOST_CHECK(takenConnects == CMWEBStateDB::ConnectResult::OK);
-    BOOST_CHECK(guessValidates);
+    BOOST_CHECK(!takenMatches);
+    BOOST_CHECK(takenConnects != CMWEBStateDB::ConnectResult::OK);
     BOOST_CHECK(!guessMatches);
 }
 
