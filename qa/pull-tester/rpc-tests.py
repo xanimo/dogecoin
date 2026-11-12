@@ -186,6 +186,7 @@ testScripts = [
     'p2p-getdata.py',
     'p2p-blockfilters.py',
     'p2p-sptweaks.py',
+    'silentpayments-filtered.py',
 ]
 if ENABLE_ZMQ:
     testScripts.append('zmq_test.py')

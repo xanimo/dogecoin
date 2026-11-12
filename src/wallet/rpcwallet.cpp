@@ -20,6 +20,8 @@
 #include "util.h"
 #include "utilmoneystr.h"
 #include "bip352.h"
+#include "blockfilter.h"
+#include "index/blockfilterindex.h"
 #include "index/tweakindex.h"
 #include "wallet.h"
 #include "wallet/rpcutil.h"
@@ -3536,6 +3538,175 @@ UniValue sendtosilentpaymentaddress(const JSONRPCRequest& request)
     return wtx.GetHash().GetHex();
 }
 
+UniValue scansilentpaymentsfiltered(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp)) return NullUniValue;
+    if (request.fHelp || request.params.size() > 2)
+        throw std::runtime_error(
+            "scansilentpaymentsfiltered ( start stop )\n"
+            "\nScan for silent payments the way a light client would, by deriving the scripts\n"
+            "this wallet would own from each block's tweaks and asking that block's BIP158\n"
+            "filter whether any of them appear, reading only the blocks that match.\n"
+            "\nThe result is the same as scansilentpayments. What differs is the work: this\n"
+            "reports how many blocks it actually had to read, which is the number that decides\n"
+            "whether a real light client is practical.\n"
+            "\nRequires -tweakindex and -blockfilterindex=basic.\n"
+            "\nArguments:\n"
+            "1. start   (numeric, optional, default=0) first height\n"
+            "2. stop    (numeric, optional, default=tip) last height\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"from_height\": n,\n"
+            "  \"to_height\": n,\n"
+            "  \"blocks_in_range\": n,       (numeric) blocks the client would walk\n"
+            "  \"blocks_with_tweaks\": n,    (numeric) of those, blocks holding any scannable tx\n"
+            "  \"blocks_read\": n,           (numeric) blocks the filter said were worth reading\n"
+            "  \"candidates_queried\": n,    (numeric) scripts put to the filters\n"
+            "  \"false_positives\": n,       (numeric) blocks read that held nothing for us\n"
+            "  \"found\": [ {\"txid\":\"..\",\"vout\":n,\"amount\":x,\"address\":\"..\",\"height\":n} ]\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("scansilentpaymentsfiltered", "0 100"));
+
+    if (!g_tweakindex) {
+        throw JSONRPCError(RPC_MISC_ERROR, "scanning silent payments needs -tweakindex");
+    }
+    BlockFilterIndex* filter_index = GetBlockFilterIndex(BlockFilterType::BASIC);
+    if (!filter_index) {
+        throw JSONRPCError(RPC_MISC_ERROR,
+                           "this scan needs -blockfilterindex=basic, which is what a light "
+                           "client would ask a serving peer for");
+    }
+
+    g_tweakindex->BlockUntilSyncedToCurrentChain();
+    filter_index->BlockUntilSyncedToCurrentChain();
+
+    int from, to;
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+        EnsureWalletIsUnlocked();
+        const int tip = chainActive.Height();
+        from = request.params.size() > 0 ? request.params[0].get_int() : 0;
+        to = request.params.size() > 1 ? request.params[1].get_int() : tip;
+        if (from < 0 || to < from || to > tip) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "invalid height range");
+        }
+    }
+
+    bip352::CSilentPaymentsReceiver receiver;
+    CKey spend_key;
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+        std::string error;
+        if (!pwalletMain->BuildSilentPaymentsReceiver(receiver, spend_key, error)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, error);
+        }
+    }
+
+    int64_t blocks_with_tweaks = 0, blocks_read = 0, candidates_queried = 0, false_positives = 0;
+    UniValue found(UniValue::VARR);
+
+    for (int height = from; height <= to; ++height) {
+        // Genesis holds one coinbase and nothing scannable.
+        if (height == 0) continue;
+
+        std::vector<CTweakEntry> entries;
+        if (!g_tweakindex->ReadBlock(height, entries)) {
+            throw JSONRPCError(RPC_MISC_ERROR,
+                strprintf("the tweak index has not reached block %d yet", height));
+        }
+        if (entries.empty()) continue;
+        ++blocks_with_tweaks;
+
+        // What a client would ask the filter: the scripts it would own if any of these
+        // transactions paid it. Built from the tweaks alone, with no sight of the block.
+        GCSFilter::ElementSet candidates;
+        std::map<std::vector<unsigned char>, size_t> script_to_entry;
+        for (size_t e = 0; e < entries.size(); ++e) {
+            std::vector<CScript> scripts;
+            if (!receiver.GetCandidateScripts(scripts, entries[e].tweak)) continue;
+            for (size_t i = 0; i < scripts.size(); ++i) {
+                std::vector<unsigned char> el(scripts[i].begin(), scripts[i].end());
+                script_to_entry[el] = e;
+                candidates.insert(el);
+            }
+        }
+        if (candidates.empty()) continue;
+        candidates_queried += (int64_t)candidates.size();
+
+        // chainActive needs cs_main. Taken for the lookup alone rather than across the whole
+        // range, so a wide scan does not hold the node still while it reads blocks off disk.
+        CBlockIndex* pindex;
+        {
+            LOCK(cs_main);
+            pindex = chainActive[height];
+        }
+        if (pindex == NULL) continue;
+
+        BlockFilter filter;
+        if (!filter_index->LookupFilter(pindex, filter)) {
+            throw JSONRPCError(RPC_MISC_ERROR,
+                strprintf("no block filter for height %d", height));
+        }
+        if (!filter.GetFilter().MatchAny(candidates)) continue;
+
+        // The filter said maybe, so now the client pays for the block.
+        ++blocks_read;
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+        CBlock block;
+        if (!ReadBlockFromDisk(block, pindex, Params().GetConsensus(height))) {
+            throw JSONRPCError(RPC_MISC_ERROR, strprintf("could not read block %d", height));
+        }
+
+        size_t found_here = 0;
+        for (size_t e = 0; e < entries.size(); ++e) {
+            if (entries[e].tx_index >= block.vtx.size()) continue;
+            const CTransaction& tx = *(block.vtx[entries[e].tx_index]);
+
+            // The full k walk, not the single k the filter query used.
+            std::vector<bip352::CFoundOutput> hits;
+            if (!receiver.ScanWithTweak(hits, entries[e].tweak, tx.vout) || hits.empty()) continue;
+
+            for (size_t h = 0; h < hits.size(); ++h) {
+                CKey out_key;
+                if (!bip352::CSilentPaymentsReceiver::DeriveSpendingKey(out_key, spend_key, hits[h].tweak))
+                    continue;
+                const CPubKey out_pubkey = out_key.GetPubKey();
+                if (!pwalletMain->HaveKey(out_pubkey.GetID())) {
+                    pwalletMain->mapKeyMetadata[out_pubkey.GetID()].nCreateTime = pindex->GetBlockTime();
+                    if (!pwalletMain->AddKeyPubKey(out_key, out_pubkey)) {
+                        throw JSONRPCError(RPC_WALLET_ERROR, "could not import the derived key");
+                    }
+                }
+                pwalletMain->AddToWalletIfInvolvingMe(block.vtx[entries[e].tx_index], pindex,
+                                                      (int)entries[e].tx_index, true);
+                UniValue o(UniValue::VOBJ);
+                o.pushKV("txid", tx.GetHash().GetHex());
+                o.pushKV("vout", (int)hits[h].vout);
+                o.pushKV("amount", ValueFromAmount(tx.vout[hits[h].vout].nValue));
+                o.pushKV("address", CBitcoinAddress(out_pubkey.GetID()).ToString());
+                o.pushKV("height", height);
+                found.push_back(o);
+                ++found_here;
+            }
+        }
+        // The filter matched but nothing in the block was ours. Either a GCS collision or a
+        // candidate script that belongs to somebody else's identical-looking output.
+        if (found_here == 0) ++false_positives;
+    }
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("from_height", from);
+    result.pushKV("to_height", to);
+    result.pushKV("blocks_in_range", to - from + 1);
+    result.pushKV("blocks_with_tweaks", blocks_with_tweaks);
+    result.pushKV("blocks_read", blocks_read);
+    result.pushKV("candidates_queried", candidates_queried);
+    result.pushKV("false_positives", false_positives);
+    result.pushKV("found", found);
+    return result;
+}
+
 UniValue scansilentpayments(const JSONRPCRequest& request)
 {
     if (!EnsureWalletIsAvailable(request.fHelp)) return NullUniValue;
@@ -3607,6 +3778,7 @@ static const CRPCCommand commands[] =
     { "wallet",             "getsilentpaymentaddress",  &getsilentpaymentaddress,  true,   {"label"} },
     { "wallet",             "sendtosilentpaymentaddress", &sendtosilentpaymentaddress, false, {"address","amount"} },
     { "wallet",             "scansilentpayments",       &scansilentpayments,       false,  {"start","stop"} },
+    { "wallet",             "scansilentpaymentsfiltered", &scansilentpaymentsfiltered, false, {"start","stop"} },
     { "wallet",             "addmultisigaddress",       &addmultisigaddress,       true,   {"nrequired","keys","account"} },
     { "wallet",             "addwitnessaddress",        &addwitnessaddress,        true,   {"address"} },
     { "wallet",             "backupwallet",             &backupwallet,             true,   {"destination"} },
