@@ -5,6 +5,7 @@
 
 #include <mw/models/block/Block.h>
 #include <mw/models/tx/Transaction.h>
+#include <mw/consensus/InputKey.h>
 #include <mw/consensus/KernelKey.h>
 #include <mw/consensus/KernelSumValidator.h>
 #include <mw/consensus/StealthSumValidator.h>
@@ -56,13 +57,16 @@ static void ValidateBodyCrypto(const TxBody& body, const BlindingFactor& kernelO
     // key of the output it spends and be signed by it, proving the spender
     // controls that key. An input with no owner key is rejected rather than
     // skipped: a null key would otherwise bind nothing here and compare equal to
-    // a null receiver key when the block connects.
+    // a null receiver key when the block connects. The verification key is that
+    // owner key, aggregated with the spender's per-spend input key when the input
+    // carries one (see InputVerificationKey).
     for (const Input& input : body.GetInputs()) {
         if (input.GetOutputPubKey() == PublicKey()) {
             throw std::runtime_error("Input has no owner key");
         }
+        const PublicKey verificationKey = mw::InputVerificationKey(input);
         const mw::Hash message = input.GetSignatureMessage();
-        if (!Schnorr::Verify(input.GetSignature(), input.GetOutputPubKey(), message.data())) {
+        if (!Schnorr::Verify(input.GetSignature(), verificationKey, message.data())) {
             throw std::runtime_error("Invalid input owner signature");
         }
     }

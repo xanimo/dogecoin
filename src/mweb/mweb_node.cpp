@@ -156,6 +156,13 @@ bool Node::ContextualCheckBlock(
         }
     }
 
+    for (const mw::Input& input : block.mweb_block.m_block->GetInputs()) {
+        if (!input.HasCanonicalStealthKeyFeature()) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-mweb-empty-stealthkey",
+                true, "Stealth key feature set without a key");
+        }
+    }
+
     // The HogEx accounting is NOT checked here. It reads the previous block's
     // hogex_hash and mweb_amount, which ConnectBlock only populates when that
     // block connects, and this function runs from AcceptBlock. During a reindex

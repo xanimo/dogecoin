@@ -58,6 +58,18 @@ public:
     bool HasStealthKey() const { return m_features & STEALTH_KEY_FEATURE_BIT; }
     const std::vector<uint8_t>& GetExtraData() const { return m_extraData; }
 
+    /// Standard inputs carry at most a stealth key. Matches litecoin's
+    /// `Input::IsStandard`, so an input with extra data stays off the relay path.
+    bool IsStandard() const { return m_features < EXTRA_DATA_FEATURE_BIT; }
+
+    /// A stealth key bit with an all-zero key is not a curve point, so the
+    /// aggregate verification key cannot be built from it. Rejected rather than
+    /// left to fail inside the key arithmetic.
+    bool HasCanonicalStealthKeyFeature() const noexcept
+    {
+        return !(m_features & STEALTH_KEY_FEATURE_BIT) || !m_inputPubKey.IsNull();
+    }
+
     const mw::Hash& GetHash() const override {
         if (m_hash.IsNull()) {
             m_hash = Hashed(*this);

@@ -114,6 +114,11 @@ public:
         for (const auto& kernel : m_body.GetKernels()) {
             if (!kernel.IsStandard()) return false;
         }
+        // An input carrying extra data stays off the relay path, as upstream.
+        // The stealth key bit is below that threshold, so a normal spend relays.
+        for (const auto& input : m_body.GetInputs()) {
+            if (!input.IsStandard()) return false;
+        }
         return true;
     }
 

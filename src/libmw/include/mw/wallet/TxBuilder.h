@@ -6,6 +6,7 @@
 #define MW_WALLET_TXBUILDER_H
 
 #include <mw/common/Macros.h>
+#include <mw/consensus/InputKey.h>
 #include <mw/consensus/KernelKey.h>
 #include <mw/models/tx/Transaction.h>
 #include <mw/crypto/Pedersen.h>
@@ -37,6 +38,9 @@ struct Coin {
     SecretKey spendKey;     // one-time key of the output being spent (inputs)
     SecretKey senderKey;    // ephemeral key signing a new output (outputs)
     PublicKey receiverPubKey; // one-time key the new output pays to (outputs)
+    SecretKey inputKey;     // per-spend stealth key aggregated into the input
+                            // signature (inputs); derived from the spend key and
+                            // output ID when left null
 };
 
 // Constructs valid MWEB transactions -- the inverse of Transaction::Validate.
@@ -98,20 +102,32 @@ public:
         std::vector<Input> ins;
         for (const Coin& c : inputs) {
             const Commitment commit = Pedersen::Commit(c.value, c.blind);
-            const mw::Hash outID = c.outputID.IsNull() ? Hashed(commit) : c.outputID;
-            // Owner-signed input: the output's one-time public key is the
-            // verifying key, and we sign the input with its private key to
-            // prove the right to spend the referenced output. A coin with no
-            // spend key cannot be spent; building one would produce a body the
-            // validator rejects.
+            const mw::Hash outID = SpentOutputID(c);
+            // Owner-signed input, with the per-spend stealth key litecoin's
+            // wallet always sets. The verifying key is the aggregate
+            // K_i + H(K_i||K_o)*K_o, so the signature needs both the output's
+            // one-time key and the fresh input key. A coin with no spend key
+            // cannot be spent; building one would produce a body the validator
+            // rejects.
             if (c.spendKey.IsNull()) {
                 throw std::runtime_error("Cannot spend a coin with no spend key");
             }
             const PublicKey ownerPubKey = Keys::PublicKeyFrom(c.spendKey);
-            const Input unsigned_in(0, outID, commit, PublicKey(), ownerPubKey, Signature());
+            const SecretKey inputKey = InputStealthKey(c, outID);
+            const PublicKey inputPubKey = Keys::PublicKeyFrom(inputKey);
+
+            // k_agg = k_i + H(K_i||K_o)*k_o, the scalar counterpart of the key
+            // InputVerificationKey rebuilds.
+            const SecretKey coefficient = StealthKeyCoefficient(inputPubKey, ownerPubKey);
+            const SecretKey sigKey = Keys::AddSecretKeys(
+                Keys::MulSecretKeys(c.spendKey, coefficient), inputKey);
+
+            const uint8_t inFeatures = Input::STEALTH_KEY_FEATURE_BIT;
+            const Input unsigned_in(inFeatures, outID, commit, inputPubKey, ownerPubKey,
+                                    Signature());
             const mw::Hash msg = unsigned_in.GetSignatureMessage();
-            ins.emplace_back(0, outID, commit, PublicKey(), ownerPubKey,
-                             Schnorr::Sign(c.spendKey, msg.data()));
+            ins.emplace_back(inFeatures, outID, commit, inputPubKey, ownerPubKey,
+                             Schnorr::Sign(sigKey, msg.data()));
         }
 
         // Outputs: commit and range-prove each new coin, then sign it with the
@@ -184,6 +200,10 @@ public:
             TxBody(std::move(ins), std::move(outs), std::move(kers)));
     }
 
+    // Exposed so a caller (and the tests) can recompute the per-spend key the
+    // builder derives, without duplicating the derivation.
+    static SecretKey InputStealthKeyFor(const Coin& c) { return InputStealthKey(c, SpentOutputID(c)); }
+
 private:
     // A fresh stealth blind. Secret, so it comes from the strong pool rather
     // than from anything derived off the coin.
@@ -214,33 +234,58 @@ private:
         return SecretKey(std::vector<uint8_t>(h.begin(), h.end()));
     }
 
-    // Sum(the outputs' sender keys) - Sum(the inputs' spend keys) - the kernel's
-    // stealth blind, which is what the stealth balance checks against
-    // stealthOffset*G. Every input is signed and every output carries a sender
-    // key, so every term contributes; an empty body gives the null offset
-    // (identity). The stealth blind is subtracted because its public counterpart
-    // sits on the same side of the validator's equation as the owner keys.
+    // The ID of the output a coin spends: the coin's own when it references a
+    // real output, else the commitment hash (value-balance-only tests). Shared by
+    // the input loop and the offset so both derive the same stealth key.
+    static mw::Hash SpentOutputID(const Coin& c)
+    {
+        if (!c.outputID.IsNull()) return c.outputID;
+        return Hashed(Pedersen::Commit(c.value, c.blind));
+    }
+
+    // The per-spend stealth key of an input with none supplied: deterministic in
+    // the spend key and the output being spent, so only the owner can compute it
+    // and the same spend always yields the same key. Tagged so it cannot collide
+    // with the sender-key derivation above.
+    static SecretKey InputStealthKey(const Coin& c, const mw::Hash& outputID)
+    {
+        if (!c.inputKey.IsNull()) return c.inputKey;
+        CHashWriter ss(SER_GETHASH, 0);
+        ss << std::string("mweb/input-stealth-key");
+        ss << std::vector<uint8_t>(c.spendKey.data(), c.spendKey.data() + SecretKey::SIZE);
+        ss << outputID;
+        const uint256 h = ss.GetHash();
+        return SecretKey(std::vector<uint8_t>(h.begin(), h.end()));
+    }
+
+    // Sum(output sender keys) + Sum(input stealth keys) - Sum(input spend keys)
+    // - the kernel's stealth blind, which is what the stealth balance checks
+    // against stealthOffset*G. Every input is signed and every output carries a
+    // sender key, so every term contributes; an empty body gives the null offset
+    // (identity). The spend keys and the stealth blind are subtracted because
+    // their public counterparts sit on the far side of the validator's equation.
     static BlindingFactor ComputeStealthOffset(const std::vector<Coin>& inputs,
                                                const std::vector<Coin>& outputs,
                                                const SecretKey& stealthBlind)
     {
         bool have = false;
         SecretKey acc;
-        for (const Coin& c : outputs) {
-            const SecretKey k = OutputSenderKey(c);
+        auto fold = [&](const SecretKey& k) {
             acc = have ? Keys::AddSecretKeys(acc, k) : k;
             have = true;
+        };
+
+        for (const Coin& c : outputs) {
+            fold(OutputSenderKey(c));
         }
         for (const Coin& c : inputs) {
             if (c.spendKey.IsNull()) continue;
-            const SecretKey neg = Keys::NegateSecretKey(c.spendKey);
-            acc = have ? Keys::AddSecretKeys(acc, neg) : neg;
-            have = true;
+            // Same key the input loop signed with, so the two cannot disagree.
+            fold(InputStealthKey(c, SpentOutputID(c)));
+            fold(Keys::NegateSecretKey(c.spendKey));
         }
         if (!stealthBlind.IsNull()) {
-            const SecretKey neg = Keys::NegateSecretKey(stealthBlind);
-            acc = have ? Keys::AddSecretKeys(acc, neg) : neg;
-            have = true;
+            fold(Keys::NegateSecretKey(stealthBlind));
         }
         if (!have) return BlindingFactor();
         return ToBlind(acc);

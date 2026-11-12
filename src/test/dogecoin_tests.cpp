@@ -11,6 +11,7 @@
 #include <mw/crypto/Schnorr.h>
 #include <mw/crypto/Bulletproof.h>
 #include <mw/crypto/Keys.h>
+#include <mw/consensus/InputKey.h>
 #include <mw/consensus/KernelKey.h>
 #include <mw/models/tx/Transaction.h>
 #include <mw/models/block/Block.h>
@@ -1035,6 +1036,60 @@ BOOST_AUTO_TEST_CASE(mweb_wire_counts_do_not_size_allocations)
     mw::TxBody back;
     BOOST_CHECK_NO_THROW(ok >> back);
     BOOST_CHECK_EQUAL(back.GetInputs().size(), 0u);
+
+// The input key aggregate K_agg = K_i + H(K_i||K_o)*K_o needs the coefficient
+// for the same reason the kernel one does. Signing the unweighted sum is what a
+// spender could do having chosen K_i = K - K_o without knowing k_o, so that
+// signature must not verify.
+BOOST_AUTO_TEST_CASE(mweb_input_key_aggregation_requires_weighting)
+{
+    auto sk = [](uint8_t b) { return mw::SecretKey(std::vector<uint8_t>(32, b)); };
+    auto blind = [](uint8_t b) { return mw::BlindingFactor(std::vector<uint8_t>(32, b)); };
+
+    const mw::SecretKey spendKey = sk(0x71);
+    mw::wallet::Coin in{}; in.value = 100; in.blind = blind(0x11); in.spendKey = spendKey;
+    const mw::Transaction tx = mw::wallet::TxBuilder::Build(
+        {in}, {{100, blind(0x12)}}, /*fee=*/0, blind(0x44));
+
+    BOOST_REQUIRE_EQUAL(tx.GetInputs().size(), 1u);
+    const mw::Input& good = tx.GetInputs()[0];
+
+    // The wallet sets the bit, so the aggregate is the key in use.
+    BOOST_CHECK(good.HasStealthKey());
+    BOOST_CHECK(good.HasCanonicalStealthKeyFeature());
+    BOOST_CHECK(good.IsStandard());
+    BOOST_CHECK(mw::InputVerificationKey(good) != good.GetOutputPubKey());
+    BOOST_CHECK_NO_THROW(tx.Validate());
+
+    const mw::SecretKey inputKey = mw::wallet::TxBuilder::InputStealthKeyFor(in);
+    BOOST_REQUIRE(mw::Keys::PublicKeyFrom(inputKey) == good.GetInputPubKey());
+
+    auto resign = [&](const mw::SecretKey& key) {
+        const mw::Input u(good.GetFeatures(), good.GetOutputID(), good.GetCommitment(),
+                          good.GetInputPubKey(), good.GetOutputPubKey(), mw::Signature());
+        return mw::Input(good.GetFeatures(), good.GetOutputID(), good.GetCommitment(),
+                         good.GetInputPubKey(), good.GetOutputPubKey(),
+                         mw::Schnorr::Sign(key, u.GetSignatureMessage().data()));
+    };
+    auto withInput = [&](const mw::Input& i) {
+        std::vector<mw::Input> vin = { i };
+        std::vector<mw::Output> vout = tx.GetOutputs();
+        std::vector<mw::Kernel> vker = tx.GetKernels();
+        return mw::Transaction(tx.GetKernelOffset(), tx.GetStealthOffset(),
+            mw::TxBody(std::move(vin), std::move(vout), std::move(vker)));
+    };
+
+    // Unweighted sum and either key alone are all rejected.
+    BOOST_CHECK_THROW(withInput(resign(mw::Keys::AddSecretKeys(spendKey, inputKey))).Validate(),
+                      std::runtime_error);
+    BOOST_CHECK_THROW(withInput(resign(spendKey)).Validate(), std::runtime_error);
+    BOOST_CHECK_THROW(withInput(resign(inputKey)).Validate(), std::runtime_error);
+
+    // Only the weighted key the builder used passes.
+    const mw::SecretKey coeff =
+        mw::StealthKeyCoefficient(good.GetInputPubKey(), good.GetOutputPubKey());
+    BOOST_CHECK_NO_THROW(withInput(resign(mw::Keys::AddSecretKeys(
+        mw::Keys::MulSecretKeys(spendKey, coeff), inputKey))).Validate());
 }
 
 // Scalar multiplication is homomorphic across the two key types, which is what
