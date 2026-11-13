@@ -1,6 +1,6 @@
 # mweb crypto divergence from litecoin
 
-documents where this port's ownership cryptography diverges from litecoin's mweb, what each signature commits to, the two balance equations, and which litecoin protections the port replaces, drops, or has not yet ported. it argues that the divergences are justified and shows how litecoin's fixes re-sort against this model; it does not establish that the scheme is sound, which is a different claim and needs review by someone other than its author. dogecoin references are to branch `mweb-consensus-hardening` at d2ce952d1a, litecoin references to `litecoin-project/litecoin` at 992c5272e157 (v0.21.5.6), paths under `src/libmw` unless noted. references name the enclosing symbol rather than a line number.
+documents where this port's ownership cryptography diverges from litecoin's mweb, what each signature commits to, the two balance equations, and which litecoin protections the port replaces, drops, or has not yet ported. it argues that the divergences are justified and shows how litecoin's fixes re-sort against this model; it does not establish that the scheme is sound, which is a different claim and needs review by someone other than its author. dogecoin references are to branch `mweb-consensus-hardening` at e3545cc301, litecoin references to `litecoin-project/litecoin` at 992c5272e157 (v0.21.5.6), paths under `src/libmw` unless noted. references name the enclosing symbol rather than a line number.
 
 ## kernel signatures
 
