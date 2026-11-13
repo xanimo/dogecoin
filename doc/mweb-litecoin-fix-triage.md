@@ -134,9 +134,17 @@ wallet-enabled build is needed for them, and running them is what surfaced the
 stealth-offset bug fixed in 9fa5e61bed.
 
 they have now run against the branch tip in a wallet-enabled tree:
-`mweb-version6-activation.py` and `mweb-p2p-relay.py` both pass, 300/300 unit
-suites, 37/37 mweb cases. that covers the miner path the staging change
-touches, which the `--disable-wallet` tree cannot reach.
+`mweb-version6-activation.py` and `mweb-p2p-relay.py` both pass. that covers
+the miner path the staging change touches, which the `--disable-wallet` tree
+cannot reach. the unit counts are from the sanitiser tree, where the tip passes
+303 suites and 43 mweb cases; the wallet tree is built `--disable-tests` and
+carries no test binary.
+
+the upstream corpus carries no ci signal. litecoin has `.cirrus.yml` and a
+`ci/` directory inherited from bitcoin core but no github actions, and a merge
+commit there reports zero check runs with a combined status of pending and no
+statuses. the fixes triaged above therefore landed on review alone, and the
+port's own tests are the only automated evidence for the ported versions.
 
 the commit list is everything touching those two directories after the pinned
 tag; fixes landing elsewhere in litecoin that affect mweb indirectly are not
