@@ -974,6 +974,35 @@ BOOST_AUTO_TEST_CASE(mweb_stealth_offset_balance)
     BOOST_CHECK_THROW(assemble(blind(0x55)).Validate(), std::runtime_error);
 }
 
+// Every bounded reader must consume exactly what the writer produced. Reading
+// an element twice still parses and still passes a value check, but leaves the
+// stream short, and undo data is checksummed across the parse: a node that got
+// this wrong wrote good undo data and then refused to restart, reporting a
+// corrupted block database. Asserts the stream is empty afterwards, which is
+// the part a value comparison misses.
+template <typename T>
+static void CheckRoundTripConsumesAll(const char* what)
+{
+    T original;
+    CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+    ss << original;
+    const size_t written = ss.size();
+    T back;
+    ss >> back;
+    BOOST_CHECK_MESSAGE(ss.empty(),
+        std::string(what) + " left " + std::to_string(ss.size()) +
+        " of " + std::to_string(written) + " bytes unread");
+}
+
+BOOST_AUTO_TEST_CASE(mweb_deserializers_consume_exactly_what_was_written)
+{
+    // Undo data is the case that bit: two vectors back to back, so a reader that
+    // consumes one twice eats into the next.
+    CheckRoundTripConsumesAll<mw::BlockUndo>("BlockUndo");
+    CheckRoundTripConsumesAll<mw::TxBody>("TxBody");
+    CheckRoundTripConsumesAll<mw::RangeProof>("RangeProof");
+}
+
 // A count read off the wire must not size a container before the elements
 // behind it are read. ReadCompactSize permits 33554432, so a 78-byte message
 // claiming that many outputs asked for 9.5 GiB and terminated the node. The
