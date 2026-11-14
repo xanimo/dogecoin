@@ -87,6 +87,7 @@ private:
     size_t m_weight;
     std::set<mw::Hash> m_stagedOutputs;
     std::set<mw::Hash> m_stagedKernels;
+    std::set<mw::Hash> m_stagedInputs;
 };
 
 END_NAMESPACE

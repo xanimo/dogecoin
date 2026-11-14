@@ -285,15 +285,6 @@ bool mw::BlockBuilder::AddTransaction(const mw::Transaction::CPtr& pTransaction,
         }
     }
 
-    // Revalidate rather than trust the caller. The miner has already checked this
-    // at mempool acceptance, but the builder is reachable from elsewhere and a
-    // template is cheaper to refuse than a block is to discard.
-    try {
-        pTransaction->Validate();
-    } catch (const std::exception&) {
-        return false;
-    }
-
     // Identity rules across the staged set. Duplicate kernels or outputs make a
     // body Block::Validate rejects, and an input must spend something that either
     // exists unspent on chain or was created by a transaction already staged.
@@ -305,9 +296,23 @@ bool mw::BlockBuilder::AddTransaction(const mw::Transaction::CPtr& pTransaction,
         if (m_stagedOutputs.count(id) > 0) return false;
         if (m_prevState.HasOutput(id)) return false;
     }
+    std::set<mw::Hash> spending;
     for (const mw::Input& input : pTransaction->GetInputs()) {
         const mw::Hash id = input.GetOutputID();
         if (!m_prevState.IsUnspentByOutputID(id) && m_stagedOutputs.count(id) == 0) return false;
+        // Nor may anything staged already spend it. Two transactions spending the same
+        // output are each valid alone; staged together they made a body that spends it
+        // twice, and the template failed the validity check it is given before use.
+        if (m_stagedInputs.count(id) > 0 || !spending.insert(id).second) return false;
+    }
+
+    // Revalidate rather than trust the caller. The miner has already checked this
+    // at mempool acceptance, but the builder is reachable from elsewhere and a
+    // template is cheaper to refuse than a block is to discard.
+    try {
+        pTransaction->Validate();
+    } catch (const std::exception&) {
+        return false;
     }
 
     const size_t nInputs = m_body.GetInputs().size();
@@ -350,6 +355,7 @@ bool mw::BlockBuilder::AddTransaction(const mw::Transaction::CPtr& pTransaction,
         m_stagedOutputs.insert(output.GetOutputID());
     for (const mw::Kernel& kernel : pTransaction->GetKernels())
         m_stagedKernels.insert(kernel.GetKernelID());
+    m_stagedInputs.insert(spending.begin(), spending.end());
 
     return true;
 }

@@ -641,6 +641,20 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
     if (!MWEB::Policy::CheckWeight(tx, mweb_reason))
         return state.DoS(0, false, REJECT_NONSTANDARD, mweb_reason);
 
+    // MWEB: an extension-block input names an output id and not an outpoint, so the
+    // conflict check further down never sees it. The pool held any number of
+    // transactions spending the same output, each valid alone, and a template that
+    // staged two of them failed the validity check it is given before use. First seen
+    // stays; there is no replacement. Looked up here, ahead of the signatures and range
+    // proofs, so that a conflicting transaction costs a lookup to refuse.
+    if (tx.HasMWEBTx()) {
+        for (const mw::Input& input : tx.mweb_tx.m_transaction->GetInputs()) {
+            const CTransaction* ptxSpender = pool.GetMWEBConflict(input.GetOutputID());
+            if (ptxSpender != NULL && ptxSpender->GetHash() != hash)
+                return state.Invalid(false, REJECT_CONFLICT, "txn-mempool-conflict");
+        }
+    }
+
     if (!CheckTransaction(tx, state))
         return false; // state filled in by CheckTransaction
 
@@ -2550,7 +2564,8 @@ bool static ConnectTip(CValidationState& state, const CChainParams& chainparams,
     mempool.removeForBlock(blockConnecting.vtx, pindexNew->nHeight);
     // MWEB-only transactions are not in vtx, so remove them by kernel id.
     if (!blockConnecting.mweb_block.IsNull()) {
-        mempool.removeForMWEBBlock(blockConnecting.mweb_block.GetKernelIDs());
+        mempool.removeForMWEBBlock(blockConnecting.mweb_block.GetKernelIDs(),
+                                   blockConnecting.mweb_block.GetSpentIDs());
     }
     // Update chainActive & related variables.
     UpdateTip(pindexNew, chainparams);

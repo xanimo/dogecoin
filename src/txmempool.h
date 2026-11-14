@@ -525,6 +525,9 @@ private:
 
 public:
     indirectmap<COutPoint, const CTransaction*> mapNextTx;
+    /** MWEB: the pool transaction spending each extension-block output. Such an input names
+     *  an output id and not an outpoint, so mapNextTx does not cover it. */
+    std::map<mw::Hash, const CTransaction*> mapNextMWEB;
     std::map<uint256, std::pair<double, CAmount> > mapDeltas;
 
     /** Create a new CTxMemPool.
@@ -557,8 +560,11 @@ public:
      *  transactions are not in the block's canonical vtx (they live only in the
      *  extension block), so removeForBlock never removes them; without this they
      *  linger and are re-aggregated into later blocks, double-spending their
-     *  already-confirmed outputs. */
-    void removeForMWEBBlock(const std::set<mw::Hash>& blockKernelIDs);
+     *  already-confirmed outputs. A transaction that spends an output the block
+     *  spent under another kernel goes as well: it can no longer confirm. */
+    void removeForMWEBBlock(const std::set<mw::Hash>& blockKernelIDs, const std::vector<mw::Hash>& blockSpentIDs);
+    /** MWEB: the pool transaction that spends this extension-block output, or NULL. */
+    const CTransaction* GetMWEBConflict(const mw::Hash& outputID) const;
 
     void clear();
     void _clear(); //lock free

@@ -420,6 +420,10 @@ bool CTxMemPool::addUnchecked(const uint256& hash, const CTxMemPoolEntry &entry,
         mapNextTx.insert(std::make_pair(&tx.vin[i].prevout, &tx));
         setParentTransactions.insert(tx.vin[i].prevout.hash);
     }
+    if (tx.HasMWEBTx()) {
+        for (const mw::Input& input : tx.mweb_tx.m_transaction->GetInputs())
+            mapNextMWEB[input.GetOutputID()] = &tx;
+    }
     // Don't bother worrying about child transactions of this one.
     // Normal case of a new transaction arriving is that there can't be any
     // children, because such children would be orphans.
@@ -453,6 +457,13 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
     const uint256 hash = it->GetTx().GetHash();
     BOOST_FOREACH(const CTxIn& txin, it->GetTx().vin)
         mapNextTx.erase(txin.prevout);
+    if (it->GetTx().HasMWEBTx()) {
+        for (const mw::Input& input : it->GetTx().mweb_tx.m_transaction->GetInputs()) {
+            std::map<mw::Hash, const CTransaction*>::iterator spent = mapNextMWEB.find(input.GetOutputID());
+            if (spent != mapNextMWEB.end() && spent->second == &it->GetTx())
+                mapNextMWEB.erase(spent);
+        }
+    }
 
     if (vTxHashes.size() > 1) {
         vTxHashes[it->vTxHashesIdx] = std::move(vTxHashes.back());
@@ -620,7 +631,14 @@ void CTxMemPool::removeForBlock(const std::vector<CTransactionRef>& vtx, unsigne
     blockSinceLastRollingFeeBump = true;
 }
 
-void CTxMemPool::removeForMWEBBlock(const std::set<mw::Hash>& blockKernelIDs)
+const CTransaction* CTxMemPool::GetMWEBConflict(const mw::Hash& outputID) const
+{
+    LOCK(cs);
+    std::map<mw::Hash, const CTransaction*>::const_iterator it = mapNextMWEB.find(outputID);
+    return it == mapNextMWEB.end() ? NULL : it->second;
+}
+
+void CTxMemPool::removeForMWEBBlock(const std::set<mw::Hash>& blockKernelIDs, const std::vector<mw::Hash>& blockSpentIDs)
 {
     LOCK(cs);
     if (blockKernelIDs.empty())
@@ -644,6 +662,18 @@ void CTxMemPool::removeForMWEBBlock(const std::set<mw::Hash>& blockKernelIDs)
         CalculateDescendants(it, stage);
     }
     RemoveStaged(stage, true, MemPoolRemovalReason::BLOCK);
+
+    // What is left and spends an output the block spent conflicts with the block.
+    setEntries conflicts;
+    for (const mw::Hash& id : blockSpentIDs) {
+        std::map<mw::Hash, const CTransaction*>::const_iterator spent = mapNextMWEB.find(id);
+        if (spent == mapNextMWEB.end())
+            continue;
+        txiter it = mapTx.find(spent->second->GetHash());
+        if (it != mapTx.end())
+            CalculateDescendants(it, conflicts);
+    }
+    RemoveStaged(conflicts, true, MemPoolRemovalReason::CONFLICT);
 }
 
 void CTxMemPool::_clear()
@@ -651,6 +681,7 @@ void CTxMemPool::_clear()
     mapLinks.clear();
     mapTx.clear();
     mapNextTx.clear();
+    mapNextMWEB.clear();
     totalTxSize = 0;
     cachedInnerUsage = 0;
     lastRollingFeeUpdate = GetTime();
