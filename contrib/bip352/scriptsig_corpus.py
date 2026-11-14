@@ -4,19 +4,24 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Run the BIP352 input eligibility rule over real mainnet inputs and report what it finds.
 
-The rule in src/bip352.cpp walks every data push in a P2PKH scriptSig and takes the push whose
-hash160 matches the prevout's pubkey hash. That is a claim about real-world scriptSig encodings,
-and a scriptSig a receiver reads differently from the sender silently loses the payment. This
-measures the claim rather than asserting it.
+The rule in src/bip352.cpp walks every data push in a P2PKH scriptSig and takes the compressed
+push whose hash160 matches the prevout's pubkey hash. That is a claim about real-world scriptSig
+encodings, and a scriptSig a receiver reads differently from the sender silently loses the
+payment. This measures the claim rather than asserting it.
 
 Per input it reports one of:
 
-  eligible    a push matched the prevout's pubkey hash
-  no_match    a P2PKH prevout whose scriptSig has no push matching the hash, so no sender and no
-              receiver can derive from it. Expected to be zero; a non-zero count is a finding.
-  ambiguous   more than one distinct push matched the hash. Impossible short of a hash160
-              collision, so also a finding, and reported separately so it can never hide inside
-              the eligible count.
+  eligible    a compressed push matched the prevout's pubkey hash
+  skipped_uncompressed
+              the matching push is an uncompressed key, which BIP352 does not permit, so the
+              input contributes nothing and the rest of the transaction stands. Expected to be
+              common in early history and not a finding.
+  no_match    a P2PKH prevout whose scriptSig has no push matching the hash at all, so no sender
+              and no receiver can derive from it. Expected to be zero; a non-zero count is a
+              finding.
+  ambiguous   more than one distinct compressed push matched the hash. Impossible short of a
+              hash160 collision, so also a finding, and reported separately so it can never hide
+              inside the eligible count.
   not_p2pkh   the prevout is some other script type, which the scheme ignores by design
 
 and breaks the eligible ones down by key type and by scriptSig shape, where "canonical" means
@@ -122,6 +127,12 @@ def on_curve(data):
     return False
 
 
+# Which rule classify() implements. Bump it on any change to the verdicts, so a checkpoint
+# written under the old rule is recomputed instead of silently summed with the new one.
+#   2: compressed keys only, an uncompressed match reported as skipped rather than no_match
+RULE_VERSION = 2
+
+
 def classify(script_sig, spk):
     """Return (verdict, key_type, shape) for one input."""
     if not is_p2pkh(spk):
@@ -130,29 +141,29 @@ def classify(script_sig, spk):
     pubkey_hash = spk[3:23]
     pushes = list(script_pushes(script_sig))
     matches = set()
+    uncompressed = set()
     for data, is_push in pushes:
         if not is_push or len(data) not in (33, 65):
             continue
-        # 0x02/0x03 compressed, 0x04 uncompressed. The hybrid encodings 0x06 and 0x07 are
-        # refused, matching src/bip352.cpp. libsecp256k1 parses them, so a reader built on it
-        # would accept a key a prefix-checking reader rejects, and the two would sum a different
-        # A. A hybrid key here therefore yields no_match, which is what the C++ reports for the
-        # same input, rather than an eligible input with a misleading key type.
+        # The hybrid encodings 0x06 and 0x07 are refused, matching src/bip352.cpp. libsecp256k1
+        # parses them, so a reader built on it would accept a key a prefix-checking reader
+        # rejects, and the two would sum a different A.
         if data[0] not in (0x02, 0x03, 0x04):
             continue
-        if hash160(data) == pubkey_hash:
-            matches.add(data)
+        if hash160(data) != pubkey_hash:
+            continue
+        # BIP352 permits only compressed and X-only keys, so an uncompressed one is counted
+        # separately rather than matched. Folding it into no_match would cost the distinction
+        # between an input the rule declines and one where the parse found nothing.
+        (matches if len(data) == 33 else uncompressed).add(data)
 
-    if not matches:
-        return 'no_match', None, None
     if len(matches) > 1:
         return 'ambiguous', None, None
+    if not matches:
+        return ('skipped_uncompressed' if uncompressed else 'no_match'), None, None
 
     key = matches.pop()
-    if len(key) == 33:
-        key_type = 'compressed' if on_curve(key) else 'compressed_off_curve'
-    else:
-        key_type = 'uncompressed' if on_curve(key) else 'uncompressed_off_curve'
+    key_type = 'compressed' if on_curve(key) else 'compressed_off_curve'
 
     # Canonical is exactly <sig> <key>; anything else the two-push rule would have missed.
     data_pushes = [d for d, p in pushes if p]
@@ -194,7 +205,8 @@ class Stats(object):
                 self.shapes[shape] += 1
             elif verdict == 'not_p2pkh':
                 self.prevout_types[spk_kind(spk)] += 1
-            else:
+            elif verdict != 'skipped_uncompressed':
+                # Sampled for reading, so only the verdicts that want explaining go in.
                 if len(self.findings) < 50:
                     self.findings.append({
                         'verdict': verdict,

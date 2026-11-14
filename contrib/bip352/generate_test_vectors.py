@@ -164,13 +164,13 @@ def input_pubkey(script_sig, spk):
     """The public key a P2PKH input reveals, matched against the prevout's pubkey hash.
 
     Walks every push rather than taking the last one, because P2PKH scriptSigs are third-party
-    malleable. Unlike BIP352, 65-byte uncompressed keys are accepted.
+    malleable. Compressed keys only, as BIP352 requires and src/bip352.cpp does.
     """
     if not is_p2pkh(spk.hex()):
         return None
     pubkey_hash = spk[3:23]
     for push in script_pushes(script_sig):
-        if len(push) in (33, 65) and hash160(push) == pubkey_hash:
+        if len(push) == 33 and push[0] in (2, 3) and hash160(push) == pubkey_hash:
             return push
     return None
 
@@ -242,15 +242,13 @@ def port_case(case, hrp):
 
     pubkey_sum, input_hash = derive(vin, True)
 
-    # Where our eligibility rule differs from BIP352's, say so in the vector rather than letting
-    # it read as a mismatch. The only intended difference is that we accept uncompressed keys.
+    # The eligibility rule here is BIP352's restricted to P2PKH, so on an all-P2PKH case the two
+    # must count the same keys. The field stays in the output, always null, so a future
+    # divergence has somewhere to be recorded and cannot pass unnoticed.
     ours_eligible = sorted(eligible_pubkeys(vin))
     theirs_eligible = sorted(case['sending'][0]['expected']['input_pub_keys'])
+    assert ours_eligible == theirs_eligible, (case['comment'], ours_eligible, theirs_eligible)
     diverges = None
-    if ours_eligible != theirs_eligible:
-        extra = [k for k in ours_eligible if k not in theirs_eligible]
-        assert all(len(k) == 130 for k in extra), extra
-        diverges = 'accepts %d uncompressed input key(s) that BIP352 skips' % len(extra)
 
     out = {
         'comment': case['comment'],

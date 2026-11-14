@@ -3423,10 +3423,14 @@ UniValue sendtosilentpaymentaddress(const JSONRPCRequest& request)
         CKey key;
         const uint160 pkh(std::vector<unsigned char>(spk.begin() + 3, spk.begin() + 23));
         if (!pwalletMain->GetKey(CKeyID(pkh), key)) continue;
+        // A coin behind an uncompressed key can be spent here but is not counted: its scriptSig
+        // will reveal a 65-byte key, which every receiver skips. Summing it anyway derived an
+        // output no scanner looks for, and the recheck below refused the send.
+        if (!key.IsCompressed()) continue;
         input_keys.push_back(key);
     }
     if (input_keys.empty())
-        throw JSONRPCError(RPC_WALLET_ERROR, "No eligible input: every selected coin must be P2PKH");
+        throw JSONRPCError(RPC_WALLET_ERROR, "No eligible input: every selected coin must be P2PKH with a compressed key");
 
     COutPoint smallest;
     if (!bip352::GetSmallestOutpoint(smallest, mtx.vin))

@@ -205,12 +205,22 @@ BOOST_AUTO_TEST_CASE(bip352_rejects_hybrid_pubkey_encoding)
     const CScript hybrid_sig = CScript() << sig << hybrid;
     BOOST_CHECK(!bip352::GetPubKeyFromInput(found, hybrid_sig, hybrid_spk));
 
-    // Positive control: the same key in its 0x04 form is eligible, so the rejection above is the
-    // prefix and not something else about this key.
+    // The uncompressed 0x04 form of the same key is refused too, since BIP352 permits only
+    // compressed keys. Both rejections are the encoding rule rather than anything about the key.
     const CScript spk = GetScriptForDestination(CTxDestination(pubkey.GetID()));
-    const CScript ok = CScript() << sig << ToByteVector(pubkey);
-    BOOST_CHECK(bip352::GetPubKeyFromInput(found, ok, spk));
-    BOOST_CHECK(found == pubkey);
+    const CScript uncompressed = CScript() << sig << ToByteVector(pubkey);
+    BOOST_CHECK(!bip352::GetPubKeyFromInput(found, uncompressed, spk));
+
+    // Positive control: compressed is accepted, so the rejections above are not vacuous.
+    CKey compressed_key;
+    compressed_key.Set(key.begin(), key.begin() + 32, true);
+    BOOST_REQUIRE(compressed_key.IsValid());
+    const CPubKey compressed = compressed_key.GetPubKey();
+    BOOST_REQUIRE(compressed.IsCompressed());
+    const CScript cspk = GetScriptForDestination(CTxDestination(compressed.GetID()));
+    const CScript csig = CScript() << sig << ToByteVector(compressed);
+    BOOST_CHECK(bip352::GetPubKeyFromInput(found, csig, cspk));
+    BOOST_CHECK(found == compressed);
 }
 
 BOOST_AUTO_TEST_CASE(bip352_input_pubkey_extraction)
@@ -241,8 +251,10 @@ BOOST_AUTO_TEST_CASE(bip352_input_pubkey_extraction)
     const CScript wrong = CScript() << sig << ToByteVector(other.GetPubKey());
     BOOST_CHECK(!bip352::GetPubKeyFromInput(found, wrong, spk));
 
-    // Uncompressed keys are eligible here, unlike BIP352, because Dogecoin has plenty of coin
-    // behind them. The prevout commits to the uncompressed encoding in that case.
+    // Uncompressed keys are not eligible, which is what BIP352 permits and what a receiver
+    // following it will do. Accepting them would make this input contribute to A on the
+    // sender's side and not on a conforming receiver's, and the sender's own recheck cannot
+    // see that disagreement, so the payment would be unspendable with every check passing.
     CKey uncompressed;
     uncompressed.Set(key.begin(), key.begin() + 32, false);
     BOOST_REQUIRE(uncompressed.IsValid());
@@ -250,8 +262,7 @@ BOOST_AUTO_TEST_CASE(bip352_input_pubkey_extraction)
     BOOST_REQUIRE_EQUAL(upub.size(), (unsigned int)CPubKey::SIZE);
     const CScript uspk = GetScriptForDestination(CTxDestination(upub.GetID()));
     const CScript uscript = CScript() << sig << ToByteVector(upub);
-    BOOST_CHECK(bip352::GetPubKeyFromInput(found, uscript, uspk));
-    BOOST_CHECK(found == upub);
+    BOOST_CHECK(!bip352::GetPubKeyFromInput(found, uscript, uspk));
 
     // Non-P2PKH prevouts are not eligible at all.
     const CScript p2sh = CScript() << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUAL;
@@ -493,6 +504,55 @@ BOOST_AUTO_TEST_CASE(bip352_missing_coin_is_an_error)
     spks.erase(vin[0].prevout);
     bip352::CPrevoutsSummary summary;
     BOOST_CHECK(bip352::GetPrevoutsSummary(summary, vin, spks) == bip352::PREVOUTS_MISSING_COIN);
+}
+
+// BIP352's vector "P2PKH and P2WPKH Uncompressed Keys are skipped", reduced to its two P2PKH
+// inputs, which is all this chain can carry. Input 0 reveals a compressed key and input 1 an
+// uncompressed one. The BIP's answer is that input 1 contributes nothing and the payment stands
+// on input 0 alone; the porting script drops this case for its third, P2WPKH, input, so it is
+// written out here. Dropping the transaction instead makes the payment invisible to this wallet
+// while every wallet following the BIP derives it.
+BOOST_AUTO_TEST_CASE(bip352_uncompressed_input_is_skipped)
+{
+    std::vector<CTxIn> vin;
+    std::map<COutPoint, CScript> spks;
+    const char* inputs[2][4] = {
+        {"a1075db55d416d3ca199f55b6084e2115b9345e16c5cf302fc80e9d5fbf5d48d", "0", "493046022100ad79e6801dd9a8727f342f31c71c4912866f59dc6e7981878e92c5844a0ce929022100fb0d2393e813968648b9753b7e9871d90ab3d815ebf91820d704b19f4ed224d60121025a1e61f898173040e20616d43e9f496fba90338a39faa1ed98fcbaeee4dd9be5", "76a91419c2f3ae0ca3b642bd3e49598b8da89f50c1416188ac"},
+        {"f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16", "0", "483045022100a8c61b2d470e393279d1ba54f254b7c237de299580b7fa01ffcc940442ecec4502201afba952f4e4661c40acde7acc0341589031ba103a307b886eb867b23b850b97014104782eeb913431ca6e9b8c2fd80a5f72ed2024ef72a3c6fb10263c3799373233387c5343bf58e23269e903335b958a12182f9849297321e8d710e49a8727129cab", "76a9144b92ac4ac6fe6212393894addda332f2e47a315688ac"},
+    };
+    for (int i = 0; i < 2; i++) {
+        const COutPoint op(uint256S(inputs[i][0]), (uint32_t)atoi(inputs[i][1]));
+        const std::vector<unsigned char> ss = ParseHex(inputs[i][2]), spk = ParseHex(inputs[i][3]);
+        vin.push_back(CTxIn(op, CScript(ss.begin(), ss.end())));
+        spks[op] = CScript(spk.begin(), spk.end());
+    }
+
+    CPubKey key;
+    BOOST_CHECK(bip352::GetPubKeyFromInput(key, vin[0].scriptSig, spks[vin[0].prevout]));
+    BOOST_CHECK(!bip352::GetPubKeyFromInput(key, vin[1].scriptSig, spks[vin[1].prevout]));
+
+    bip352::CPrevoutsSummary summary;
+    BOOST_REQUIRE(bip352::GetPrevoutsSummary(summary, vin, spks) == bip352::PREVOUTS_OK);
+    BOOST_CHECK_EQUAL(HexStr(summary.pubkey_sum.begin(), summary.pubkey_sum.end()), "025a1e61f898173040e20616d43e9f496fba90338a39faa1ed98fcbaeee4dd9be5");
+
+    // The output the vector expects, as P2PKH of either parity of its x-only key.
+    const std::vector<unsigned char> x = ParseHex("67fee277da9e8542b5d2e6f32d660a9bbd3f0e107c2d53638ab1d869088882d6");
+    std::vector<CTxOut> vout;
+    for (unsigned char prefix = 2; prefix <= 3; prefix++) {
+        std::vector<unsigned char> full(1, prefix);
+        full.insert(full.end(), x.begin(), x.end());
+        vout.push_back(CTxOut(COIN, GetScriptForDestination(CTxDestination(CKeyID(Hash160(full))))));
+    }
+
+    const std::vector<unsigned char> scan_bytes = ParseHex("0f694e068028a717f8af6b9411f9a133dd3565258714cc226594b34db90c1f2c"), spend_bytes = ParseHex("9d6ad855ce3417ef84e836892e5a56392bfba05fa5d97ccea30e266f540e08b3");
+    CKey scan, spend;
+    scan.Set(scan_bytes.begin(), scan_bytes.end(), true);
+    spend.Set(spend_bytes.begin(), spend_bytes.end(), true);
+    const bip352::CSilentPaymentsReceiver receiver(scan, spend.GetPubKey());
+    std::vector<bip352::CFoundOutput> found;
+    BOOST_REQUIRE(receiver.Scan(found, summary, vout));
+    BOOST_REQUIRE_EQUAL(found.size(), 1U);
+    BOOST_CHECK_EQUAL(HexStr(found[0].output_pubkey.begin() + 1, found[0].output_pubkey.end()), "67fee277da9e8542b5d2e6f32d660a9bbd3f0e107c2d53638ab1d869088882d6");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

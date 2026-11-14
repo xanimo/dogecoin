@@ -34,7 +34,7 @@ import sys
 from collections import Counter
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from scriptsig_corpus import P, Stats, classify, script_pushes  # noqa: E402
+from scriptsig_corpus import P, RULE_VERSION, Stats, classify, script_pushes  # noqa: E402
 
 VERSION_AUXPOW = 1 << 8
 
@@ -263,6 +263,8 @@ def process_file(task):
         try:
             with open(cached) as f:
                 res = json.load(f)
+            if res['rule'] != RULE_VERSION:
+                raise ValueError          # classified under another rule, so it is not an answer
             for k in ('verdicts', 'key_types', 'shapes', 'prevout_types', 'pairing'):
                 res[k] = Counter(res[k])
             res['cached'] = True
@@ -275,6 +277,7 @@ def process_file(task):
     _run_file(blocks_dir, name, magic, stats, pairing)
     res = {
         'name': name,
+        'rule': RULE_VERSION,
         'blocks': stats.blocks,
         'txs': stats.txs,
         'txs_eligible': stats.txs_eligible,
@@ -337,10 +340,10 @@ def main():
             stats.findings.extend(res['findings'][:max(0, 50 - len(stats.findings))])
             pairing.update(res['pairing'])
             done += 1
-            print('[%d/%d] %s%s  eligible=%d no_match=%d ambiguous=%d' %
+            print('[%d/%d] %s%s  eligible=%d uncompressed=%d no_match=%d ambiguous=%d' %
                   (done, len(tasks), res['name'], ' (cached)' if res.get('cached') else '',
-                   stats.verdicts['eligible'], stats.verdicts['no_match'],
-                   stats.verdicts['ambiguous']), file=sys.stderr)
+                   stats.verdicts['eligible'], stats.verdicts['skipped_uncompressed'],
+                   stats.verdicts['no_match'], stats.verdicts['ambiguous']), file=sys.stderr)
 
     report = stats.report()
     report['pairing'] = dict(pairing)

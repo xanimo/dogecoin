@@ -290,13 +290,19 @@ bool GetPubKeyFromInput(CPubKey& out, const CScript& scriptSig, const CScript& p
         opcodetype opcode;
         std::vector<unsigned char> candidate;
         if (!scriptSig.GetOp(pc, opcode, candidate)) return false;
-        if (candidate.size() != CPubKey::COMPRESSED_SIZE && candidate.size() != CPubKey::SIZE) continue;
-        // 0x02/0x03 compressed or 0x04 uncompressed only. libsecp256k1 also parses the hybrid
-        // encodings 0x06/0x07, so without this an implementation built on it would accept a key
-        // that one checking the prefix rejects, and the two would compute different A. The chain
-        // has none: zero across 1.68M eligible inputs sampled from 2014 to 2026. Excluding them
-        // costs nothing real and removes a way for two readers to disagree.
-        if (candidate[0] != 0x02 && candidate[0] != 0x03 && candidate[0] != 0x04) continue;
+        // Compressed only, which is what BIP352 permits. Accepting the 65-byte uncompressed
+        // form would cover another 4.6% of this chain's historical inputs, but a receiver
+        // following the spec would call those inputs ineligible and derive a different A, and
+        // the sender's own recheck cannot see that disagreement because it only establishes
+        // that the sender agrees with itself. The exposure is small and shrinking: uncompressed
+        // is 16.4% of 2014 spends and under 2% since, and a holder of such coins can
+        // consolidate into a compressed output before paying.
+        //
+        // libsecp256k1 also parses the hybrid encodings 0x06/0x07, so the prefix is checked
+        // rather than inferred from the length. The chain has no hybrid keys at all: zero
+        // across 1.68M eligible inputs sampled from 2014 to 2026.
+        if (candidate.size() != CPubKey::COMPRESSED_SIZE) continue;
+        if (candidate[0] != 0x02 && candidate[0] != 0x03) continue;
         if (Hash160(candidate) != pubkey_hash) continue;
         const CPubKey key(candidate.begin(), candidate.end());
         if (key.IsFullyValid()) {
@@ -318,14 +324,12 @@ PrevoutsSummaryError GetPrevoutsSummary(CPrevoutsSummary& out, const std::vector
         const std::map<COutPoint, CScript>::const_iterator it = prevout_spks.find(vin[i].prevout);
         if (it == prevout_spks.end()) return PREVOUTS_MISSING_COIN;
         CPubKey key;
-        if (!GetPubKeyFromInput(key, vin[i].scriptSig, it->second)) {
-            // Distinguish "this script type is out of scope" from "this one should have worked".
-            uint160 unused;
-            if (IsCanonicalP2PKH(it->second, unused)) {
-                return PREVOUTS_UNREADABLE_INPUT;
-            }
-            continue;
-        }
+        // An input that reveals no compressed key contributes nothing and the rest of the
+        // transaction stands. That is BIP352's rule, and its vector "P2PKH and P2WPKH
+        // Uncompressed Keys are skipped" pins it. Dropping the whole transaction instead hid
+        // every payment that spends one uncompressed coin beside compressed ones, while a
+        // sender following the BIP derives its output from the compressed keys and pays it.
+        if (!GetPubKeyFromInput(key, vin[i].scriptSig, it->second)) continue;
         secp256k1_pubkey point;
         if (!LoadPubKey(point, key)) continue;
         points.push_back(point);
@@ -356,8 +360,9 @@ bool CreateOutputs(std::map<size_t, CScript>& outputs, const std::vector<CRecipi
     outputs.clear();
     if (recipients.empty() || input_keys.empty()) return false;
 
-    // a = sum of the eligible input private keys. Uncompressed inputs contribute the same scalar
-    // as compressed ones, so nothing here depends on the encoding they were revealed in.
+    // a = sum of the eligible input private keys. The caller passes only the keys the rule
+    // counts: an input that will reveal an uncompressed key is skipped by every receiver, so
+    // its key must not be in this sum.
     unsigned char seckey_sum[32];
     memcpy(seckey_sum, input_keys[0].begin(), 32);
     if (!secp256k1_ec_seckey_verify(Ctx(), seckey_sum)) return false;

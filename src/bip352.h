@@ -114,15 +114,11 @@ bool DecodeSilentPaymentsAddress(CSilentPaymentsAddress& out, const std::string&
  * a malleated payment invisible to its receiver. Evaluating the scriptSig is not safe either,
  * since a malleated one can leave a different key on the stack than validation would.
  *
- * Unlike BIP352, uncompressed (65-byte) keys are accepted. Plenty of Dogecoin P2PKH coin sits
- * behind them, and the scalar and the curve point are the same either way; A is always summed and
- * serialized compressed, so accepting them changes only which inputs are eligible. Measured at
- * 16.4% of eligible inputs in 2014 and under 2% since, so the tail is small but real and those
- * holders could not pay at all without sweeping first.
- *
- * Accepted prefixes are exactly 0x02, 0x03 and 0x04. The hybrid encodings 0x06 and 0x07 are
- * refused even though libsecp256k1 parses them, so that a reader which checks the prefix and one
- * which only calls the parser agree on the same A.
+ * Compressed keys only, as BIP352 requires. An input revealing an uncompressed or hybrid key is
+ * not eligible: it is skipped, and the transaction's other inputs still count. The prefix is
+ * checked rather than left to the parser, because libsecp256k1 also accepts the hybrid encodings
+ * 0x06 and 0x07 in 65 bytes and a reader that only called the parser would be one length check
+ * away from disagreeing about A.
  *
  * @param[out] out        The revealed public key.
  * @param[in]  scriptSig  The input's scriptSig.
@@ -155,13 +151,6 @@ enum PrevoutsSummaryError {
     //! No input revealed an eligible public key, or the eligible keys summed to infinity, so this
     //! transaction cannot carry a silent payment.
     PREVOUTS_NOT_ELIGIBLE,
-    //! A P2PKH input whose scriptSig yielded no push matching the prevout's pubkey hash.
-    //!
-    //! Never seen on mainnet: the whole chain to 6381544 has zero. It is an error rather than a
-    //! skipped input because skipping is only safe while every implementation skips identically,
-    //! and a looser reader that did recover a key would compute a different A and disagree about
-    //! where the payment went. Failing is how that disagreement surfaces instead of losing coins.
-    PREVOUTS_UNREADABLE_INPUT,
 };
 
 /**
@@ -169,6 +158,7 @@ enum PrevoutsSummaryError {
  *
  * `prevout_spks` must hold the scriptPubKey of every outpoint in vin; a missing entry is an error
  * rather than a skipped input, since silently skipping one would change A and lose the payment.
+ * An input whose script is not P2PKH, or whose scriptSig reveals no compressed key, is skipped.
  * The smallest outpoint is taken over all inputs, eligible or not.
  */
 PrevoutsSummaryError GetPrevoutsSummary(CPrevoutsSummary& out, const std::vector<CTxIn>& vin, const std::map<COutPoint, CScript>& prevout_spks);
