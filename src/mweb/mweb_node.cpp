@@ -5,6 +5,8 @@
 
 #include "mweb/mweb_node.h"
 
+#include "mweb/mweb_db.h"
+
 #include "chain.h"
 #include "consensus/validation.h"
 #include "primitives/block.h"
@@ -294,6 +296,27 @@ bool Node::ValidateMWEBBlock(const CBlock& block)
 
 bool Node::CheckTransaction(const CTransaction& tx, CValidationState& state)
 {
+    // Every MWEB input must spend an output that exists and is still unspent.
+    // Nothing else on the mempool path consults MWEB state, so without this a
+    // body spending an output nobody created is accepted and ranked by whatever
+    // fee it declares, which is what relay and eviction sort on. The builder
+    // refuses to mine it, so it never leaves and never expires.
+    if (tx.HasMWEBTx() && g_mweb_state) {
+        for (const mw::Input& input : tx.mweb_tx.m_transaction->GetInputs()) {
+            if (!g_mweb_state->State().IsUnspentByOutputID(input.GetOutputID())) {
+                return state.DoS(10, false, REJECT_INVALID, "bad-mweb-missing-input",
+                    false, "MWEB input spends an output that is not unspent");
+            }
+            // And it must be the output's own commitment and one-time key. Connect checks
+            // this, so a transaction that failed it was mined into a block its own miner then
+            // refused, again and again for as long as it sat in the mempool.
+            if (!g_mweb_state->CheckInput(input)) {
+                return state.DoS(10, false, REJECT_INVALID, "bad-mweb-input-mismatch",
+                    false, "MWEB input does not match the output it spends");
+            }
+        }
+    }
+
     // Verify pegin amounts match
     if (tx.HasMWEBTx()) {
         std::vector<mw::PegInCoin> pegins = tx.mweb_tx.GetPegIns();

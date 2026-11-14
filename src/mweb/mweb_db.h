@@ -53,6 +53,11 @@ public:
     /// Check if an MWEB output exists in the UTXO set.
     bool HasOutput(const mw::Hash& output_id) const;
 
+    /// The owner binding ConnectBlock applies to each input: it spends an output in the UTXO
+    /// set and carries that output's commitment and one-time key. Shared with the mempool so
+    /// that nothing is accepted for relay and mining that a block cannot connect with.
+    bool CheckInput(const mw::Input& input) const;
+
     /// Retrieve a range of UTXOs starting at a given leaf index.
     /// Returns up to max_count UTXOs ordered by their output IDs.
     std::vector<mw::Output> GetUTXOs(uint64_t start_index, uint64_t max_count);

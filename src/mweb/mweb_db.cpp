@@ -66,6 +66,25 @@ bool CMWEBStateDB::HasOutput(const mw::Hash& output_id) const
     return db.Exists(std::make_pair(MWEBDBKeys::UTXO, output_id));
 }
 
+bool CMWEBStateDB::CheckInput(const mw::Input& input) const
+{
+    mw::Output spentOutput;
+    if (!GetOutput(input.GetOutputID(), spentOutput)) {
+        return false; // spends an unknown or already-spent output
+    }
+    /* Reject null keys first: a null owner key compares equal to a null
+       receiver key, so the comparison below would bind nothing. */
+    if (input.GetOutputPubKey() == mw::PublicKey() ||
+        spentOutput.GetReceiverPubKey() == mw::PublicKey()) {
+        return false; // unbound spend: no one-time key to prove ownership of
+    }
+    if (input.GetCommitment() != spentOutput.GetCommitment() ||
+        input.GetOutputPubKey() != spentOutput.GetReceiverPubKey()) {
+        return false; // input does not match the output it claims to spend
+    }
+    return true;
+}
+
 std::vector<mw::Output> CMWEBStateDB::GetUTXOs(uint64_t start_index, uint64_t max_count)
 {
     std::vector<mw::Output> results;
@@ -110,19 +129,8 @@ CMWEBStateDB::ConnectResult CMWEBStateDB::ConnectBlock(const mw::Block& block,
     // that it knows some key. Checked before the accumulator advances so a bad
     // spend rejects the block without leaving state half-applied.
     for (const auto& input : block.GetInputs()) {
-        mw::Output spentOutput;
-        if (!GetOutput(input.GetOutputID(), spentOutput)) {
-            return ConnectResult::INVALID; // spends an unknown or already-spent output
-        }
-        /* Reject null keys first: a null owner key compares equal to a null
-           receiver key, so the comparison below would bind nothing. */
-        if (input.GetOutputPubKey() == mw::PublicKey() ||
-            spentOutput.GetReceiverPubKey() == mw::PublicKey()) {
-            return ConnectResult::INVALID; // unbound spend: no one-time key to prove ownership of
-        }
-        if (input.GetCommitment() != spentOutput.GetCommitment() ||
-            input.GetOutputPubKey() != spentOutput.GetReceiverPubKey()) {
-            return ConnectResult::INVALID; // input does not match the output it claims to spend
+        if (!CheckInput(input)) {
+            return ConnectResult::INVALID;
         }
     }
 
