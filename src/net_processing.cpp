@@ -1518,9 +1518,18 @@ static void ProcessGetSPTweaks(CNode* pfrom, CDataStream& vRecv, CConnman& connm
         return;
     }
 
+    // Each answer names the block it describes, not just the height. A height alone cannot be
+    // checked against anything: a client cannot tell an entry written for a block that has
+    // since been reorged away from one on its own chain.
     for (size_t i = 0; i < tweaks.size(); i++) {
+        const CBlockIndex* p;
+        {
+            LOCK(cs_main);
+            p = chainActive[(int)(start_height + i)];
+        }
+        if (p == NULL) return;
         connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(
-            NetMsgType::SPTWEAKS, (uint32_t)(start_height + i), tweaks[i]));
+            NetMsgType::SPTWEAKS, (uint32_t)(start_height + i), p->GetBlockHash(), tweaks[i]));
     }
 }
 
