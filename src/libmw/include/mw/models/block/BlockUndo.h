@@ -89,14 +89,8 @@ public:
         }
 
         mw::deser::ReadVector(s, m_coinsSpent);
-        for (auto& utxo : m_coinsSpent) {
-            s >> utxo;
-        }
 
         mw::deser::ReadVector(s, m_coinsAdded);
-        for (auto& hash : m_coinsAdded) {
-            s >> hash;
-        }
     }
 
 private:
