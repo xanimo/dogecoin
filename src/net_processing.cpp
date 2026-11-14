@@ -1518,9 +1518,22 @@ static void ProcessGetSPTweaks(CNode* pfrom, CDataStream& vRecv, CConnman& connm
         return;
     }
 
+    // Each answer names the block its entries were computed from. LookupTweakRange has checked
+    // the block recorded with every entry against this chain, walking back from the stop block,
+    // so the stop block's ancestor at each height is that block. Reading the hash off the
+    // active chain at send time named whatever was there by then: straight after a reorg that
+    // is the new block, while the index, which follows the chain from a queue, still held the
+    // old block's entries.
+    std::vector<uint256> hashes(tweaks.size());
+    {
+        LOCK(cs_main);
+        for (size_t i = 0; i < tweaks.size(); i++) {
+            hashes[i] = stop_index->GetAncestor((int)(start_height + i))->GetBlockHash();
+        }
+    }
     for (size_t i = 0; i < tweaks.size(); i++) {
         connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(
-            NetMsgType::SPTWEAKS, (uint32_t)(start_height + i), tweaks[i]));
+            NetMsgType::SPTWEAKS, (uint32_t)(start_height + i), hashes[i], tweaks[i]));
     }
 }
 

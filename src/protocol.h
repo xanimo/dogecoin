@@ -289,7 +289,8 @@ extern const char *CFCHECKPT;
 extern const char *GETSPTWEAKS;
 /**
  * sptweaks is a response to a getsptweaks request, carrying one block's
- * scanning tweaks.
+ * height, hash and scanning tweaks. The hash is what lets a client bind the
+ * entry to a block on its own chain rather than trusting a bare height.
  */
 extern const char *SPTWEAKS;
 };

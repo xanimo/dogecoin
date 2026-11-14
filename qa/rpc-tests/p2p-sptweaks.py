@@ -39,6 +39,7 @@ class msg_sptweaks(object):
 
     def deserialize(self, f):
         self.height = struct.unpack("<I", f.read(4))[0]
+        self.block_hash = deser_uint256(f)
         count = deser_compact_size(f)
         self.entries = []
         for _ in range(count):
@@ -133,6 +134,11 @@ class SPTweaksTest(BitcoinTestFramework):
 
         assert_equal(len(peer.sptweaks), tip_height - start + 1)
         assert_equal([m.height for m in peer.sptweaks], list(range(start, tip_height + 1)))
+
+        # Each answer names its block, so a client can bind it to its own chain rather than
+        # trusting a bare height that could describe a block since reorged away.
+        for m in peer.sptweaks:
+            assert_equal("%064x" % m.block_hash, node0.getblockhash(m.height))
 
         # The blocks that spent a P2PKH output must carry a tweak, and every tweak is a
         # compressed point. An empty answer everywhere would pass a weaker assertion.

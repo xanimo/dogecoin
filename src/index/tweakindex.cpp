@@ -14,15 +14,35 @@
 std::unique_ptr<CTweakIndex> g_tweakindex;
 
 static const char DB_TWEAKS = 't';
+static const char DB_VERSION = 'V';
+
+//! What an entry means: the eligibility rule it was computed under and its layout on disk.
+//! Bump it when either changes. An index written under another version is rebuilt, because
+//! its entries are not wrong in any way a reader could see.
+//!   2: compressed keys only, an ineligible input skipped; each height records its block.
+static const int TWEAKINDEX_VERSION = 2;
 
 CTweakIndex::CTweakIndex(size_t n_cache_size, bool f_memory, bool f_wipe)
     : m_db(new BaseIndex::DB(GetDataDir() / "indexes" / "tweakindex", n_cache_size, f_memory, f_wipe))
 {
+    int version = 0;
+    if (!m_db->Read(DB_VERSION, version) || version != TWEAKINDEX_VERSION) {
+        if (!f_wipe) {
+            LogPrintf("tweakindex: on-disk version %d, expected %d; rebuilding\n", version, TWEAKINDEX_VERSION);
+            m_db.reset();
+            m_db.reset(new BaseIndex::DB(GetDataDir() / "indexes" / "tweakindex", n_cache_size, f_memory, true));
+        }
+        m_db->Write(DB_VERSION, TWEAKINDEX_VERSION);
+    }
 }
 
-bool CTweakIndex::ReadBlock(int height, std::vector<CTweakEntry>& entries) const
+bool CTweakIndex::ReadBlock(const CBlockIndex* pindex, std::vector<CTweakEntry>& entries) const
 {
-    return m_db->Read(std::make_pair(DB_TWEAKS, height), entries);
+    std::pair<uint256, std::vector<CTweakEntry> > value;
+    if (pindex == NULL || !m_db->Read(std::make_pair(DB_TWEAKS, pindex->nHeight), value)) return false;
+    if (value.first != pindex->GetBlockHash()) return false;
+    entries.swap(value.second);
+    return true;
 }
 
 bool CTweakIndex::LookupTweakRange(int start_height, const CBlockIndex* stop_index,
@@ -34,7 +54,7 @@ bool CTweakIndex::LookupTweakRange(int start_height, const CBlockIndex* stop_ind
     tweaks_out.resize(stop_index->nHeight - start_height + 1);
 
     for (const CBlockIndex* p = stop_index; p != NULL && p->nHeight >= start_height; p = p->pprev) {
-        if (!ReadBlock(p->nHeight, tweaks_out[p->nHeight - start_height])) {
+        if (!ReadBlock(p, tweaks_out[p->nHeight - start_height])) {
             tweaks_out.clear();
             return false;
         }
@@ -70,8 +90,10 @@ bool CTweakIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex)
         }
     }
 
-    /* Written even when empty: "scanned, nothing here" must not read as "never indexed". */
-    return m_db->Write(std::make_pair(DB_TWEAKS, pindex->nHeight), entries);
+    /* Written even when empty: "scanned, nothing here" must not read as "never indexed". The
+       block's hash goes in with it, since the key is a height and heights are reused. */
+    return m_db->Write(std::make_pair(DB_TWEAKS, pindex->nHeight),
+                       std::make_pair(pindex->GetBlockHash(), entries));
 }
 
 bool CTweakIndex::Rewind(const CBlockIndex* current_tip, const CBlockIndex* new_tip)

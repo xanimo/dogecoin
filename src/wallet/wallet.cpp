@@ -351,14 +351,14 @@ bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFou
         // A height the index has not reached must not look like a height with nothing in it. The
         // index writes a key for every block including empty ones, so a missing key means it has
         // not got here yet, and carrying on would report no payments for this range.
-        if (!g_tweakindex->ReadBlock(height, entries)) {
+        CBlockIndex* pindex = chainActive[height];
+        if (!g_tweakindex->ReadBlock(pindex, entries)) {
             error = strprintf("the tweak index has not reached block %d yet; wait for it to "
                               "finish syncing and scan again", height);
             return false;
         }
         if (entries.empty()) continue;
 
-        CBlockIndex* pindex = chainActive[height];
         CBlock block;
         if (!ReadBlockFromDisk(block, pindex, Params().GetConsensus(height))) {
             error = strprintf("could not read block %d", height);

@@ -3613,7 +3613,12 @@ UniValue scansilentpaymentsfiltered(const JSONRPCRequest& request)
         if (height == 0) continue;
 
         std::vector<CTweakEntry> entries;
-        if (!g_tweakindex->ReadBlock(height, entries)) {
+        const CBlockIndex* tweak_block;
+        {
+            LOCK(cs_main);
+            tweak_block = chainActive[height];
+        }
+        if (!g_tweakindex->ReadBlock(tweak_block, entries)) {
             throw JSONRPCError(RPC_MISC_ERROR,
                 strprintf("the tweak index has not reached block %d yet", height));
         }

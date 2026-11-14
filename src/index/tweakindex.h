@@ -49,7 +49,7 @@ struct CTweakEntry
 class CTweakIndex final : public BaseIndex
 {
 private:
-    const std::unique_ptr<BaseIndex::DB> m_db;
+    std::unique_ptr<BaseIndex::DB> m_db;
 
 protected:
     bool WriteBlock(const CBlock& block, const CBlockIndex* pindex) override;
@@ -63,15 +63,23 @@ protected:
 public:
     explicit CTweakIndex(size_t n_cache_size, bool f_memory = false, bool f_wipe = false);
 
-    /** Look up one block's tweaks. False means the height was never indexed. */
-    bool ReadBlock(int height, std::vector<CTweakEntry>& entries) const;
+    /**
+     * Look up one block's tweaks.
+     *
+     * False means this block has not been indexed. Entries are keyed by height and each records
+     * the block it was computed from, so the entry left at a height by a block since reorged
+     * away is not this block's and is not returned as if it were.
+     */
+    bool ReadBlock(const CBlockIndex* pindex, std::vector<CTweakEntry>& entries) const;
 
     /**
      * Look up a range of blocks on a chain, oldest first.
      *
      * Walks back from stop_index rather than forward from start_height, so the range follows one
-     * chain rather than whatever is at each height now. False if any height in it is unindexed,
-     * because a short answer would read to a client as "no payments in those blocks".
+     * chain rather than whatever is at each height now. False if any block in it is unindexed,
+     * because a short answer would read to a client as "no payments in those blocks". On
+     * success entry i was computed from stop_index's ancestor at start_height + i, which is
+     * the block a serving peer may name beside it.
      */
     bool LookupTweakRange(int start_height, const CBlockIndex* stop_index,
                           std::vector<std::vector<CTweakEntry> >& tweaks_out) const;
