@@ -641,6 +641,13 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
     if (!MWEB::Policy::CheckWeight(tx, mweb_reason))
         return state.DoS(0, false, REJECT_NONSTANDARD, mweb_reason);
 
+    // And the kernel fee has to pay for that weight. Every fee check below charges by
+    // the canonical serialization, which is 10 bytes for a transaction that lives only
+    // in the extension block: one of 222 outputs and 198 kB was relayed and mined for
+    // the fee on 10 bytes.
+    if (!MWEB::Policy::CheckFee(tx, ::minRelayTxFeeRate, mweb_reason))
+        return state.DoS(0, false, REJECT_INSUFFICIENTFEE, mweb_reason);
+
     // MWEB: an extension-block input names an output id and not an outpoint, so the
     // conflict check further down never sees it. The pool held any number of
     // transactions spending the same output, each valid alone, and a template that

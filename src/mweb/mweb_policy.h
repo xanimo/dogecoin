@@ -8,6 +8,7 @@
 
 #include <string>
 
+class CFeeRate;
 class CTransaction;
 
 namespace MWEB {
@@ -25,6 +26,14 @@ public:
     /// verification in MWEB::Node::CheckTransaction, which is otherwise free for
     /// a peer to trigger at full block scale.
     static bool CheckWeight(const CTransaction& tx, std::string& reason);
+
+    /// Requires the kernel fees of a relayed MWEB transaction to cover its MWEB
+    /// weight: the relay rate on mw::BYTES_PER_WEIGHT bytes for every unit, which
+    /// is the rate libmw itself converts extra bytes to weight at. The mempool
+    /// charges by the canonical serialization, and that is 10 bytes for a
+    /// transaction that lives only in the extension block, whatever it carries.
+    /// Reads the transaction alone, so it runs before the cryptography as well.
+    static bool CheckFee(const CTransaction& tx, const CFeeRate& relayRate, std::string& reason);
 };
 
 }

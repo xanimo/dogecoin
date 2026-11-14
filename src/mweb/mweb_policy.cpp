@@ -5,6 +5,7 @@
 
 #include "mweb/mweb_policy.h"
 
+#include "amount.h"
 #include "primitives/transaction.h"
 #include "script/script.h"
 
@@ -71,6 +72,35 @@ bool Policy::CheckWeight(const CTransaction& tx, std::string& reason)
 
     if (Weight::Calculate(body) > MAX_STANDARD_MWEB_TX_WEIGHT) {
         reason = "mweb-txn-oversize";
+        return false;
+    }
+
+    return true;
+}
+
+bool Policy::CheckFee(const CTransaction& tx, const CFeeRate& relayRate, std::string& reason)
+{
+    if (!tx.HasMWEBTx()) {
+        return true;
+    }
+
+    const mw::TxBody& body = tx.mweb_tx.m_transaction->GetBody();
+
+    // Summed here rather than read from the transaction: nothing has validated the
+    // kernels yet, so each fee is checked for range before it is added.
+    CAmount nFee = 0;
+    for (const mw::Kernel& kernel : body.GetKernels()) {
+        if (!MoneyRange(kernel.GetFee()) || !MoneyRange(nFee + kernel.GetFee())) {
+            reason = "mweb-fee-out-of-range";
+            return false;
+        }
+        nFee += kernel.GetFee();
+    }
+
+    // CheckWeight has bounded the weight, so the product cannot overflow.
+    const CAmount nFloor = static_cast<CAmount>(Weight::Calculate(body)) * relayRate.GetFee(mw::BYTES_PER_WEIGHT);
+    if (nFee < nFloor) {
+        reason = "mweb-fee-too-low";
         return false;
     }
 

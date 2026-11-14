@@ -162,6 +162,8 @@ private:
 
     // MWEB miner for building extension blocks
     MWEB::Miner mwebMiner;
+    // MWEB weight of what the block has taken, held to mw::MAX_MINE_WEIGHT
+    uint64_t nBlockMWEBWeight;
     // Transactions whose MWEB half the block builder refused on an earlier pass over the
     // same template, and the number of the pass. See CreateNewBlock.
     std::set<uint256> mwebRefused;

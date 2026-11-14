@@ -27,6 +27,9 @@
 #include "utilmoneystr.h"
 #include "validationinterface.h"
 
+#include <mw/consensus/Params.h>
+#include <mw/consensus/Weight.h>
+
 #include <algorithm>
 #include <boost/thread.hpp>
 #include <boost/tuple/tuple.hpp>
@@ -119,6 +122,7 @@ void BlockAssembler::resetBlock()
     nBlockSize = 1000;
     nBlockWeight = 4000;
     nBlockSigOpsCost = 400;
+    nBlockMWEBWeight = 0;
     fIncludeWitness = false;
 
     // These counters do not include coinbase tx
@@ -188,6 +192,9 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     if (fIncludeMWEB) {
         const CBlockIndex* pool = LastMWEBBlock(pindexPrev, consensus);
         mwebMiner.NewBlock(nHeight, pool ? pool->mweb_header : nullptr);
+        // Room for the HogEx's fixed part and the extension block's own header, which
+        // the block size rule counts along with everything else.
+        nBlockWeight += WITNESS_SCALE_FACTOR * 320;
     }
 
     addPriorityTxs();
@@ -290,6 +297,30 @@ void BlockAssembler::onlyUnconfirmed(CTxMemPool::setEntries& testSet)
     }
 }
 
+// MWEB weight of a transaction, 0 for one with no extension-block data.
+static uint64_t MwebWeightOf(const CTransaction& tx)
+{
+    return tx.HasMWEBTx() ? Weight::Calculate(tx.mweb_tx.m_transaction->GetBody()) : 0;
+}
+
+// The bytes a transaction puts into the block outside its canonical serialization: its MWEB
+// data, and what the HogEx carries for it, an input for a peg-in and an output for a peg-out.
+// CheckBlock's size rule serializes the block with its extension block, so these bytes come
+// out of the same 1 MB as the transactions, and the selection did not count them: with a
+// little over 1 MB of extension-only transactions in the mempool every template was refused
+// as bad-blk-length.
+static uint64_t MwebBytesOf(const CTransaction& tx)
+{
+    if (!tx.HasMWEBTx())
+        return 0;
+    uint64_t nBytes = ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION) -
+                      ::GetSerializeSize(tx, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_NO_MWEB);
+    nBytes += 41 * tx.mweb_tx.GetPegIns().size();
+    for (const mw::PegOutCoin& pegout : tx.mweb_tx.GetPegOuts())
+        nBytes += 9 + pegout.GetScriptPubKey().size();
+    return nBytes;
+}
+
 // Whether this template leaves a transaction out because the block builder refused its MWEB
 // half on an earlier pass, or because too many passes have gone by to keep trying.
 bool BlockAssembler::MwebLeftOut(const CTransaction& tx) const
@@ -319,6 +350,22 @@ bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost
 bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& package)
 {
     uint64_t nPotentialBlockSize = nBlockSize; // only used with fNeedSizeAccounting
+    // The extension block stops at mw::MAX_MINE_WEIGHT, which is where a miner is meant
+    // to stop and a tenth of what consensus allows, and its bytes are charged to the
+    // block at the rate of bytes that count toward the base size.
+    uint64_t nPackageWeight = 0;
+    uint64_t nPackageMWEBWeight = 0;
+    uint64_t nPackageMWEBBytes = 0;
+    BOOST_FOREACH (const CTxMemPool::txiter it, package) {
+        nPackageWeight += it->GetTxWeight();
+        nPackageMWEBWeight += MwebWeightOf(it->GetTx());
+        nPackageMWEBBytes += MwebBytesOf(it->GetTx());
+    }
+    if (nBlockMWEBWeight + nPackageMWEBWeight > mw::MAX_MINE_WEIGHT)
+        return false;
+    if (nPackageMWEBBytes > 0 &&
+        nBlockWeight + nPackageWeight + WITNESS_SCALE_FACTOR * nPackageMWEBBytes >= nBlockMaxWeight)
+        return false;
     BOOST_FOREACH (const CTxMemPool::txiter it, package) {
         if (MwebLeftOut(it->GetTx()))
             return false;
@@ -340,6 +387,12 @@ bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& packa
 bool BlockAssembler::TestForBlock(CTxMemPool::txiter iter)
 {
     if (MwebLeftOut(iter->GetTx()))
+        return false;
+    if (nBlockMWEBWeight + MwebWeightOf(iter->GetTx()) > mw::MAX_MINE_WEIGHT)
+        return false;
+    const uint64_t nMWEBBytes = MwebBytesOf(iter->GetTx());
+    if (nMWEBBytes > 0 &&
+        nBlockWeight + iter->GetTxWeight() + WITNESS_SCALE_FACTOR * nMWEBBytes >= nBlockMaxWeight)
         return false;
     if (nBlockWeight + iter->GetTxWeight() >= nBlockMaxWeight) {
         // If the block is so close to full that no more txs will fit
@@ -395,6 +448,12 @@ void BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
 {
     const CTransactionRef& ptx = iter->GetSharedTx();
     if (ptx->HasMWEBTx()) {
+        const uint64_t nMWEBBytes = MwebBytesOf(*ptx);
+        nBlockMWEBWeight += MwebWeightOf(*ptx);
+        nBlockWeight += WITNESS_SCALE_FACTOR * nMWEBBytes;
+        if (fNeedSizeAccounting)
+            nBlockSize += nMWEBBytes;
+
         // The MWEB portion is aggregated into the block's extension block (via the
         // HogEx path); the canonical transaction carried in vtx must not keep the
         // MWEB data, or CheckBlock rejects the block with "unexpected-mweb-data".

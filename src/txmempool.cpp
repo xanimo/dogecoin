@@ -31,6 +31,14 @@ CTxMemPoolEntry::CTxMemPoolEntry(const CTransactionRef& _tx, const CAmount& _nFe
     nTxWeight = GetTransactionWeight(*tx);
     nModSize = tx->CalculateModifiedSize(GetTxSize());
     nUsageSize = RecursiveDynamicUsage(*tx) + memusage::DynamicUsage(tx);
+    // MWEB: the extension-block data hangs off the transaction by pointer and none of the
+    // above follows it. Counted at its serialized size, which is less than it occupies and
+    // of the right order: without it 60 transactions of 198 kB each were 43856 bytes to
+    // -maxmempool.
+    if (tx->HasMWEBTx()) {
+        nUsageSize += ::GetSerializeSize(*tx, SER_NETWORK, PROTOCOL_VERSION) -
+                      ::GetSerializeSize(*tx, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_NO_MWEB);
+    }
 
     nCountWithDescendants = 1;
     nSizeWithDescendants = GetTxSize();
