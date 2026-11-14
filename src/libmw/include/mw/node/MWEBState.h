@@ -66,6 +66,17 @@ public:
     // output (a would-be double/invalid spend).
     bool ApplyBlock(const mw::Block& block)
     {
+        // An output id already in the index must not be re-created. The MMR is
+        // append-only, so a duplicate takes a fresh leaf and m_outputIndex moves
+        // to it, orphaning the original leaf. Disconnecting the block then erases
+        // the row and drops the index entry outright, so a node that saw the
+        // block and reorged away loses a coin a node that never saw it still has.
+        // Only the block builder refused this before, which a miner need not use.
+        for (const Output& output : block.GetOutputs()) {
+            if (HasOutput(output.GetOutputID())) {
+                return false;
+            }
+        }
         for (const Output& output : block.GetOutputs()) {
             AddOutput(output.GetOutputID());
         }
