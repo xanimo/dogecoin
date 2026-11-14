@@ -819,7 +819,6 @@
   },
   {
     "comment": "No valid inputs, sender generates no outputs",
-    "diverges_from_bip352": "accepts 2 uncompressed input key(s) that BIP352 skips",
     "given": {
       "vin": [
         {
@@ -842,24 +841,9 @@
       "labels": []
     },
     "expected": {
-      "eligible": true,
-      "input_pubkey_sum": "03853f51bef283502181e93238c8708ae27235dc51ae45a0c4053987c52fc6428b",
-      "input_hash": "d9a9c2445c8384c1e916faef4a997f00852b877cc959dc69dc1d2bb631eb8f5b",
-      "input_privkey_sum": "ee55616ce5a93e508f03f21949ecbe70a2a0b107b6e1df5d98b4e4da4adaca1b",
-      "addresses": [
-        "dsp1qqpzp086ckueup9drgrdm7cpdmsntqnqn4stv2g7nrgp4x7f59kfd4qztnyc2mt0sd6n2rsj89ud4tpqpsnqedd446p3qm9tjpyymnv0eumqdpxf6r"
-      ],
-      "shared_secret": "038efbcbc1b0938fba3bf59fea1219a3c54b6d6f9107560da05001407adc13f413",
-      "outputs": [
-        {
-          "index": 0,
-          "address": "dsp1qqpzp086ckueup9drgrdm7cpdmsntqnqn4stv2g7nrgp4x7f59kfd4qztnyc2mt0sd6n2rsj89ud4tpqpsnqedd446p3qm9tjpyymnv0eumqdpxf6r",
-          "script": "76a91415c9fd211b7464645ea5188286a8478b2575487988ac",
-          "output_pubkey": "03f207162b1a7abc51c42017bef055e9ec1efc3d3567cb720357e2b84325db33ac",
-          "priv_key_tweak": "33ce085c3c11eaad13694aae3c20301a6c83382ec89a7cde96c6799e2f88805a",
-          "label": null
-        }
-      ]
+      "eligible": false,
+      "addresses": [],
+      "outputs": []
     }
   }
 ]

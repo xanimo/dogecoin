@@ -290,13 +290,19 @@ bool GetPubKeyFromInput(CPubKey& out, const CScript& scriptSig, const CScript& p
         opcodetype opcode;
         std::vector<unsigned char> candidate;
         if (!scriptSig.GetOp(pc, opcode, candidate)) return false;
-        if (candidate.size() != CPubKey::COMPRESSED_SIZE && candidate.size() != CPubKey::SIZE) continue;
-        // 0x02/0x03 compressed or 0x04 uncompressed only. libsecp256k1 also parses the hybrid
-        // encodings 0x06/0x07, so without this an implementation built on it would accept a key
-        // that one checking the prefix rejects, and the two would compute different A. The chain
-        // has none: zero across 1.68M eligible inputs sampled from 2014 to 2026. Excluding them
-        // costs nothing real and removes a way for two readers to disagree.
-        if (candidate[0] != 0x02 && candidate[0] != 0x03 && candidate[0] != 0x04) continue;
+        // Compressed only, which is what BIP352 permits. Accepting the 65-byte uncompressed
+        // form would cover another 4.6% of this chain's historical inputs, but a receiver
+        // following the spec would call those inputs ineligible and derive a different A, and
+        // the sender's own recheck cannot see that disagreement because it only establishes
+        // that the sender agrees with itself. The exposure is small and shrinking: uncompressed
+        // is 16.4% of 2014 spends and under 2% since, and a holder of such coins can
+        // consolidate into a compressed output before paying.
+        //
+        // libsecp256k1 also parses the hybrid encodings 0x06/0x07, so the prefix is checked
+        // rather than inferred from the length. The chain has no hybrid keys at all: zero
+        // across 1.68M eligible inputs sampled from 2014 to 2026.
+        if (candidate.size() != CPubKey::COMPRESSED_SIZE) continue;
+        if (candidate[0] != 0x02 && candidate[0] != 0x03) continue;
         if (Hash160(candidate) != pubkey_hash) continue;
         const CPubKey key(candidate.begin(), candidate.end());
         if (key.IsFullyValid()) {

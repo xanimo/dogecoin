@@ -205,12 +205,22 @@ BOOST_AUTO_TEST_CASE(bip352_rejects_hybrid_pubkey_encoding)
     const CScript hybrid_sig = CScript() << sig << hybrid;
     BOOST_CHECK(!bip352::GetPubKeyFromInput(found, hybrid_sig, hybrid_spk));
 
-    // Positive control: the same key in its 0x04 form is eligible, so the rejection above is the
-    // prefix and not something else about this key.
+    // The uncompressed 0x04 form of the same key is refused too, since BIP352 permits only
+    // compressed keys. Both rejections are the encoding rule rather than anything about the key.
     const CScript spk = GetScriptForDestination(CTxDestination(pubkey.GetID()));
-    const CScript ok = CScript() << sig << ToByteVector(pubkey);
-    BOOST_CHECK(bip352::GetPubKeyFromInput(found, ok, spk));
-    BOOST_CHECK(found == pubkey);
+    const CScript uncompressed = CScript() << sig << ToByteVector(pubkey);
+    BOOST_CHECK(!bip352::GetPubKeyFromInput(found, uncompressed, spk));
+
+    // Positive control: compressed is accepted, so the rejections above are not vacuous.
+    CKey compressed_key;
+    compressed_key.Set(key.begin(), key.begin() + 32, true);
+    BOOST_REQUIRE(compressed_key.IsValid());
+    const CPubKey compressed = compressed_key.GetPubKey();
+    BOOST_REQUIRE(compressed.IsCompressed());
+    const CScript cspk = GetScriptForDestination(CTxDestination(compressed.GetID()));
+    const CScript csig = CScript() << sig << ToByteVector(compressed);
+    BOOST_CHECK(bip352::GetPubKeyFromInput(found, csig, cspk));
+    BOOST_CHECK(found == compressed);
 }
 
 BOOST_AUTO_TEST_CASE(bip352_input_pubkey_extraction)
@@ -241,8 +251,10 @@ BOOST_AUTO_TEST_CASE(bip352_input_pubkey_extraction)
     const CScript wrong = CScript() << sig << ToByteVector(other.GetPubKey());
     BOOST_CHECK(!bip352::GetPubKeyFromInput(found, wrong, spk));
 
-    // Uncompressed keys are eligible here, unlike BIP352, because Dogecoin has plenty of coin
-    // behind them. The prevout commits to the uncompressed encoding in that case.
+    // Uncompressed keys are not eligible, which is what BIP352 permits and what a receiver
+    // following it will do. Accepting them would make this input contribute to A on the
+    // sender's side and not on a conforming receiver's, and the sender's own recheck cannot
+    // see that disagreement, so the payment would be unspendable with every check passing.
     CKey uncompressed;
     uncompressed.Set(key.begin(), key.begin() + 32, false);
     BOOST_REQUIRE(uncompressed.IsValid());
@@ -250,8 +262,7 @@ BOOST_AUTO_TEST_CASE(bip352_input_pubkey_extraction)
     BOOST_REQUIRE_EQUAL(upub.size(), (unsigned int)CPubKey::SIZE);
     const CScript uspk = GetScriptForDestination(CTxDestination(upub.GetID()));
     const CScript uscript = CScript() << sig << ToByteVector(upub);
-    BOOST_CHECK(bip352::GetPubKeyFromInput(found, uscript, uspk));
-    BOOST_CHECK(found == upub);
+    BOOST_CHECK(!bip352::GetPubKeyFromInput(found, uscript, uspk));
 
     // Non-P2PKH prevouts are not eligible at all.
     const CScript p2sh = CScript() << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUAL;
