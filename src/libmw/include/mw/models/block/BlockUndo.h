@@ -6,6 +6,7 @@
 #ifndef MW_MODELS_BLOCK_BLOCKUNDO_H
 #define MW_MODELS_BLOCK_BLOCKUNDO_H
 
+#include <mw/common/Deserialize.h>
 #include <mw/common/Macros.h>
 #include <mw/common/Traits.h>
 #include <mw/models/block/Header.h>
@@ -87,14 +88,12 @@ public:
             m_pPrevHeader = nullptr;
         }
 
-        size_t numSpent = ReadCompactSize(s);
-        m_coinsSpent.resize(numSpent);
+        mw::deser::ReadVector(s, m_coinsSpent);
         for (auto& utxo : m_coinsSpent) {
             s >> utxo;
         }
 
-        size_t numAdded = ReadCompactSize(s);
-        m_coinsAdded.resize(numAdded);
+        mw::deser::ReadVector(s, m_coinsAdded);
         for (auto& hash : m_coinsAdded) {
             s >> hash;
         }

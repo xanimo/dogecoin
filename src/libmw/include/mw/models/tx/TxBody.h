@@ -6,6 +6,7 @@
 #ifndef MW_MODELS_TX_TXBODY_H
 #define MW_MODELS_TX_TXBODY_H
 
+#include <mw/common/Deserialize.h>
 #include <mw/models/tx/Input.h>
 #include <mw/models/tx/Output.h>
 #include <mw/models/tx/Kernel.h>
@@ -133,15 +134,9 @@ public:
 
     template<typename Stream>
     void Unserialize(Stream& s) {
-        size_t numInputs = ReadCompactSize(s);
-        m_inputs.resize(numInputs);
-        for (auto& input : m_inputs) s >> input;
-        size_t numOutputs = ReadCompactSize(s);
-        m_outputs.resize(numOutputs);
-        for (auto& output : m_outputs) s >> output;
-        size_t numKernels = ReadCompactSize(s);
-        m_kernels.resize(numKernels);
-        for (auto& kernel : m_kernels) s >> kernel;
+        mw::deser::ReadVector(s, m_inputs);
+        mw::deser::ReadVector(s, m_outputs);
+        mw::deser::ReadVector(s, m_kernels);
     }
 
 private:

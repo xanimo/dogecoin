@@ -6,6 +6,7 @@
 #ifndef MW_MODELS_CRYPTO_RANGEPROOF_H
 #define MW_MODELS_CRYPTO_RANGEPROOF_H
 
+#include <mw/common/Deserialize.h>
 #include <mw/common/Traits.h>
 #include <serialize.h>
 #include <vector>
@@ -42,9 +43,7 @@ public:
 
     template<typename Stream>
     void Unserialize(Stream& s) {
-        size_t len = ReadCompactSize(s);
-        m_data.resize(len);
-        s.read((char*)m_data.data(), len);
+        mw::deser::ReadBytes(s, m_data);
         m_hash = mw::Hash(); // reset cached hash
     }
 

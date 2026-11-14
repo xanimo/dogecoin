@@ -6,6 +6,7 @@
 #ifndef MW_MODELS_TX_KERNEL_H
 #define MW_MODELS_TX_KERNEL_H
 
+#include <mw/common/Deserialize.h>
 #include <mw/common/Traits.h>
 #include <mw/models/crypto/Commitment.h>
 #include <mw/models/crypto/Signature.h>
@@ -156,11 +157,7 @@ public:
         if (m_features & PEGIN_FEATURE_BIT) m_pegin = ser_readdata64(s);
         else m_pegin = 0;
         if (m_features & PEGOUT_FEATURE_BIT) {
-            size_t count = ReadCompactSize(s);
-            m_pegouts.resize(count);
-            for (auto& pegout : m_pegouts) {
-                s >> pegout;
-            }
+            mw::deser::ReadVector(s, m_pegouts);
         } else {
             m_pegouts.clear();
         }
@@ -169,9 +166,7 @@ public:
         if (m_features & STEALTH_EXCESS_FEATURE_BIT) s >> m_stealthExcess;
         else m_stealthExcess = PublicKey();
         if (m_features & EXTRA_DATA_FEATURE_BIT) {
-            size_t len = ReadCompactSize(s);
-            m_extraData.resize(len);
-            s.read((char*)m_extraData.data(), len);
+            mw::deser::ReadBytes(s, m_extraData);
         } else {
             m_extraData.clear();
         }

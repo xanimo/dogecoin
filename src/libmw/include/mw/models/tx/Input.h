@@ -6,6 +6,7 @@
 #ifndef MW_MODELS_TX_INPUT_H
 #define MW_MODELS_TX_INPUT_H
 
+#include <mw/common/Deserialize.h>
 #include <mw/common/Traits.h>
 #include <mw/models/crypto/Commitment.h>
 #include <mw/models/crypto/PublicKey.h>
@@ -103,9 +104,7 @@ public:
         else m_inputPubKey = PublicKey();
         s >> m_outputPubKey;
         if (m_features & EXTRA_DATA_FEATURE_BIT) {
-            size_t len = ReadCompactSize(s);
-            m_extraData.resize(len);
-            s.read((char*)m_extraData.data(), len);
+            mw::deser::ReadBytes(s, m_extraData);
         } else {
             m_extraData.clear();
         }
