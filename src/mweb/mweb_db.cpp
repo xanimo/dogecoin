@@ -209,6 +209,13 @@ CMWEBStateDB::ConnectResult CMWEBStateDB::ConnectBlock(const mw::Block& block,
     batch.Write(MWEBDBKeys::COUNTS,
                 std::make_pair(m_state.NumOutputs(), m_state.NumKernels()));
 
+    // Record which block this state is at, in the same batch as the state it
+    // describes, so the two cannot disagree. This database writes per block
+    // while the coins database flushes lazily, so an unclean shutdown leaves
+    // the coins database behind. ReconcileMWEBState compares this record with
+    // the chain at start-up and rebuilds the state when they differ.
+    batch.Write(MWEBDBKeys::BEST_HASH, block.GetHash());
+
     return db.WriteBatch(batch, true) ? ConnectResult::OK : ConnectResult::DB_ERROR;
 }
 
@@ -255,15 +262,54 @@ bool CMWEBStateDB::DisconnectBlock(const mw::BlockUndo& undo)
     batch.Write(MWEBDBKeys::COUNTS,
                 std::make_pair(m_state.NumOutputs(), m_state.NumKernels()));
 
+    // The state is back at the previous extension block, so the record goes back with it.
+    if (prevHeader) {
+        batch.Write(MWEBDBKeys::BEST_HASH, prevHeader->GetHash());
+    } else {
+        batch.Erase(MWEBDBKeys::BEST_HASH);
+    }
+
     return db.WriteBatch(batch, true);
 }
 
-bool CMWEBStateDB::GetBestBlockHash(uint256& hash) const
+bool CMWEBStateDB::Reset()
+{
+    CDBBatch batch(db);
+
+    std::unique_ptr<CDBIterator> pcursor(db.NewIterator());
+    pcursor->Seek(std::make_pair(MWEBDBKeys::UTXO, mw::Hash()));
+    while (pcursor->Valid()) {
+        std::pair<char, mw::Hash> key;
+        if (!pcursor->GetKey(key) || key.first != MWEBDBKeys::UTXO)
+            break;
+        batch.Erase(key);
+        pcursor->Next();
+    }
+
+    std::pair<uint64_t, uint64_t> counts(0, 0);
+    db.Read(MWEBDBKeys::COUNTS, counts);
+    for (uint64_t i = 0; i < counts.first; i++) {
+        batch.Erase(std::make_pair(MWEBDBKeys::OUTPUT_LOG, i));
+    }
+    for (uint64_t j = 0; j < counts.second; j++) {
+        batch.Erase(std::make_pair(MWEBDBKeys::KERNEL_LOG, j));
+    }
+    batch.Erase(MWEBDBKeys::LEAFSET);
+    batch.Erase(MWEBDBKeys::COUNTS);
+    batch.Erase(MWEBDBKeys::BEST_HASH);
+
+    if (!db.WriteBatch(batch, true))
+        return false;
+    m_state = mw::MWEBState();
+    return true;
+}
+
+bool CMWEBStateDB::GetBestBlockHash(mw::Hash& hash) const
 {
     return db.Read(MWEBDBKeys::BEST_HASH, hash);
 }
 
-bool CMWEBStateDB::SetBestBlockHash(const uint256& hash)
+bool CMWEBStateDB::SetBestBlockHash(const mw::Hash& hash)
 {
     return db.Write(MWEBDBKeys::BEST_HASH, hash, true);
 }

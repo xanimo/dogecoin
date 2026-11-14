@@ -528,6 +528,10 @@ bool IsMWEBEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& param
  *  builds on are that block's, however many blocks without one lie in between. */
 const CBlockIndex* LastMWEBBlock(const CBlockIndex* pindex, const Consensus::Params& params);
 
+/** Make the MWEB state database agree with the active chain's tip, rebuilding it from the blocks
+ *  on disk when it does not. Called once at start-up, before anything connects. */
+bool ReconcileMWEBState(const CChainParams& chainparams);
+
 /** When there are blocks in the active chain with missing data, rewind the chainstate and remove them from the block index */
 bool RewindBlockIndex(const CChainParams& params);
 

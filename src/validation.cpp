@@ -3313,6 +3313,48 @@ const CBlockIndex* LastMWEBBlock(const CBlockIndex* pindex, const Consensus::Par
     return pindexFound;
 }
 
+bool ReconcileMWEBState(const CChainParams& chainparams)
+{
+    if (!g_mweb_state)
+        return true;
+
+    LOCK(cs_main);
+    const CBlockIndex* tip = chainActive.Tip();
+    const CBlockIndex* last = tip ? LastMWEBBlock(tip, chainparams.GetConsensus(tip->nHeight)) : NULL;
+
+    // The state database is written with every block and the coins database when it is
+    // flushed, so after an unclean shutdown the state is ahead of the tip the node restarts
+    // from. Connecting the blocks in between again would apply them twice. Skipping a block
+    // whose hash matched the record covered a gap of one block and nothing else, and skipped
+    // a block that had just been disconnected as well.
+    mw::Hash recorded;
+    const bool have = g_mweb_state->GetBestBlockHash(recorded);
+    if (last == NULL ? !have : (have && last->mweb_header && recorded == last->mweb_header->GetHash()))
+        return true;
+
+    LogPrintf("MWEB state is not at the chain tip; rebuilding it from the blocks on disk\n");
+    if (!g_mweb_state->Reset())
+        return error("%s: could not empty the MWEB state database", __func__);
+
+    std::vector<const CBlockIndex*> blocks;
+    for (const CBlockIndex* p = last; p != NULL; p = LastMWEBBlock(p->pprev, chainparams.GetConsensus(p->nHeight)))
+        blocks.push_back(p);
+
+    mw::Header::CPtr prevHeader;
+    for (std::vector<const CBlockIndex*>::const_reverse_iterator it = blocks.rbegin(); it != blocks.rend(); ++it) {
+        CBlock block;
+        if (!ReadBlockFromDisk(block, *it, chainparams.GetConsensus((*it)->nHeight)) || block.mweb_block.IsNull())
+            return error("%s: could not read the extension block of %s", __func__, (*it)->GetBlockHash().ToString());
+        std::vector<UTXO> spent;
+        std::vector<mw::Hash> added;
+        if (g_mweb_state->ConnectBlock(*block.mweb_block.m_block, prevHeader, spent, added) != CMWEBStateDB::ConnectResult::OK)
+            return error("%s: extension block of %s does not connect", __func__, (*it)->GetBlockHash().ToString());
+        prevHeader = (*it)->mweb_header;
+    }
+    LogPrintf("MWEB state rebuilt from %u extension blocks\n", (unsigned)blocks.size());
+    return true;
+}
+
 bool IsMWEBEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
 {
     // Dogecoin Phase 0: MWEB activates on the same AuxPoW-safe version
