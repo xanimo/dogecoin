@@ -95,7 +95,7 @@ std::vector<mw::Output> CMWEBStateDB::GetUTXOs(uint64_t start_index, uint64_t ma
     return results;
 }
 
-bool CMWEBStateDB::ConnectBlock(const mw::Block& block,
+CMWEBStateDB::ConnectResult CMWEBStateDB::ConnectBlock(const mw::Block& block,
                                  const mw::Header::CPtr& prevHeader,
                                  std::vector<UTXO>& spentUTXOs,
                                  std::vector<mw::Hash>& addedOutputIDs)
@@ -112,17 +112,17 @@ bool CMWEBStateDB::ConnectBlock(const mw::Block& block,
     for (const auto& input : block.GetInputs()) {
         mw::Output spentOutput;
         if (!GetOutput(input.GetOutputID(), spentOutput)) {
-            return false; // spends an unknown or already-spent output
+            return ConnectResult::INVALID; // spends an unknown or already-spent output
         }
         /* Reject null keys first: a null owner key compares equal to a null
            receiver key, so the comparison below would bind nothing. */
         if (input.GetOutputPubKey() == mw::PublicKey() ||
             spentOutput.GetReceiverPubKey() == mw::PublicKey()) {
-            return false; // unbound spend: no one-time key to prove ownership of
+            return ConnectResult::INVALID; // unbound spend: no one-time key to prove ownership of
         }
         if (input.GetCommitment() != spentOutput.GetCommitment() ||
             input.GetOutputPubKey() != spentOutput.GetReceiverPubKey()) {
-            return false; // input does not match the output it claims to spend
+            return ConnectResult::INVALID; // input does not match the output it claims to spend
         }
     }
 
@@ -151,11 +151,11 @@ bool CMWEBStateDB::ConnectBlock(const mw::Block& block,
     // that every input spends a known unspent output.
     if (!m_state.ApplyBlock(block)) {
         m_state.UndoBlock(prevNumOutputs, prevNumKernels, blockAddedIDs, blockSpentIDs);
-        return false;
+        return ConnectResult::INVALID;
     }
     if (block.GetHeader() && !m_state.MatchesHeader(*block.GetHeader())) {
         m_state.UndoBlock(prevNumOutputs, prevNumKernels, blockAddedIDs, blockSpentIDs);
-        return false;
+        return ConnectResult::INVALID;
     }
 
     // Accumulator agrees with the header — commit the persistent UTXO set changes.
@@ -199,7 +199,7 @@ bool CMWEBStateDB::ConnectBlock(const mw::Block& block,
     batch.Write(MWEBDBKeys::COUNTS,
                 std::make_pair(m_state.NumOutputs(), m_state.NumKernels()));
 
-    return db.WriteBatch(batch, true);
+    return db.WriteBatch(batch, true) ? ConnectResult::OK : ConnectResult::DB_ERROR;
 }
 
 bool CMWEBStateDB::DisconnectBlock(const mw::BlockUndo& undo)

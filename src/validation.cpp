@@ -2114,8 +2114,17 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         std::vector<mw::Hash> addedOutputIDs;
 
         if (g_mweb_state) {
-            if (!g_mweb_state->ConnectBlock(*block.mweb_block.m_block, prevHeader, spentUTXOs, addedOutputIDs)) {
-                return AbortNode(state, "Failed to update MWEB state DB");
+            // An invalid body is the block's fault, not this node's. Aborting on
+            // it let one peer stop every node that received the block, and the
+            // block had already passed AcceptBlock, so it propagated first.
+            const CMWEBStateDB::ConnectResult res = g_mweb_state->ConnectBlock(
+                *block.mweb_block.m_block, prevHeader, spentUTXOs, addedOutputIDs);
+            if (res == CMWEBStateDB::ConnectResult::INVALID) {
+                return state.DoS(100, error("ConnectBlock(): MWEB body does not connect"),
+                                 REJECT_INVALID, "bad-mweb-connect");
+            }
+            if (res == CMWEBStateDB::ConnectResult::DB_ERROR) {
+                return AbortNode(state, "Failed to write MWEB state DB");
             }
         }
 

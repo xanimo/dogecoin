@@ -57,10 +57,16 @@ public:
     /// Returns up to max_count UTXOs ordered by their output IDs.
     std::vector<mw::Output> GetUTXOs(uint64_t start_index, uint64_t max_count);
 
+    /// Why a connect did not happen. INVALID means the block is wrong and must
+    /// be rejected as such; DB_ERROR means this node could not write and is the
+    /// only case that warrants aborting. Collapsing the two lets any peer stop
+    /// a node with one invalid block, so they are reported apart.
+    enum class ConnectResult { OK, INVALID, DB_ERROR };
+
     /// Apply an MWEB block's changes to the state database.
     /// Adds new outputs, removes spent inputs, and updates the best block hash.
     /// Returns the undo data needed to reverse this block during a reorg.
-    bool ConnectBlock(const mw::Block& block,
+    ConnectResult ConnectBlock(const mw::Block& block,
                       const mw::Header::CPtr& prevHeader,
                       std::vector<UTXO>& spentUTXOs,
                       std::vector<mw::Hash>& addedOutputIDs);
