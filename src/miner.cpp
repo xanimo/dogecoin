@@ -183,7 +183,8 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     // active, so both predicates are checked.
     bool fIncludeMWEB = IsMWEBEnabled(pindexPrev, consensus) && IsWitnessEnabled(pindexPrev, consensus);
     if (fIncludeMWEB) {
-        mwebMiner.NewBlock(nHeight, pindexPrev->mweb_header);
+        const CBlockIndex* pool = LastMWEBBlock(pindexPrev, consensus);
+        mwebMiner.NewBlock(nHeight, pool ? pool->mweb_header : nullptr);
     }
 
     addPriorityTxs();

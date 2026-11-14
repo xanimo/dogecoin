@@ -2095,10 +2095,17 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         }
 
         // The first HogEx has no previous pool to roll forward, so all of its
-        // inputs are peg-ins.
-        const bool is_first_hogex = !IsMWEBEnabled(pindex->pprev->pprev, consensus);
-        if (!MWEB::Node::CheckHogEx(block, pindex->pprev->hogex_hash,
-                                    pindex->pprev->mweb_amount, is_first_hogex, state)) {
+        // inputs are peg-ins. Whether a pool exists is read off the last block
+        // that carried an extension block, which need not be the parent since an
+        // extension block is optional. Reading the parent's own fields relied on
+        // a copy carried forward in memory through blocks that had none; the copy
+        // is not written to disk, so a node restarted on such a block took the
+        // next HogEx for the first one and refused it, and refused nodes that had
+        // not restarted in turn.
+        const CBlockIndex* pool = LastMWEBBlock(pindex->pprev, consensus);
+        const bool is_first_hogex = pool == NULL;
+        if (!MWEB::Node::CheckHogEx(block, pool ? pool->hogex_hash : uint256(),
+                                    pool ? pool->mweb_amount : 0, is_first_hogex, state)) {
             return error("ConnectBlock(): MWEB HogEx accounting failed: %s", FormatStateMessage(state));
         }
     }
@@ -2110,7 +2117,10 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // VerifyDB, which reconnects only to test undo and must not mutate the real
     // MWEB accumulator -- see g_mweb_verifying.
     if (!block.mweb_block.IsNull() && pindex->pprev && !g_mweb_verifying) {
-        mw::Header::CPtr prevHeader = pindex->pprev->mweb_header;
+        // The header the state stood at before this block: the last extension block's, not
+        // the parent's own, which is null whenever the parent carried none.
+        const CBlockIndex* pool = LastMWEBBlock(pindex->pprev, consensus);
+        mw::Header::CPtr prevHeader = pool ? pool->mweb_header : nullptr;
         std::vector<UTXO> spentUTXOs;
         std::vector<mw::Hash> addedOutputIDs;
 
@@ -2155,13 +2165,16 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         setDirtyBlockIndex.insert(pindex);
     }
 
-    // MWEB: Update block index with MWEB data
+    // MWEB: Update block index with MWEB data. A block that carries no extension
+    // block records nothing: the pool is found at the last block that did (see
+    // LastMWEBBlock), which is on disk, where a copy carried forward was not.
     if (!block.mweb_block.IsNull()) {
         pindex->mweb_header = block.mweb_block.m_block->GetHeader();
         pindex->hogex_hash = block.vtx.back()->GetHash();
 
         // Calculate the MWEB amount: previous amount + pegins - pegouts - fees
-        CAmount mweb_amount = pindex->pprev ? pindex->pprev->mweb_amount : 0;
+        const CBlockIndex* pool = LastMWEBBlock(pindex->pprev, consensus);
+        CAmount mweb_amount = pool ? pool->mweb_amount : 0;
         // Add pegin amounts
         for (size_t i = 1; i < block.vtx.size() - 1; i++) {
             for (const CTxOut& out : block.vtx[i]->vout) {
@@ -3264,6 +3277,42 @@ static bool IsMWEBLatched(const CBlockIndex* pindexPrev, const Consensus::Params
     return fLatched;
 }
 
+/** LastMWEBBlock's answer for the block it was last asked about. Blocks with no extension
+ *  block can follow one another for as long as nobody uses MWEB, and walking back over a
+ *  million of them takes about a quarter of a second, which the miner would otherwise pay
+ *  on every template. Guarded by cs_main. */
+static const CBlockIndex* pindexLastMWEBFor = NULL;
+static const CBlockIndex* pindexLastMWEBIs = NULL;
+
+const CBlockIndex* LastMWEBBlock(const CBlockIndex* pindex, const Consensus::Params& params)
+{
+    LOCK(cs_main);
+    const CBlockIndex* const pindexAsked = pindex;
+    const CBlockIndex* pindexFound = NULL;
+    while (pindex != NULL) {
+        if (pindex->nStatus & BLOCK_HAVE_MWEB) {
+            pindexFound = pindex;
+            break;
+        }
+        if (pindex == pindexLastMWEBFor) {
+            pindexFound = pindexLastMWEBIs;
+            break;
+        }
+        // Stops at activation: a block can carry an extension block only once MWEB is
+        // enabled for it, so there is nothing to find below that.
+        if (!IsMWEBEnabled(pindex->pprev, params))
+            break;
+        pindex = pindex->pprev;
+    }
+    // Kept only for a block that has been connected. Every block before it has then been
+    // connected as well, which is when BLOCK_HAVE_MWEB is set, so the answer cannot change.
+    if (pindexAsked != NULL && pindexAsked->IsValid(BLOCK_VALID_SCRIPTS)) {
+        pindexLastMWEBFor = pindexAsked;
+        pindexLastMWEBIs = pindexFound;
+    }
+    return pindexFound;
+}
+
 bool IsMWEBEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
 {
     // Dogecoin Phase 0: MWEB activates on the same AuxPoW-safe version
@@ -4258,6 +4307,8 @@ void UnloadBlockIndex()
     setDirtyBlockIndex.clear();
     gFailedBlocks.clear();
     setDirtyFileInfo.clear();
+    pindexLastMWEBFor = NULL;
+    pindexLastMWEBIs = NULL;
     versionbitscache.Clear();
     for (int b = 0; b < VERSIONBITS_NUM_BITS; b++) {
         warningcache[b].clear();

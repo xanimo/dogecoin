@@ -523,6 +523,11 @@ bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& pa
 /** Check whether MWEB is enabled on the chain at the given block index. */
 bool IsMWEBEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params);
 
+/** The nearest block at or before pindex that carried an MWEB extension block, or NULL if there
+ *  is none. The pool output, the pool amount and the MWEB header that the next extension block
+ *  builds on are that block's, however many blocks without one lie in between. */
+const CBlockIndex* LastMWEBBlock(const CBlockIndex* pindex, const Consensus::Params& params);
+
 /** When there are blocks in the active chain with missing data, rewind the chainstate and remove them from the block index */
 bool RewindBlockIndex(const CChainParams& params);
 

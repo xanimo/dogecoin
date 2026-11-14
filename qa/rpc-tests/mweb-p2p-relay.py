@@ -46,8 +46,12 @@ class MwebP2PRelayTest(BitcoinTestFramework):
         self.sync_all()
 
     def mweb_active(self, node):
-        # An empty block carries a HogEx (2 txs) only once MWEB is active.
-        return len(node.getblock(node.getbestblockhash())["tx"]) >= 2
+        # Activation is reported directly rather than inferred from block shape:
+        # an extension block is optional, so an ordinary block proves nothing.
+        for fork in node.getblockchaininfo()["softforks"]:
+            if fork.get("id") == "mweb":
+                return fork.get("status") == "active"
+        return False
 
     def run_test(self):
         node0, node1 = self.nodes
