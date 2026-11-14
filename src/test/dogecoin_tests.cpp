@@ -1490,8 +1490,8 @@ BOOST_AUTO_TEST_CASE(mweb_state_db_persistence)
         CMWEBStateDB db(1 << 20, /*fMemory=*/false, /*fWipe=*/true);
         std::vector<UTXO> spent;
         std::vector<mw::Hash> added;
-        BOOST_REQUIRE(db.ConnectBlock(*block1, nullptr, spent, added));
-        BOOST_REQUIRE(db.ConnectBlock(*block2, block1->GetHeader(), spent, added));
+        BOOST_REQUIRE(db.ConnectBlock(*block1, nullptr, spent, added) == CMWEBStateDB::ConnectResult::OK);
+        BOOST_REQUIRE(db.ConnectBlock(*block2, block1->GetHeader(), spent, added) == CMWEBStateDB::ConnectResult::OK);
         BOOST_CHECK(db.State().MatchesHeader(*block2->GetHeader()));
         outRoot = db.State().OutputRoot();
         kerRoot = db.State().KernelRoot();
