@@ -100,6 +100,14 @@ CMWEBStateDB::ConnectResult CMWEBStateDB::ConnectBlock(const mw::Block& block,
                                  std::vector<UTXO>& spentUTXOs,
                                  std::vector<mw::Hash>& addedOutputIDs)
 {
+    // Already applied: the coins database was behind at startup and the replay
+    // reached a block this state already has. Re-applying would double-add every
+    // output, so report success and leave the state alone.
+    mw::Hash recorded;
+    if (db.Read(MWEBDBKeys::BEST_HASH, recorded) && recorded == block.GetHash()) {
+        return ConnectResult::OK;
+    }
+
     spentUTXOs.clear();
     addedOutputIDs.clear();
 
@@ -199,6 +207,13 @@ CMWEBStateDB::ConnectResult CMWEBStateDB::ConnectBlock(const mw::Block& block,
     batch.Write(MWEBDBKeys::COUNTS,
                 std::make_pair(m_state.NumOutputs(), m_state.NumKernels()));
 
+    // Record which block this state is at, in the same batch as the state it
+    // describes, so the two cannot disagree. This database writes per block
+    // while the coins database flushes lazily, so an unclean shutdown leaves
+    // the coins database behind and the replay re-applies blocks this state
+    // already contains.
+    batch.Write(MWEBDBKeys::BEST_HASH, block.GetHash());
+
     return db.WriteBatch(batch, true) ? ConnectResult::OK : ConnectResult::DB_ERROR;
 }
 
@@ -248,12 +263,12 @@ bool CMWEBStateDB::DisconnectBlock(const mw::BlockUndo& undo)
     return db.WriteBatch(batch, true);
 }
 
-bool CMWEBStateDB::GetBestBlockHash(uint256& hash) const
+bool CMWEBStateDB::GetBestBlockHash(mw::Hash& hash) const
 {
     return db.Read(MWEBDBKeys::BEST_HASH, hash);
 }
 
-bool CMWEBStateDB::SetBestBlockHash(const uint256& hash)
+bool CMWEBStateDB::SetBestBlockHash(const mw::Hash& hash)
 {
     return db.Write(MWEBDBKeys::BEST_HASH, hash, true);
 }

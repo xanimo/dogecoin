@@ -76,10 +76,12 @@ public:
     bool DisconnectBlock(const mw::BlockUndo& undo);
 
     /// Get the hash of the block that this state was last updated for.
-    bool GetBestBlockHash(uint256& hash) const;
+    /// The block this state was last applied for. Written in the same batch as
+/// the state itself, so the two cannot disagree after an unclean shutdown.
+    bool GetBestBlockHash(mw::Hash& hash) const;
 
     /// Set the best block hash.
-    bool SetBestBlockHash(const uint256& hash);
+    bool SetBestBlockHash(const mw::Hash& hash);
 
     /// Flush the database.
     bool Flush() { return db.Flush(); }
