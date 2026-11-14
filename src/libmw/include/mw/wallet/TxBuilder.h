@@ -13,6 +13,8 @@
 #include <mw/crypto/Schnorr.h>
 #include <mw/crypto/Keys.h>
 
+#include <random.h>
+
 #include <algorithm>
 #include <vector>
 
@@ -70,11 +72,12 @@ public:
     //   Sum(input values) + pegin == Sum(output values) + fee + Sum(pegout amounts).
     // The result passes Transaction::Validate. Needs at least one output or input
     // (a pure peg-out may have no MWEB outputs).
-    // `stealthBlind`, when non-null, gives the kernel a stealth excess E' =
-    // stealthBlind*G: the kernel sets STEALTH_EXCESS_FEATURE_BIT, signs with the
-    // weighted key the verifier rebuilds (KernelKey.h), and the stealth offset
-    // below absorbs the new term. Opt-in, so a caller that does not ask for one
-    // builds exactly the kernel it did before.
+    // Every kernel carries a stealth excess E' = stealthBlind*G. A caller may
+    // supply the blind; otherwise one is drawn here. It must never be null: the
+    // offset is Sum(sender keys) - Sum(spend keys) - stealthBlind, so a body
+    // with no inputs publishes a sender key and a body with no outputs
+    // publishes a spend key, and both of those are secret. Litecoin draws one
+    // per kernel for the same reason.
     static Transaction Build(
         const std::vector<Coin>& inputs,
         const std::vector<Coin>& outputs,
@@ -82,8 +85,12 @@ public:
         uint64_t pegin,
         std::vector<PegOutCoin> pegouts,
         const BlindingFactor& offset,
-        const SecretKey& stealthBlind = SecretKey())
+        const SecretKey& suppliedStealthBlind = SecretKey())
     {
+        // Drawn before use, so every path below has a non-null blind.
+        const SecretKey stealthBlind = suppliedStealthBlind.IsNull()
+            ? RandomStealthBlind() : suppliedStealthBlind;
+
         // Inputs: commit to each spent coin. When the caller supplies the output
         // ID of the coin being spent, reference it so the accumulator can find and
         // spend the real output; otherwise fall back to the commitment hash (used
@@ -134,21 +141,18 @@ public:
         uint8_t features = Kernel::FEE_FEATURE_BIT;
         if (pegin > 0) features |= Kernel::PEGIN_FEATURE_BIT;
         if (!pegouts.empty()) features |= Kernel::PEGOUT_FEATURE_BIT;
-        if (!stealthBlind.IsNull()) features |= Kernel::STEALTH_EXCESS_FEATURE_BIT;
+        features |= Kernel::STEALTH_EXCESS_FEATURE_BIT;
         const CAmount feeAmt = static_cast<CAmount>(fee);
         const CAmount peginAmt = static_cast<CAmount>(pegin);
 
         // With a stealth excess the signing key is weighted to match the key the
         // verifier rebuilds: k = excess*H(X||X_s) + stealthBlind. Both keys are in
         // the signed message, so the coefficient is fixed before the signature.
-        const PublicKey stealthExcess =
-            stealthBlind.IsNull() ? PublicKey() : Keys::PublicKeyFrom(stealthBlind);
-        SecretKey sigKey = excess;
-        if (!stealthBlind.IsNull()) {
-            const SecretKey coefficient =
-                StealthExcessCoefficient(Pedersen::ToPublicKey(excessCommit), stealthExcess);
-            sigKey = Keys::AddSecretKeys(Keys::MulSecretKeys(excess, coefficient), stealthBlind);
-        }
+        const PublicKey stealthExcess = Keys::PublicKeyFrom(stealthBlind);
+        const SecretKey coefficient =
+            StealthExcessCoefficient(Pedersen::ToPublicKey(excessCommit), stealthExcess);
+        const SecretKey sigKey =
+            Keys::AddSecretKeys(Keys::MulSecretKeys(excess, coefficient), stealthBlind);
 
         const mw::Hash message =
             Kernel(features, feeAmt, peginAmt, pegouts, 0, stealthExcess, excessCommit,
@@ -181,6 +185,15 @@ public:
     }
 
 private:
+    // A fresh stealth blind. Secret, so it comes from the strong pool rather
+    // than from anything derived off the coin.
+    static SecretKey RandomStealthBlind()
+    {
+        std::vector<uint8_t> b(SecretKey::SIZE);
+        GetStrongRandBytes(b.data(), (int)b.size());
+        return SecretKey(b);
+    }
+
     static SecretKey ToSecret(const BlindingFactor& b)
     {
         return SecretKey(std::vector<uint8_t>(b.data(), b.data() + BlindingFactor::SIZE));
