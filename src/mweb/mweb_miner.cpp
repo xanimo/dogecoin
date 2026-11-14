@@ -113,13 +113,24 @@ bool Miner::AddMWEBTransaction(CTxMemPool::txiter iter)
 void Miner::AddHogExTransaction(const CBlockIndex* pIndexPrev, CBlock* pblock,
                                  CBlockTemplate* pblocktemplate, CAmount& nFees)
 {
-    // Once MWEB is active the miner must attach an extension block to every block,
-    // even when no MWEB transactions were selected -- ContextualCheckBlock rejects
-    // an active-MWEB block with no extension data. So finalize whenever the builder
-    // exists (it is created in NewBlock only when MWEB is active); an empty builder
-    // yields an empty extension block plus a HogEx that just rolls the HogAddr
-    // forward.
     if (!mweb_builder) {
+        return;
+    }
+
+    // An extension block is optional. Build one only when there is a pool to roll
+    // forward or something to put in it: the first HogEx has no previous HogAddr
+    // to spend, so with an empty mempool it would have no inputs at all and fail
+    // bad-txns-vin-empty, leaving no valid block to mine.
+    const bool havePool = !pIndexPrev->hogex_hash.IsNull();
+    bool haveContent = mweb_builder->HasTransactions();
+    if (!haveContent) {
+        for (size_t nTx = 1; nTx < pblock->vtx.size() && !haveContent; nTx++) {
+            for (const CTxOut& out : pblock->vtx[nTx]->vout) {
+                if (out.scriptPubKey.IsMWEBPegin()) { haveContent = true; break; }
+            }
+        }
+    }
+    if (!havePool && !haveContent) {
         return;
     }
 
@@ -134,9 +145,11 @@ void Miner::AddHogExTransaction(const CBlockIndex* pIndexPrev, CBlock* pblock,
     CMutableTransaction hogex;
     hogex.m_hogEx = true;
 
-    // Input: Previous HogAddr UTXO (if previous block had MWEB state)
+    // Input: Previous HogAddr UTXO (if the pool exists at all). Keyed off the
+    // hash rather than the parent's header, since a block that carried no
+    // extension block still inherits the pool.
     CAmount prev_hogex_amount = 0;
-    if (pIndexPrev->mweb_header != nullptr) {
+    if (!pIndexPrev->hogex_hash.IsNull()) {
         COutPoint prev_hogaddr(pIndexPrev->hogex_hash, 0);
         hogex.vin.push_back(CTxIn(prev_hogaddr));
         prev_hogex_amount = pIndexPrev->mweb_amount;

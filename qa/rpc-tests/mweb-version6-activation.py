@@ -63,17 +63,20 @@ class MwebVersion6ActivationTest(BitcoinTestFramework):
         self.is_network_split = False
 
     def mweb_active(self, node):
-        # An empty block carries a HogEx (2 txs) only once MWEB is active.
-        tip = node.getbestblockhash()
-        return len(node.getblock(tip)["tx"]) >= 2
+        # Activation is reported directly rather than inferred from block shape:
+        # an extension block is optional, so an ordinary block proves nothing.
+        for fork in node.getblockchaininfo()["softforks"]:
+            if fork.get("id") == "mweb":
+                return fork.get("status") == "active"
+        return False
 
     def assert_mweb_inactive(self, node, where):
         assert not self.mweb_active(node), \
-            "%s: extension block present, MWEB active too early" % where
+            "%s: MWEB active too early" % where
 
     def assert_mweb_active(self, node, where):
         assert self.mweb_active(node), \
-            "%s: no extension block, MWEB did not activate" % where
+            "%s: MWEB did not activate" % where
 
     def run_test(self):
         node = self.nodes[0]

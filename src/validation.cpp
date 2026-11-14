@@ -2095,8 +2095,11 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         }
 
         // The first HogEx has no previous pool to roll forward, so all of its
-        // inputs are peg-ins.
-        const bool is_first_hogex = !IsMWEBEnabled(pindex->pprev->pprev, consensus);
+        // inputs are peg-ins. Keyed off whether a HogAddr exists rather than off
+        // the activation height, because an extension block is optional: blocks
+        // between activation and the first peg-in carry none, so the first one
+        // can appear well after the latch.
+        const bool is_first_hogex = pindex->pprev->hogex_hash.IsNull();
         if (!MWEB::Node::CheckHogEx(block, pindex->pprev->hogex_hash,
                                     pindex->pprev->mweb_amount, is_first_hogex, state)) {
             return error("ConnectBlock(): MWEB HogEx accounting failed: %s", FormatStateMessage(state));
@@ -2155,7 +2158,16 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         setDirtyBlockIndex.insert(pindex);
     }
 
-    // MWEB: Update block index with MWEB data
+    // MWEB: Update block index with MWEB data. A block that carries no extension
+    // block inherits the pool from its parent, so the next extension block can
+    // still find the HogAddr to spend and the amount to roll forward. Without
+    // this the pool would be stranded at the first gap.
+    if (block.mweb_block.IsNull()) {
+        if (pindex->pprev) {
+            pindex->hogex_hash = pindex->pprev->hogex_hash;
+            pindex->mweb_amount = pindex->pprev->mweb_amount;
+        }
+    }
     if (!block.mweb_block.IsNull()) {
         pindex->mweb_header = block.mweb_block.m_block->GetHeader();
         pindex->hogex_hash = block.vtx.back()->GetHash();

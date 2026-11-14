@@ -56,8 +56,23 @@ bool Node::ContextualCheckBlock(
 
         return true;
     } else if (block.mweb_block.IsNull()) {
-        return state.DoS(100, false, REJECT_INVALID, "mweb-missing",
-            true, "MWEB activated but extension block not found");
+        // After activation an extension block is permitted, not required. A miner
+        // with nothing to put in one makes an ordinary block, which is what makes
+        // the feature miner opt-in and is the model litecoin ships.
+        //
+        // Requiring one deadlocked the chain once the HogEx needed an input: the
+        // first extension block has no previous HogAddr to spend, so without a
+        // peg-in in the mempool there was no valid block to mine at all, and
+        // CreateNewBlock failed on bad-txns-vin-empty. It also meant any miner
+        // that had not upgraded produced blocks the rest rejected, so the latch
+        // at 1500 of 2000 left up to a quarter of hashrate forked off.
+        for (const CTransactionRef& pTx : block.vtx) {
+            if (pTx->IsHogEx()) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-hogex-no-mweb",
+                    true, "HogEx marker without an extension block");
+            }
+        }
+        return true;
     }
 
     // Last transaction must be marked as HogEx. The marker is not committed by the
