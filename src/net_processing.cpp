@@ -2866,6 +2866,14 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         }
     }
 
+    // NetMsgType::MWEBUTXOS and NetMsgType::MWEBHEADER are served, not consumed.
+    // This node never sends getmwebutxos and never requests a header, so any
+    // arriving is unsolicited. Both handlers wrote it anyway: the utxo one
+    // called AddOutput straight into the utxo database, and the header one
+    // overwrote mweb_header on a block index entry, which the next block then
+    // stored as prevHeader in its undo data, so one message corrupted the
+    // accumulator at the following reorg. The header's merkle check could not
+    // catch it either, since a one-leaf tree always reproduces its own root.
     else if (strCommand == NetMsgType::GETMWEBUTXOS)
     {
         // MWEB UTXO request - deserialize and respond
@@ -2892,51 +2900,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         }
     }
 
-    else if (strCommand == NetMsgType::MWEBUTXOS)
-    {
-        // MWEB UTXO response - process incoming MWEB UTXOs
-        uint256 block_hash;
-        std::vector<mw::Output> utxos;
-        vRecv >> block_hash >> utxos;
 
-        LogPrint("mweb", "Received %d MWEB UTXOs from peer=%d for block %s\n",
-                 utxos.size(), pfrom->id, block_hash.ToString());
-
-        // Store received UTXOs in the MWEB state database
-        if (g_mweb_state) {
-            for (const auto& output : utxos) {
-                g_mweb_state->AddOutput(output);
-            }
-        }
-    }
-
-    else if (strCommand == NetMsgType::MWEBHEADER)
-    {
-        // MWEB header response - process incoming MWEB header with merkle proof
-        CMerkleBlock merkleBlock;
-        mw::Header mwebHeader;
-        vRecv >> merkleBlock >> mwebHeader;
-
-        LogPrint("mweb", "Received MWEB header from peer=%d, height=%d, numTXOs=%d, numKernels=%d\n",
-                 pfrom->id, mwebHeader.GetHeight(), mwebHeader.GetNumTXOs(), mwebHeader.GetNumKernels());
-
-        // Validate the merkle block and extract matched block hash
-        std::vector<uint256> vMatch;
-        std::vector<unsigned int> vIndex;
-        if (merkleBlock.txn.ExtractMatches(vMatch, vIndex) != merkleBlock.header.hashMerkleRoot) {
-            LogPrint("mweb", "MWEB header merkle proof invalid from peer=%d\n", pfrom->id);
-            return true;
-        }
-
-        // Store the MWEB header in the block index if we have the block
-        {
-            LOCK(cs_main);
-            BlockMap::iterator mi = mapBlockIndex.find(merkleBlock.header.GetHash());
-            if (mi != mapBlockIndex.end() && mi->second) {
-                mi->second->mweb_header = std::make_shared<mw::Header>(mwebHeader);
-            }
-        }
-    }
 
     else if (strCommand == NetMsgType::MWEBLEAFSET)
     {
