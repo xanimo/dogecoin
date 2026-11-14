@@ -1743,14 +1743,12 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
     // move best block pointer to prevout block
     view.SetBestBlock(pindex->pprev->GetBlockHash());
 
-    // MWEB: Restore previous MWEB state from undo data
-    if (!blockUndo.mweb_undo.IsNull()) {
-        // The undo data contains the previous MWEB header.
-        // Restore the MWEB fields on the previous block index.
-        if (pindex->pprev) {
-            pindex->pprev->mweb_header = blockUndo.mweb_undo.GetPreviousHeader();
-        }
-
+    // MWEB: roll the state back whenever the block carried an extension block. The undo
+    // data's previous header is null for the first extension block on a chain, which says
+    // what came before that block and not that there is nothing to undo. Keyed on it, the
+    // block holding the first peg-in was disconnected with its outputs left in the state,
+    // and the node then refused the block that confirmed the same peg-in again.
+    if (!block.mweb_block.IsNull()) {
         // Reverse the MWEB state DB changes (restore spent UTXOs, remove added
         // outputs). Skipped under VerifyDB, which has no MWEB undo view -- see
         // g_mweb_verifying.
