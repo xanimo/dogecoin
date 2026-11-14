@@ -948,8 +948,12 @@ BOOST_AUTO_TEST_CASE(mweb_stealth_offset_balance)
     const mw::wallet::StealthResult sr = mw::wallet::Stealth::Send(addr, value, ephemeral);
 
     // Build the kernel/body with a plain output, then swap in the stealth output.
+    // The blind is pinned rather than drawn, so the balancing offset below is
+    // computable: every kernel carries a stealth excess and the offset absorbs it.
+    const mw::SecretKey kernelBlind = sk(0x66);
     const mw::Transaction plain = mw::wallet::TxBuilder::Build(
-        {}, {{value, sr.blind}}, /*fee=*/0, /*pegin=*/value, blind(0x44));
+        {}, {{value, sr.blind}}, /*fee=*/0, /*pegin=*/value,
+        std::vector<mw::PegOutCoin>{}, blind(0x44), kernelBlind);
 
     auto assemble = [&](const mw::BlindingFactor& stealthOffset) {
         std::vector<mw::Input>  vin  = plain.GetInputs();
@@ -959,9 +963,49 @@ BOOST_AUTO_TEST_CASE(mweb_stealth_offset_balance)
             mw::TxBody(std::move(vin), std::move(vout), std::move(vker)));
     };
 
-    // Correct offset (the ephemeral) balances; a wrong offset does not.
-    BOOST_CHECK_NO_THROW(assemble(mw::BlindingFactor(ephemeral.vec())).Validate());
+    // Correct offset is now the ephemeral less the kernel's stealth blind,
+    // since the excess sits on the far side of the balance.
+    const mw::SecretKey expected =
+        mw::Keys::AddSecretKeys(ephemeral, mw::Keys::NegateSecretKey(kernelBlind));
+    BOOST_CHECK_NO_THROW(assemble(mw::BlindingFactor(expected.vec())).Validate());
+    // The bare ephemeral no longer balances, which is the leak that is closed.
+    BOOST_CHECK_THROW(assemble(mw::BlindingFactor(ephemeral.vec())).Validate(),
+                      std::runtime_error);
     BOOST_CHECK_THROW(assemble(blind(0x55)).Validate(), std::runtime_error);
+}
+
+// A count read off the wire must not size a container before the elements
+// behind it are read. ReadCompactSize permits 33554432, so a 78-byte message
+// claiming that many outputs asked for 9.5 GiB and terminated the node. The
+// stream here carries a huge count and no elements: it must throw on the short
+// read rather than allocate.
+BOOST_AUTO_TEST_CASE(mweb_wire_counts_do_not_size_allocations)
+{
+    auto claim = [](uint64_t count) {
+        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+        WriteCompactSize(ss, count);   // ... and then nothing
+        return ss;
+    };
+
+    // One element short of the claim is still a short read, so these throw
+    // without ever reserving what the count asked for.
+    for (uint64_t count : {uint64_t(1000000), uint64_t(33554432)}) {
+        CDataStream a = claim(count);
+        mw::TxBody body;
+        BOOST_CHECK_THROW(a >> body, std::ios_base::failure);
+
+        CDataStream b = claim(count);
+        mw::RangeProof proof;
+        BOOST_CHECK_THROW(b >> proof, std::ios_base::failure);
+    }
+
+    // A truthful small body still round-trips, so the bound did not break reads.
+    mw::TxBody empty;
+    CDataStream ok(SER_NETWORK, PROTOCOL_VERSION);
+    ok << empty;
+    mw::TxBody back;
+    BOOST_CHECK_NO_THROW(ok >> back);
+    BOOST_CHECK_EQUAL(back.GetInputs().size(), 0u);
 }
 
 // Scalar multiplication is homomorphic across the two key types, which is what
@@ -1007,12 +1051,18 @@ BOOST_AUTO_TEST_CASE(mweb_kernel_stealth_excess)
     BOOST_CHECK(mw::KernelVerificationKey(kernel)
                 != mw::Pedersen::ToPublicKey(kernel.GetExcess()));
 
-    // A kernel with no stealth excess still verifies against the bare excess.
-    const mw::Transaction plain = mw::wallet::TxBuilder::Build(
+    // The builder no longer emits a kernel without one, so a caller cannot get
+    // back to the unweighted key by simply not asking for an excess.
+    const mw::Transaction drawn = mw::wallet::TxBuilder::Build(
         {}, {{100, blind(0x21)}}, /*fee=*/0, /*pegin=*/100, blind(0x44));
-    BOOST_CHECK(!plain.GetKernels()[0].HasStealthExcess());
-    BOOST_CHECK(mw::KernelVerificationKey(plain.GetKernels()[0])
-                == mw::Pedersen::ToPublicKey(plain.GetKernels()[0].GetExcess()));
+    BOOST_CHECK(drawn.GetKernels()[0].HasStealthExcess());
+    BOOST_CHECK(mw::KernelVerificationKey(drawn.GetKernels()[0])
+                != mw::Pedersen::ToPublicKey(drawn.GetKernels()[0].GetExcess()));
+    // And two builds of the same body differ, so the blind is drawn not derived.
+    const mw::Transaction again = mw::wallet::TxBuilder::Build(
+        {}, {{100, blind(0x21)}}, /*fee=*/0, /*pegin=*/100, blind(0x44));
+    BOOST_CHECK(drawn.GetKernels()[0].GetStealthExcess()
+                != again.GetKernels()[0].GetStealthExcess());
 }
 
 // The hash coefficient is load-bearing. Signing the unweighted aggregate
@@ -1079,21 +1129,23 @@ BOOST_AUTO_TEST_CASE(mweb_kernel_stealth_excess_enters_balance)
     const mw::Transaction tx = mw::wallet::TxBuilder::Build(
         {}, {{100, blind(0x21)}}, /*fee=*/0, /*pegin=*/100,
         std::vector<mw::PegOutCoin>{}, blind(0x44), stealthBlind);
-    const mw::Transaction plain = mw::wallet::TxBuilder::Build(
-        {}, {{100, blind(0x21)}}, /*fee=*/0, /*pegin=*/100, blind(0x44));
+    const mw::SecretKey otherBlind = sk(0x5b);
+    const mw::Transaction other = mw::wallet::TxBuilder::Build(
+        {}, {{100, blind(0x21)}}, /*fee=*/0, /*pegin=*/100,
+        std::vector<mw::PegOutCoin>{}, blind(0x44), otherBlind);
 
-    // Same body, so the only difference is the stealth excess and the offset
-    // that absorbs it. The two offsets differ by exactly the stealth blind.
-    BOOST_CHECK(tx.GetStealthOffset() != plain.GetStealthOffset());
+    // Same body, so the offsets differ by exactly the difference of the blinds.
+    BOOST_CHECK(tx.GetStealthOffset() != other.GetStealthOffset());
     BOOST_CHECK(mw::Keys::AddSecretKeys(
                     mw::SecretKey(tx.GetStealthOffset().vec()), stealthBlind)
-                == mw::SecretKey(plain.GetStealthOffset().vec()));
+                == mw::Keys::AddSecretKeys(
+                    mw::SecretKey(other.GetStealthOffset().vec()), otherBlind));
 
-    // Swapping in the offset that ignores the excess breaks the balance.
+    // Swapping in an offset built for a different excess breaks the balance.
     std::vector<mw::Input>  vin  = tx.GetInputs();
     std::vector<mw::Output> vout = tx.GetOutputs();
     std::vector<mw::Kernel> vker = tx.GetKernels();
-    const mw::Transaction mismatched(tx.GetKernelOffset(), plain.GetStealthOffset(),
+    const mw::Transaction mismatched(tx.GetKernelOffset(), other.GetStealthOffset(),
         mw::TxBody(std::move(vin), std::move(vout), std::move(vker)));
     BOOST_CHECK_THROW(mismatched.Validate(), std::runtime_error);
 }
@@ -1138,15 +1190,21 @@ BOOST_AUTO_TEST_CASE(mweb_output_signature_binds_receiver_key)
     const uint64_t value = 100;
     const mw::wallet::StealthResult sr = mw::wallet::Stealth::Send(addr, value, ephemeral);
 
+    // Pinned so the balancing offset is computable; the point of this test is
+    // the receiver key, not the offset.
+    const mw::SecretKey kernelBlind = sk(0x66);
     const mw::Transaction plain = mw::wallet::TxBuilder::Build(
-        {}, {{value, sr.blind}}, /*fee=*/0, /*pegin=*/value, blind(0x44));
+        {}, {{value, sr.blind}}, /*fee=*/0, /*pegin=*/value,
+        std::vector<mw::PegOutCoin>{}, blind(0x44), kernelBlind);
+    const mw::SecretKey balancing =
+        mw::Keys::AddSecretKeys(ephemeral, mw::Keys::NegateSecretKey(kernelBlind));
 
     auto assemble = [&](const mw::Output& out) {
         std::vector<mw::Input>  vin  = plain.GetInputs();
         std::vector<mw::Output> vout = { out };
         std::vector<mw::Kernel> vker = plain.GetKernels();
         return mw::Transaction(plain.GetKernelOffset(),
-            mw::BlindingFactor(ephemeral.vec()),
+            mw::BlindingFactor(balancing.vec()),
             mw::TxBody(std::move(vin), std::move(vout), std::move(vker)));
     };
 
