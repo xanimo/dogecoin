@@ -13,6 +13,7 @@
 #include <mw/mmr/Leafset.h>
 
 #include <map>
+#include <set>
 #include <vector>
 
 MW_NAMESPACE
@@ -62,10 +63,34 @@ public:
     }
 
     // Apply a connected block: append its outputs and kernels, then spend the
-    // outputs its inputs reference. Returns false if any input spends an unknown
-    // output (a would-be double/invalid spend).
+    // outputs its inputs reference. Returns false, having changed nothing, if an
+    // output id already exists or an input does not spend a known unspent output.
+    // Everything is checked before anything changes so that a refused block needs
+    // no rollback: the caller's rollback used to run on a state this function had
+    // not touched, and undid things the block never did.
     bool ApplyBlock(const mw::Block& block)
     {
+        // An output id already in the index must not be re-created. The MMR is
+        // append-only, so a duplicate takes a fresh leaf and m_outputIndex moves
+        // to it, orphaning the original leaf. Disconnecting the block then erases
+        // the row and drops the index entry outright, so a node that saw the
+        // block and reorged away loses a coin a node that never saw it still has.
+        // Only the block builder refused this before, which a miner need not use.
+        for (const Output& output : block.GetOutputs()) {
+            if (HasOutput(output.GetOutputID())) {
+                return false;
+            }
+        }
+        std::set<mw::Hash> spending;
+        for (const Input& input : block.GetInputs()) {
+            if (!IsUnspentByOutputID(input.GetOutputID())) {
+                return false;
+            }
+            if (!spending.insert(input.GetOutputID()).second) {
+                return false; // the same output twice in one block
+            }
+        }
+
         for (const Output& output : block.GetOutputs()) {
             AddOutput(output.GetOutputID());
         }
@@ -73,9 +98,7 @@ public:
             AddKernel(kernel.GetKernelID());
         }
         for (const Input& input : block.GetInputs()) {
-            if (!SpendByOutputID(input.GetOutputID())) {
-                return false;
-            }
+            SpendByOutputID(input.GetOutputID());
         }
         return true;
     }

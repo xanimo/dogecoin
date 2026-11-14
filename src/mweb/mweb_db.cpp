@@ -134,9 +134,6 @@ CMWEBStateDB::ConnectResult CMWEBStateDB::ConnectBlock(const mw::Block& block,
         }
     }
 
-    const uint64_t prevNumOutputs = prevHeader ? prevHeader->GetNumTXOs() : 0;
-    const uint64_t prevNumKernels = prevHeader ? prevHeader->GetNumKernels() : 0;
-
     // Leaf indices this block's outputs/kernels will occupy in the append-only
     // history, captured before the accumulator advances.
     const uint64_t baseNumOutputs = m_state.NumOutputs();
@@ -158,11 +155,16 @@ CMWEBStateDB::ConnectResult CMWEBStateDB::ConnectBlock(const mw::Block& block,
     // the MWEB body actually produces the advertised output/kernel/leafset roots and
     // that every input spends a known unspent output.
     if (!m_state.ApplyBlock(block)) {
-        m_state.UndoBlock(prevNumOutputs, prevNumKernels, blockAddedIDs, blockSpentIDs);
+        // Refused before anything changed, so there is nothing to roll back. Rolling back
+        // anyway dropped the original of a duplicated output from the index, which left a
+        // coin every other node could still spend unspendable here.
         return ConnectResult::INVALID;
     }
     if (block.GetHeader() && !m_state.MatchesHeader(*block.GetHeader())) {
-        m_state.UndoBlock(prevNumOutputs, prevNumKernels, blockAddedIDs, blockSpentIDs);
+        // Back to where the state stood before this block, which is not necessarily where
+        // prevHeader says it stood: prevHeader is null when the parent carried no extension
+        // block, and rewinding to its counts emptied the accumulator.
+        m_state.UndoBlock(baseNumOutputs, baseNumKernels, blockAddedIDs, blockSpentIDs);
         return ConnectResult::INVALID;
     }
 
