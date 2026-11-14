@@ -685,6 +685,23 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         return state.DoS(0, false, REJECT_NONSTANDARD, "no-mweb-yet", true);
     }
 
+    // MWEB: a peg-in output needs its kernel. A block takes the canonical half of a
+    // peg-in only with the kernel in its extension block, so a transaction that pays a
+    // peg-in script and carries no such kernel can never be mined. IsStandardTx says so
+    // as well, but only where standardness is required. Where it is not, which is
+    // regtest and by default testnet, such a transaction was accepted and every
+    // template that took it failed the validity check it is given before use.
+    if (mwebEnabled) {
+        std::set<mw::Hash> pegin_kernels;
+        for (const mw::PegInCoin& pegin : tx.mweb_tx.GetPegIns())
+            pegin_kernels.insert(pegin.GetKernelID());
+        for (const CTxOut& txout : tx.vout) {
+            mw::Hash kernel_id;
+            if (txout.scriptPubKey.IsMWEBPegin(&kernel_id) && pegin_kernels.count(kernel_id) == 0)
+                return state.DoS(0, false, REJECT_INVALID, "pegin-without-kernel");
+        }
+    }
+
     // Rather not work on nonstandard transactions (unless -testnet/-regtest)
     std::string reason;
     if (fRequireStandard && !IsStandardTx(tx, reason, witnessEnabled))
