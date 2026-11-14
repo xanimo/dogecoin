@@ -74,6 +74,17 @@ bool Node::ContextualCheckBlock(
                     true, "HogEx marker without an extension block");
             }
         }
+        // Nor may such a block create a peg-in output. The HogEx is what moves one into the
+        // pool and the kernel is what credits it inside; a block with neither confirms the
+        // payment and credits nothing, and the coins stay in an output no rule protects.
+        for (const CTransactionRef& pTx : block.vtx) {
+            for (const CTxOut& out : pTx->vout) {
+                if (out.scriptPubKey.IsMWEBPegin()) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-pegin-no-mweb",
+                        false, "Peg-in output in a block with no extension block");
+                }
+            }
+        }
         return true;
     }
 

@@ -761,6 +761,17 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         // are the actual inputs available?
         if (!view.HaveInputs(tx))
             return state.Invalid(false, REJECT_DUPLICATE, "bad-txns-inputs-spent");
+
+        // MWEB: only a HogEx spends a pool or peg-in output, and a HogEx never comes
+        // through here. See ConnectBlock.
+        if (mwebEnabled) {
+            BOOST_FOREACH(const CTxIn& txin, tx.vin) {
+                const CCoins* coins = view.AccessCoins(txin.prevout.hash);
+                const CScript& spk = coins->vout[txin.prevout.n].scriptPubKey;
+                if (spk.IsMWEBHogAddr() || spk.IsMWEBPegin())
+                    return state.DoS(0, false, REJECT_INVALID, "bad-txns-spends-mweb-output");
+            }
+        }
         } // !fMWEBOnly
 
         // Bring the best block into scope
@@ -2003,6 +2014,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     std::vector<std::pair<uint256, CDiskTxPos> > vPos;
     vPos.reserve(block.vtx.size());
     blockundo.vtxundo.reserve(block.vtx.size() - 1);
+    const bool fMwebRules = IsMWEBEnabled(pindex->pprev, consensus);
+
     std::vector<PrecomputedTransactionData> txdata;
     txdata.reserve(block.vtx.size()); // Required so that pointers to individual PrecomputedTransactionData don't get invalidated
     for (unsigned int i = 0; i < block.vtx.size(); i++)
@@ -2016,6 +2029,23 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             if (!view.HaveInputs(tx))
                 return state.DoS(100, error("ConnectBlock(): inputs missing/spent"),
                                  REJECT_INVALID, "bad-txns-inputs-missingorspent");
+
+            // MWEB: an output paying the pool script or a peg-in script belongs to the
+            // extension block, and only a HogEx may spend one. Both are witness programs of
+            // versions no script rule gives a meaning to, so the interpreter lets anyone
+            // spend them. Upstream needs no rule here because every block there carries a
+            // HogEx whose first input is the pool. With the extension block optional, a
+            // block without one could spend the pool, or a peg-in, as an ordinary input.
+            // The HogEx's own inputs are pinned by CheckHogEx.
+            if (fMwebRules && !tx.IsHogEx()) {
+                for (size_t j = 0; j < tx.vin.size(); j++) {
+                    const CCoins* coins = view.AccessCoins(tx.vin[j].prevout.hash);
+                    const CScript& spk = coins->vout[tx.vin[j].prevout.n].scriptPubKey;
+                    if (spk.IsMWEBHogAddr() || spk.IsMWEBPegin())
+                        return state.DoS(100, error("ConnectBlock(): %s spends an MWEB pool or peg-in output", tx.GetHash().ToString()),
+                                         REJECT_INVALID, "bad-txns-spends-mweb-output");
+                }
+            }
 
             // Check that transaction is BIP68 final
             // BIP68 lock checks (as opposed to nLockTime checks) must
