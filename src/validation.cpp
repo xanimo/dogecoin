@@ -535,13 +535,14 @@ bool CheckTransaction(const CTransaction& tx, CValidationState &state, bool fChe
         return MWEB::Node::CheckTransaction(tx, state);
     }
 
-    // The HogEx (the MWEB integrating transaction) may legitimately have no inputs:
-    // the first HogEx after activation, in an otherwise empty block, has no previous
-    // HogAddr to spend and no peg-in outputs to integrate. Its structure is validated
-    // in block context by MWEB::Node::ContextualCheckBlock, so exempt it here as the
-    // coinbase is exempted elsewhere. A HogEx always has at least the HogAddr output,
-    // so the vout-empty check still applies.
-    if (tx.vin.empty() && !tx.IsHogEx())
+    // Only an MWEB-only transaction may have no inputs, matching litecoin. A HogEx
+    // is deliberately not exempt: with no inputs it serializes, to a node that does
+    // not know the extended format, as the segwit marker followed by a flag byte,
+    // so that node deserializes a different transaction and computes a different
+    // merkle root. Exempting it forked every un-upgraded node at the first
+    // extension block that carried no peg-in. Requiring an input means the first
+    // extension block must contain one, which is the rule upstream relies on.
+    if (tx.vin.empty() && !tx.IsMWEBOnly())
         return state.DoS(10, false, REJECT_INVALID, "bad-txns-vin-empty");
     if (tx.vout.empty())
         return state.DoS(10, false, REJECT_INVALID, "bad-txns-vout-empty");
