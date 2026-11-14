@@ -3416,11 +3416,13 @@ UniValue sendtosilentpaymentaddress(const JSONRPCRequest& request)
         // Only P2PKH, because that is the whole of what the receiver's eligibility rule counts.
         // Contributing a key the receiver will not see changes A on one side only, and the
         // payment lands on an address neither party holds.
-        txnouttype type;
-        std::vector<std::vector<unsigned char> > solutions;
-        if (!Solver(spk, type, solutions) || type != TX_PUBKEYHASH) continue;
+        // The canonical 25 bytes only, matching what the receiver's rule counts. Solver would
+        // also accept a hash pushed with OP_PUSHDATA1/2/4, which the receiver does not.
+        if (spk.size() != 25 || spk[0] != OP_DUP || spk[1] != OP_HASH160 || spk[2] != 20 ||
+            spk[23] != OP_EQUALVERIFY || spk[24] != OP_CHECKSIG) continue;
         CKey key;
-        if (!pwalletMain->GetKey(CKeyID(uint160(solutions[0])), key)) continue;
+        const uint160 pkh(std::vector<unsigned char>(spk.begin() + 3, spk.begin() + 23));
+        if (!pwalletMain->GetKey(CKeyID(pkh), key)) continue;
         input_keys.push_back(key);
     }
     if (input_keys.empty())

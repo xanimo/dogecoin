@@ -258,13 +258,32 @@ bool DecodeSilentPaymentsAddress(CSilentPaymentsAddress& out, const std::string&
     return true;
 }
 
+namespace {
+
+/**
+ * True only for the canonical 25-byte P2PKH script.
+ *
+ * Solver matches the template by opcode, so it also accepts a 20-byte hash pushed with
+ * OP_PUSHDATA1, 2 or 4. BIP352 and Bitcoin Core both take the exact 25 bytes, and so does the
+ * corpus harness that measured the eligibility rule over this chain. Matching loosely here
+ * would mean the measurement and the code disagree about which inputs they are talking about,
+ * and would admit scripts whose spends are non-standard anyway.
+ */
+bool IsCanonicalP2PKH(const CScript& spk, uint160& hash_out)
+{
+    if (spk.size() != 25) return false;
+    if (spk[0] != OP_DUP || spk[1] != OP_HASH160 || spk[2] != 20) return false;
+    if (spk[23] != OP_EQUALVERIFY || spk[24] != OP_CHECKSIG) return false;
+    hash_out = uint160(std::vector<unsigned char>(spk.begin() + 3, spk.begin() + 23));
+    return true;
+}
+
+} // namespace
+
 bool GetPubKeyFromInput(CPubKey& out, const CScript& scriptSig, const CScript& prevout_spk)
 {
-    txnouttype type;
-    std::vector<std::vector<unsigned char> > solutions;
-    if (!Solver(prevout_spk, type, solutions) || type != TX_PUBKEYHASH) return false;
-    assert(solutions.size() == 1 && solutions[0].size() == 20);
-    const uint160 pubkey_hash(solutions[0]);
+    uint160 pubkey_hash;
+    if (!IsCanonicalP2PKH(prevout_spk, pubkey_hash)) return false;
 
     CScript::const_iterator pc = scriptSig.begin();
     while (pc < scriptSig.end()) {
@@ -301,9 +320,8 @@ PrevoutsSummaryError GetPrevoutsSummary(CPrevoutsSummary& out, const std::vector
         CPubKey key;
         if (!GetPubKeyFromInput(key, vin[i].scriptSig, it->second)) {
             // Distinguish "this script type is out of scope" from "this one should have worked".
-            txnouttype type;
-            std::vector<std::vector<unsigned char> > solutions;
-            if (Solver(it->second, type, solutions) && type == TX_PUBKEYHASH) {
+            uint160 unused;
+            if (IsCanonicalP2PKH(it->second, unused)) {
                 return PREVOUTS_UNREADABLE_INPUT;
             }
             continue;
@@ -535,10 +553,9 @@ bool CSilentPaymentsReceiver::ScanWithSecret(std::vector<CFoundOutput>& found, c
     std::vector<std::pair<uint160, size_t> > p2pkh;
     p2pkh.reserve(vout.size());
     for (size_t i = 0; i < vout.size(); ++i) {
-        txnouttype type;
-        std::vector<std::vector<unsigned char> > solutions;
-        if (!Solver(vout[i].scriptPubKey, type, solutions) || type != TX_PUBKEYHASH) continue;
-        p2pkh.push_back(std::make_pair(uint160(solutions[0]), i));
+        uint160 pkh;
+        if (!IsCanonicalP2PKH(vout[i].scriptPubKey, pkh)) continue;
+        p2pkh.push_back(std::make_pair(pkh, i));
     }
     if (p2pkh.empty()) return true;
 
