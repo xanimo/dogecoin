@@ -162,6 +162,11 @@ private:
 
     // MWEB miner for building extension blocks
     MWEB::Miner mwebMiner;
+    // Transactions whose MWEB half the block builder refused on an earlier pass over the
+    // same template, and the number of the pass. See CreateNewBlock.
+    std::set<uint256> mwebRefused;
+    int nMwebPass = 0;
+    bool MwebLeftOut(const CTransaction& tx) const;
 
     // Variables used for addPriorityTxs
     int lastFewTxs;

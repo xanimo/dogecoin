@@ -133,6 +133,9 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 {
     int64_t nTimeStart = GetTimeMicros();
 
+    if (nMwebPass == 0)
+        mwebRefused.clear();
+
     resetBlock();
 
     pblocktemplate.reset(new CBlockTemplate());
@@ -192,15 +195,31 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     int nDescendantsUpdated = 0;
     addPackageTxs(nPackagesSelected, nDescendantsUpdated);
 
-    // Process mempool MWEB transactions and create HogEx
+    // Stage the MWEB half of exactly the transactions this block took, then create the
+    // HogEx. Walking the whole mempool here staged kernels whose canonical half had been
+    // left out, for paying less than -blockmintxfee or for not fitting, and the builder's
+    // answer was ignored, which left a canonical half in the block when its kernel was
+    // refused. Either way the template failed its own validity check and there was no
+    // block to mine for as long as the transaction stayed in the mempool.
     if (fIncludeMWEB) {
-        // Iterate mempool for MWEB transactions not yet in the block
-        for (CTxMemPool::indexed_transaction_set::iterator mi = mempool.mapTx.begin();
-             mi != mempool.mapTx.end(); ++mi) {
-            if (mi->GetSharedTx()->HasMWEBTx()) {
-                CTxMemPool::txiter iter = mempool.mapTx.project<0>(mi);
-                mwebMiner.AddMWEBTransaction(iter);
+        bool fRefused = false;
+        BOOST_FOREACH (const CTxMemPool::txiter& iter, inBlock) {
+            const CTransactionRef& ptx = iter->GetSharedTx();
+            if (!ptx->HasMWEBTx())
+                continue;
+            if (!mwebMiner.AddMWEBTransaction(iter) && !ptx->IsMWEBOnly()) {
+                mwebRefused.insert(ptx->GetHash());
+                fRefused = true;
             }
+        }
+        if (fRefused) {
+            // The canonical half is already in the block and other transactions may depend
+            // on it, so select again without it. Every pass leaves out at least one more
+            // transaction, and past a few passes all that have a canonical half.
+            ++nMwebPass;
+            std::unique_ptr<CBlockTemplate> again = CreateNewBlock(scriptPubKeyIn, fMineWitnessTx);
+            --nMwebPass;
+            return again;
         }
 
         // Finalize the MWEB block and add the HogEx transaction
@@ -271,6 +290,17 @@ void BlockAssembler::onlyUnconfirmed(CTxMemPool::setEntries& testSet)
     }
 }
 
+// Whether this template leaves a transaction out because the block builder refused its MWEB
+// half on an earlier pass, or because too many passes have gone by to keep trying.
+bool BlockAssembler::MwebLeftOut(const CTransaction& tx) const
+{
+    if (!tx.HasMWEBTx())
+        return false;
+    if (mwebRefused.count(tx.GetHash()))
+        return true;
+    return nMwebPass > 8 && !tx.IsMWEBOnly();
+}
+
 bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost)
 {
     // TODO: switch to weight-based accounting for packages instead of vsize-based accounting.
@@ -290,6 +320,8 @@ bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& packa
 {
     uint64_t nPotentialBlockSize = nBlockSize; // only used with fNeedSizeAccounting
     BOOST_FOREACH (const CTxMemPool::txiter it, package) {
+        if (MwebLeftOut(it->GetTx()))
+            return false;
         if (!IsFinalTx(it->GetTx(), nHeight, nLockTimeCutoff))
             return false;
         if (!fIncludeWitness && it->GetTx().HasWitness())
@@ -307,6 +339,8 @@ bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& packa
 
 bool BlockAssembler::TestForBlock(CTxMemPool::txiter iter)
 {
+    if (MwebLeftOut(iter->GetTx()))
+        return false;
     if (nBlockWeight + iter->GetTxWeight() >= nBlockMaxWeight) {
         // If the block is so close to full that no more txs will fit
         // or if we've tried more than 50 times to fill remaining space
