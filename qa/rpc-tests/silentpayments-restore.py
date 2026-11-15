@@ -150,6 +150,23 @@ class SilentPaymentsRestoreTest(BitcoinTestFramework):
         assert_equal(len(found), 1)
         self.check_knows_the_spend(receiver)
 
+        # -salvagewallet rewrites the wallet file from the records it recognises, which used to
+        # be the keys and the hd chain. A label is a record of its own, and one that is dropped
+        # is one the next scan does not look for.
+        labelled = receiver.getsilentpaymentaddress(9)
+        self.stop_node(1)
+        wait_for_port_free(rpc_port(1))
+        self.nodes[1] = receiver = start_node(1, self.options.tmpdir, ['-tweakindex', '-usehd=1', '-salvagewallet'])
+        connect_nodes_bi(self.nodes, 0, 1)
+        sync_blocks(self.nodes)
+        paid = sender.sendtosilentpaymentaddress(labelled, 40)
+        sync_mempools(self.nodes)
+        sender.generate(1)
+        sync_blocks(self.nodes)
+        wait_for_indexes(receiver, ['tweakindex'])
+        found = [f['txid'] for f in receiver.scansilentpayments(0, receiver.getblockcount())['found']]
+        assert paid in found, 'a payment to a label handed out before -salvagewallet was not found'
+
 
 if __name__ == '__main__':
     SilentPaymentsRestoreTest().main()

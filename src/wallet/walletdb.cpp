@@ -895,7 +895,11 @@ bool CWalletDB::RecoverKeysOnlyFilter(void *callbackData, CDataStream ssKey, CDa
         fReadOK = ReadKeyValue(dummyWallet, ssKey, ssValue,
                                dummyWss, strType, strErr);
     }
-    if (!IsKeyType(strType) && strType != "hdchain")
+    // The silent payment records are kept along with the keys. A label dropped here is one the
+    // next scan does not look for, so a payment to it is derived, confirmed and never seen, and
+    // the same goes for a seed an address was given out under before it was replaced.
+    if (!IsKeyType(strType) && strType != "hdchain" &&
+        strType != "splabel" && strType != "spseed" && strType != "spscanheight")
         return false;
     if (!fReadOK)
     {
