@@ -153,6 +153,13 @@ public:
     bool WriteSilentPaymentLabel(uint32_t m);
     bool ReadSilentPaymentLabels(std::set<uint32_t>& labels);
 
+    //! An HD seed, by the id of its master key, that a silent payment address has been given
+    //! out under. encryptwallet replaces the seed in use, and an address already out is still
+    //! paid to, so these are what a scan has to cover besides the current one.
+    bool WriteSilentPaymentSeed(const CKeyID& master);
+    //! Labels and seeds in one pass over the file.
+    bool ReadSilentPaymentState(std::set<uint32_t>& labels, std::set<CKeyID>& seeds);
+
     bool WriteDefaultKey(const CPubKey& vchPubKey);
 
     bool ReadPool(int64_t nPool, CKeyPool& keypool);

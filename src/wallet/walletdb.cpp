@@ -171,9 +171,22 @@ bool CWalletDB::WriteSilentPaymentLabel(uint32_t m)
     return Write(std::make_pair(std::string("splabel"), m), true);
 }
 
+bool CWalletDB::WriteSilentPaymentSeed(const CKeyID& master)
+{
+    nWalletDBUpdateCounter++;
+    return Write(std::make_pair(std::string("spseed"), master), true);
+}
+
 bool CWalletDB::ReadSilentPaymentLabels(std::set<uint32_t>& labels)
 {
+    std::set<CKeyID> seeds;
+    return ReadSilentPaymentState(labels, seeds);
+}
+
+bool CWalletDB::ReadSilentPaymentState(std::set<uint32_t>& labels, std::set<CKeyID>& seeds)
+{
     labels.clear();
+    seeds.clear();
     Dbc* cursor = GetCursor();
     if (!cursor) return false;
     while (true) {
@@ -183,10 +196,15 @@ bool CWalletDB::ReadSilentPaymentLabels(std::set<uint32_t>& labels)
         if (ret != 0) { cursor->close(); return false; }
         std::string type;
         key >> type;
-        if (type != "splabel") continue;
-        uint32_t m;
-        key >> m;
-        labels.insert(m);
+        if (type == "splabel") {
+            uint32_t m;
+            key >> m;
+            labels.insert(m);
+        } else if (type == "spseed") {
+            CKeyID master;
+            key >> master;
+            seeds.insert(master);
+        }
     }
     cursor->close();
     return true;

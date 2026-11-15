@@ -3316,6 +3316,8 @@ UniValue getsilentpaymentaddress(const JSONRPCRequest& request)
             "\nReturns this wallet's reusable BIP352 silent payment address.\n"
             "\nThe address is derived from the HD seed at m/352'/3'/0', so it is the same after a\n"
             "seed restore and does not need separate backup.\n"
+            "\nencryptwallet replaces the HD seed, so the address returned after it is a new one.\n"
+            "An address given out before it is still scanned for.\n"
             "\nArguments:\n"
             "1. label   (numeric, optional) return a labelled address instead. Labels let one\n"
             "           wallet hand out distinguishable addresses, but each one registered costs\n"
@@ -3350,6 +3352,11 @@ UniValue getsilentpaymentaddress(const JSONRPCRequest& request)
 
     if (!bip352::CSilentPaymentsAddress::Create(address, scan_key.GetPubKey(), spend_key.GetPubKey()))
         throw JSONRPCError(RPC_WALLET_ERROR, "Could not build the silent payment address");
+
+    // Remembered before it is returned: encryptwallet will replace this seed, and whoever is
+    // given this string goes on paying it.
+    if (!pwalletMain->MarkSilentPaymentsSeedUsed())
+        throw JSONRPCError(RPC_WALLET_ERROR, "Could not record that the address was given out");
 
     return bip352::EncodeSilentPaymentsAddress(address, Params());
 }
@@ -3450,6 +3457,10 @@ UniValue sendtosilentpaymentaddress(const JSONRPCRequest& request)
     std::vector<bip352::CRecipient> recipients;
     recipients.push_back(bip352::CRecipient(address, 0));
     const bool do_sp_change = have_sp_change && nChangePos >= 0;
+    // Change to our own address is a payment to this seed like any other, and a restore has to
+    // scan for it after the seed has been replaced.
+    if (do_sp_change && !pwalletMain->MarkSilentPaymentsSeedUsed())
+        throw JSONRPCError(RPC_WALLET_ERROR, "Could not record the seed our change is derived from");
     if (do_sp_change) recipients.push_back(bip352::CRecipient(change_address, 1));
 
     std::map<size_t, CScript> outputs;
@@ -3599,12 +3610,11 @@ UniValue scansilentpaymentsfiltered(const JSONRPCRequest& request)
         }
     }
 
-    bip352::CSilentPaymentsReceiver receiver;
-    CKey spend_key;
+    std::vector<CWallet::CSilentPaymentsScanner> scanners;
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
         std::string error;
-        if (!pwalletMain->BuildSilentPaymentsReceiver(receiver, spend_key, error)) {
+        if (!pwalletMain->BuildSilentPaymentsScanners(scanners, error)) {
             throw JSONRPCError(RPC_WALLET_ERROR, error);
         }
     }
@@ -3635,12 +3645,14 @@ UniValue scansilentpaymentsfiltered(const JSONRPCRequest& request)
         GCSFilter::ElementSet candidates;
         std::map<std::vector<unsigned char>, size_t> script_to_entry;
         for (size_t e = 0; e < entries.size(); ++e) {
-            std::vector<CScript> scripts;
-            if (!receiver.GetCandidateScripts(scripts, entries[e].tweak)) continue;
-            for (size_t i = 0; i < scripts.size(); ++i) {
-                std::vector<unsigned char> el(scripts[i].begin(), scripts[i].end());
-                script_to_entry[el] = e;
-                candidates.insert(el);
+            for (size_t s = 0; s < scanners.size(); ++s) {
+                std::vector<CScript> scripts;
+                if (!scanners[s].receiver.GetCandidateScripts(scripts, entries[e].tweak)) continue;
+                for (size_t i = 0; i < scripts.size(); ++i) {
+                    std::vector<unsigned char> el(scripts[i].begin(), scripts[i].end());
+                    script_to_entry[el] = e;
+                    candidates.insert(el);
+                }
             }
         }
         if (candidates.empty()) continue;
@@ -3675,36 +3687,39 @@ UniValue scansilentpaymentsfiltered(const JSONRPCRequest& request)
             if (entries[e].tx_index >= block.vtx.size()) continue;
             const CTransaction& tx = *(block.vtx[entries[e].tx_index]);
 
-            // The full k walk, not the single k the filter query used.
-            std::vector<bip352::CFoundOutput> hits;
-            if (!receiver.ScanWithTweak(hits, entries[e].tweak, tx.vout) || hits.empty()) continue;
+            // Against the seed in use and every earlier one that gave an address out.
+            for (size_t s = 0; s < scanners.size(); s++) {
+                // The full k walk, not the single k the filter query used.
+                std::vector<bip352::CFoundOutput> hits;
+                if (!scanners[s].receiver.ScanWithTweak(hits, entries[e].tweak, tx.vout) || hits.empty()) continue;
 
-            for (size_t h = 0; h < hits.size(); ++h) {
-                CKey out_key;
-                if (!bip352::CSilentPaymentsReceiver::DeriveSpendingKey(out_key, spend_key, hits[h].tweak))
-                    continue;
-                const CPubKey out_pubkey = out_key.GetPubKey();
-                if (!pwalletMain->HaveKey(out_pubkey.GetID())) {
-                    pwalletMain->mapKeyMetadata[out_pubkey.GetID()].nCreateTime = pindex->GetBlockTime();
-                    if (!pwalletMain->AddKeyPubKey(out_key, out_pubkey)) {
-                        throw JSONRPCError(RPC_WALLET_ERROR, "could not import the derived key");
+                for (size_t h = 0; h < hits.size(); ++h) {
+                    CKey out_key;
+                    if (!bip352::CSilentPaymentsReceiver::DeriveSpendingKey(out_key, scanners[s].spend_key, hits[h].tweak))
+                        continue;
+                    const CPubKey out_pubkey = out_key.GetPubKey();
+                    if (!pwalletMain->HaveKey(out_pubkey.GetID())) {
+                        pwalletMain->mapKeyMetadata[out_pubkey.GetID()].nCreateTime = pindex->GetBlockTime();
+                        if (!pwalletMain->AddKeyPubKey(out_key, out_pubkey)) {
+                            throw JSONRPCError(RPC_WALLET_ERROR, "could not import the derived key");
+                        }
                     }
+                    pwalletMain->AddToWalletIfInvolvingMe(block.vtx[entries[e].tx_index], pindex,
+                                                          (int)entries[e].tx_index, true);
+                    const COutPoint outpoint(tx.GetHash(), (uint32_t)hits[h].vout);
+                    if (!pcoinsTip->HaveCoin(outpoint) && !pwalletMain->IsSpent(outpoint.hash, outpoint.n)) {
+                        unseen.scripts.insert(tx.vout[hits[h].vout].scriptPubKey);
+                        if (unseen.first_height < 0) unseen.first_height = height;
+                    }
+                    UniValue o(UniValue::VOBJ);
+                    o.pushKV("txid", tx.GetHash().GetHex());
+                    o.pushKV("vout", (int)hits[h].vout);
+                    o.pushKV("amount", ValueFromAmount(tx.vout[hits[h].vout].nValue));
+                    o.pushKV("address", CBitcoinAddress(out_pubkey.GetID()).ToString());
+                    o.pushKV("height", height);
+                    found.push_back(o);
+                    ++found_here;
                 }
-                pwalletMain->AddToWalletIfInvolvingMe(block.vtx[entries[e].tx_index], pindex,
-                                                      (int)entries[e].tx_index, true);
-                const COutPoint outpoint(tx.GetHash(), (uint32_t)hits[h].vout);
-                if (!pcoinsTip->HaveCoin(outpoint) && !pwalletMain->IsSpent(outpoint.hash, outpoint.n)) {
-                    unseen.scripts.insert(tx.vout[hits[h].vout].scriptPubKey);
-                    if (unseen.first_height < 0) unseen.first_height = height;
-                }
-                UniValue o(UniValue::VOBJ);
-                o.pushKV("txid", tx.GetHash().GetHex());
-                o.pushKV("vout", (int)hits[h].vout);
-                o.pushKV("amount", ValueFromAmount(tx.vout[hits[h].vout].nValue));
-                o.pushKV("address", CBitcoinAddress(out_pubkey.GetID()).ToString());
-                o.pushKV("height", height);
-                found.push_back(o);
-                ++found_here;
             }
         }
         // The filter matched but nothing in the block was ours. Either a GCS collision or a

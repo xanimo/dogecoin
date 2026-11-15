@@ -739,6 +739,32 @@ public:
      */
     bool GetSilentPaymentsKeys(CKey& scan_key, CKey& spend_key) const;
 
+    /**
+     * The same two keys under any HD seed this wallet holds, named by its master key.
+     *
+     * encryptwallet replaces the seed, and the address derived from the one before stops being
+     * the wallet's address. It does not stop being paid to: whoever was given it still has it.
+     */
+    bool GetSilentPaymentsKeysFor(const CKeyID& master, CKey& scan_key, CKey& spend_key) const;
+
+    /** Record that an address under the seed in use has left the wallet, so that a scan goes on
+     *  covering that seed after it has been replaced. */
+    bool MarkSilentPaymentsSeedUsed();
+
+    /** A receiver for one seed, and the spend key its outputs are keyed from. */
+    struct CSilentPaymentsScanner {
+        bip352::CSilentPaymentsReceiver receiver;
+        CKey spend_key;
+    };
+
+    /**
+     * What a scan has to try each transaction against: the seed in use, then every earlier seed
+     * an address was given out under. Each carries every label, since a label is recorded by
+     * its number alone. One more seed is one more ECDH per transaction scanned, which is why a
+     * replaced seed that never gave an address out is left alone.
+     */
+    bool BuildSilentPaymentsScanners(std::vector<CSilentPaymentsScanner>& out, std::string& error);
+
     /** One silent payment found while scanning, already spendable by this wallet. */
     struct CSilentPaymentFound {
         uint256 txid;

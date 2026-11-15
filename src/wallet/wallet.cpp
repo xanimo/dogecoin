@@ -178,10 +178,21 @@ void CWallet::DeriveNewChildKey(CKeyMetadata& metadata, CKey& secret)
 
 bool CWallet::GetSilentPaymentsKeys(CKey& scan_key, CKey& spend_key) const
 {
+    return GetSilentPaymentsKeysFor(hdChain.masterKeyID, scan_key, spend_key);
+}
+
+bool CWallet::MarkSilentPaymentsSeedUsed()
+{
+    if (hdChain.masterKeyID.IsNull()) return false;
+    return CWalletDB(strWalletFile).WriteSilentPaymentSeed(hdChain.masterKeyID);
+}
+
+bool CWallet::GetSilentPaymentsKeysFor(const CKeyID& master_id, CKey& scan_key, CKey& spend_key) const
+{
     // m/352'/3'/0'/{0',1'}: 352 after the BIP, 3 being Dogecoin's coin type. Hardened throughout,
     // so a leaked scan key cannot be walked back up to the spend key.
     CKey master;
-    if (hdChain.masterKeyID.IsNull() || !GetKey(hdChain.masterKeyID, master))
+    if (master_id.IsNull() || !GetKey(master_id, master))
         return false;
 
     CExtKey masterKey, purposeKey, coinKey, accountKey, scan, spend;
@@ -283,23 +294,19 @@ void CWallet::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *p
     }
 }
 
-bool CWallet::BuildSilentPaymentsReceiver(bip352::CSilentPaymentsReceiver& out, CKey& spend_key, std::string& error)
+namespace {
+//! A receiver for the seed whose master key is given, carrying the labels given.
+bool BuildReceiverFor(const CWallet& wallet, const CKeyID& master, const std::set<uint32_t>& labels,
+                      bip352::CSilentPaymentsReceiver& out, CKey& spend_key, std::string& error)
 {
     CKey scan_key;
-    if (!GetSilentPaymentsKeys(scan_key, spend_key)) {
+    if (!wallet.GetSilentPaymentsKeysFor(master, scan_key, spend_key)) {
         error = "wallet has no HD seed; silent payments need one";
         return false;
     }
     out = bip352::CSilentPaymentsReceiver(scan_key, spend_key.GetPubKey());
     if (!out.IsValid()) {
         error = "could not build the scanning receiver";
-        return false;
-    }
-
-    // Every label ever handed out, or payments to the ones missed are invisible.
-    std::set<uint32_t> labels;
-    if (!CWalletDB(strWalletFile).ReadSilentPaymentLabels(labels)) {
-        error = "could not read the silent payment labels";
         return false;
     }
     for (std::set<uint32_t>::const_iterator it = labels.begin(); it != labels.end(); ++it) {
@@ -311,6 +318,48 @@ bool CWallet::BuildSilentPaymentsReceiver(bip352::CSilentPaymentsReceiver& out, 
     }
     return true;
 }
+} // namespace
+
+bool CWallet::BuildSilentPaymentsScanners(std::vector<CSilentPaymentsScanner>& out, std::string& error)
+{
+    out.clear();
+
+    // Every label ever handed out, or payments to the ones missed are invisible. The same goes
+    // for every seed an address was handed out under.
+    std::set<uint32_t> labels;
+    std::set<CKeyID> seeds;
+    if (!CWalletDB(strWalletFile).ReadSilentPaymentState(labels, seeds)) {
+        error = "could not read the silent payment labels";
+        return false;
+    }
+
+    std::vector<CKeyID> masters(1, hdChain.masterKeyID);
+    for (std::set<CKeyID>::const_iterator it = seeds.begin(); it != seeds.end(); ++it) {
+        if (*it != hdChain.masterKeyID) masters.push_back(*it);
+    }
+    for (size_t i = 0; i < masters.size(); i++) {
+        CSilentPaymentsScanner scanner;
+        if (!BuildReceiverFor(*this, masters[i], labels, scanner.receiver, scanner.spend_key, error)) {
+            // Stopping beats scanning without it: a scan that quietly leaves a seed out reports
+            // nothing for an address somebody may have paid.
+            if (i > 0) error = "an earlier seed that gave out a silent payment address cannot be read: " + error;
+            return false;
+        }
+        out.push_back(scanner);
+    }
+    return true;
+}
+
+bool CWallet::BuildSilentPaymentsReceiver(bip352::CSilentPaymentsReceiver& out, CKey& spend_key, std::string& error)
+{
+    // Every label ever handed out, or payments to the ones missed are invisible.
+    std::set<uint32_t> labels;
+    if (!CWalletDB(strWalletFile).ReadSilentPaymentLabels(labels)) {
+        error = "could not read the silent payment labels";
+        return false;
+    }
+    return BuildReceiverFor(*this, hdChain.masterKeyID, labels, out, spend_key, error);
+}
 
 bool CWallet::GetSilentPaymentsLabeledAddress(bip352::CSilentPaymentsAddress& out, uint32_t m, std::string& error)
 {
@@ -319,8 +368,8 @@ bool CWallet::GetSilentPaymentsLabeledAddress(bip352::CSilentPaymentsAddress& ou
     if (!BuildSilentPaymentsReceiver(receiver, spend_key, error)) return false;
 
     // Recorded before it is handed out. An address whose label was not persisted is one the
-    // next scan will not look for.
-    if (!CWalletDB(strWalletFile).WriteSilentPaymentLabel(m)) {
+    // next scan will not look for, and so is one whose seed was replaced and not remembered.
+    if (!CWalletDB(strWalletFile).WriteSilentPaymentLabel(m) || !MarkSilentPaymentsSeedUsed()) {
         error = "could not record the label";
         return false;
     }
@@ -385,8 +434,7 @@ bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFou
     found.clear();
     CSilentPaymentSpentUnseen unseen;
 
-    bip352::CSilentPaymentsReceiver receiver;
-    CKey spend_key;
+    std::vector<CSilentPaymentsScanner> scanners;
     {
         // Under the lock: chainActive and the wallet's keys and labels are all read here.
         LOCK2(cs_main, cs_wallet);
@@ -398,7 +446,7 @@ bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFou
             error = "invalid height range";
             return false;
         }
-        if (!BuildSilentPaymentsReceiver(receiver, spend_key, error)) return false;
+        if (!BuildSilentPaymentsScanners(scanners, error)) return false;
     }
 
     std::unique_ptr<CScanBatchLock> batch;
@@ -458,46 +506,49 @@ bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFou
             if (entries[e].tx_index >= block.vtx.size()) continue;
             const CTransaction& tx = *(block.vtx[entries[e].tx_index]);
 
-            std::vector<bip352::CFoundOutput> hits;
-            if (!receiver.ScanWithTweak(hits, entries[e].tweak, tx.vout) || hits.empty()) continue;
+            // Against the seed in use and every earlier one that gave an address out.
+            for (size_t s = 0; s < scanners.size(); s++) {
+                std::vector<bip352::CFoundOutput> hits;
+                if (!scanners[s].receiver.ScanWithTweak(hits, entries[e].tweak, tx.vout) || hits.empty()) continue;
 
-            for (size_t h = 0; h < hits.size(); h++) {
-                CKey out_key;
-                if (!bip352::CSilentPaymentsReceiver::DeriveSpendingKey(out_key, spend_key, hits[h].tweak))
-                    continue;
-                const CPubKey out_pubkey = out_key.GetPubKey();
-                if (!HaveKey(out_pubkey.GetID())) {
-                    mapKeyMetadata[out_pubkey.GetID()].nCreateTime = pindex->GetBlockTime();
-                    if (!AddKeyPubKey(out_key, out_pubkey)) {
-                        error = "could not import the derived key";
-                        return false;
+                for (size_t h = 0; h < hits.size(); h++) {
+                    CKey out_key;
+                    if (!bip352::CSilentPaymentsReceiver::DeriveSpendingKey(out_key, scanners[s].spend_key, hits[h].tweak))
+                        continue;
+                    const CPubKey out_pubkey = out_key.GetPubKey();
+                    if (!HaveKey(out_pubkey.GetID())) {
+                        mapKeyMetadata[out_pubkey.GetID()].nCreateTime = pindex->GetBlockTime();
+                        if (!AddKeyPubKey(out_key, out_pubkey)) {
+                            error = "could not import the derived key";
+                            return false;
+                        }
                     }
-                }
-                // Tell the wallet about this transaction now that we hold its key. BlockConnected
-                // already passed over it without the key and ignored it, so without this the key
-                // is present and the output invisible.
-                AddToWalletIfInvolvingMe(block.vtx[entries[e].tx_index], pindex,
-                                         (int)entries[e].tx_index, true);
+                    // Tell the wallet about this transaction now that we hold its key. BlockConnected
+                    // already passed over it without the key and ignored it, so without this the key
+                    // is present and the output invisible.
+                    AddToWalletIfInvolvingMe(block.vtx[entries[e].tx_index], pindex,
+                                             (int)entries[e].tx_index, true);
 
-                // That covers the payment. An output the chain has spent and the wallet has no
-                // spender for was spent by a transaction the wallet passed over in the same way,
-                // and is looked for once the range is done. Asked of the chain and the wallet
-                // rather than of whether the key was new, so that a scan cut short after the
-                // import is put right by the next one. Heights only rise in this loop, so the
-                // first one recorded is the lowest.
-                const COutPoint outpoint(tx.GetHash(), (uint32_t)hits[h].vout);
-                if (!pcoinsTip->HaveCoin(outpoint) && !IsSpent(outpoint.hash, outpoint.n)) {
-                    unseen.scripts.insert(tx.vout[hits[h].vout].scriptPubKey);
-                    if (unseen.first_height < 0) unseen.first_height = height;
-                }
+                    // That covers the payment. An output the chain has spent and the wallet has no
+                    // spender for was spent by a transaction the wallet passed over in the same way,
+                    // and is looked for once the range is done. Asked of the chain and the wallet
+                    // rather than of whether the key was new, so that a scan cut short after the
+                    // import is put right by the next one. Heights only rise in this loop, so the
+                    // first one recorded is the lowest.
+                    const COutPoint outpoint(tx.GetHash(), (uint32_t)hits[h].vout);
+                    if (!pcoinsTip->HaveCoin(outpoint) && !IsSpent(outpoint.hash, outpoint.n)) {
+                        unseen.scripts.insert(tx.vout[hits[h].vout].scriptPubKey);
+                        if (unseen.first_height < 0) unseen.first_height = height;
+                    }
 
-                CSilentPaymentFound f;
-                f.txid = tx.GetHash();
-                f.vout = (uint32_t)hits[h].vout;
-                f.amount = tx.vout[hits[h].vout].nValue;
-                f.keyid = out_pubkey.GetID();
-                f.height = height;
-                found.push_back(f);
+                    CSilentPaymentFound f;
+                    f.txid = tx.GetHash();
+                    f.vout = (uint32_t)hits[h].vout;
+                    f.amount = tx.vout[hits[h].vout].nValue;
+                    f.keyid = out_pubkey.GetID();
+                    f.height = height;
+                    found.push_back(f);
+                }
             }
         }
     }
