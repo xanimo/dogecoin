@@ -8,6 +8,7 @@
 
 #include "base58.h"
 #include "bip352.h"
+#include "blockfilter.h"
 #include "checkpoints.h"
 #include "init.h"
 #include "chain.h"
@@ -28,6 +29,7 @@
 #include "script/sign.h"
 #include "scheduler.h"
 #include "timedata.h"
+#include "index/blockfilterindex.h"
 #include "index/tweakindex.h"
 #include "txmempool.h"
 #include "util.h"
@@ -246,13 +248,14 @@ void CWallet::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *p
     // reorg is the next one and carries its own fork point, and a height that has gone by the
     // time the scan reaches it fails the scan with the mark still behind it.
     std::vector<CSilentPaymentFound> found;
+    CSilentPaymentSpentUnseen unseen;
     std::string error;
     int from = scanned_to + 1;
     const int to = pindexNew->nHeight;
     while (from <= to) {
         const int upto = std::min(to, from + SILENT_PAYMENT_SCAN_BATCH - 1);
         std::vector<CSilentPaymentFound> some;
-        if (!ScanSilentPayments(from, upto, some, error)) {
+        if (!ScanSilentPayments(from, upto, some, error, &unseen)) {
             LogPrintf("silent payments: stopping live scan in blocks %d-%d: %s\n", from, upto, error);
             break;
         }
@@ -262,6 +265,12 @@ void CWallet::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *p
             CWalletDB(strWalletFile).WriteSilentPaymentScanHeight(upto);
         }
         from = upto + 1;
+    }
+
+    // Once for the whole catch-up rather than once a piece, since each call runs to the tip.
+    if (unseen.first_height >= 0 &&
+        !PickUpSilentPaymentSpends(unseen.first_height, unseen.scripts, error)) {
+        LogPrintf("silent payments: could not look for spends of what the live scan found: %s\n", error);
     }
 
     if (!found.empty()) {
@@ -322,9 +331,59 @@ bool CWallet::GetSilentPaymentsLabeledAddress(bip352::CSilentPaymentsAddress& ou
     return true;
 }
 
-bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFound>& found, std::string& error)
+bool CWallet::PickUpSilentPaymentSpends(int from, const std::set<CScript>& scripts, std::string& error)
+{
+    if (scripts.empty() || from < 0) return true;
+
+    BlockFilterIndex* const filter_index = GetBlockFilterIndex(BlockFilterType::BASIC);
+    GCSFilter::ElementSet elements;
+    for (std::set<CScript>::const_iterator it = scripts.begin(); it != scripts.end(); ++it) {
+        elements.insert(GCSFilter::Element(it->begin(), it->end()));
+    }
+
+    std::unique_ptr<CScanBatchLock> batch;
+    int64_t batch_started = 0;
+
+    for (int height = from; ; height++) {
+        if (batch.get() == NULL || GetTimeMillis() - batch_started >= SILENT_PAYMENT_SCAN_BATCH_MS) {
+            if (batch.get() != NULL) {
+                batch.reset();
+                MilliSleep(1);              // cs_main is not fair; let a waiter in
+            }
+            if (ShutdownRequested()) {
+                error = strprintf("interrupted at height %d", height);
+                return false;
+            }
+            batch.reset(new CScanBatchLock());
+            batch_started = GetTimeMillis();
+        }
+        if (height > chainActive.Height()) break;
+        CBlockIndex* pindex = chainActive[height];
+
+        // A block the filter index has no filter for is read, not skipped: the index may be
+        // behind, and passing over a block here is how a spend gets missed.
+        if (filter_index != NULL) {
+            BlockFilter filter;
+            if (filter_index->LookupFilter(pindex, filter) && !filter.GetFilter().MatchAny(elements)) continue;
+        }
+
+        CBlock block;
+        if (!ReadBlockFromDisk(block, pindex, Params().GetConsensus(height))) {
+            error = strprintf("could not read block %d", height);
+            return false;
+        }
+        for (size_t i = 0; i < block.vtx.size(); i++) {
+            AddToWalletIfInvolvingMe(block.vtx[i], pindex, (int)i, true);
+        }
+    }
+    return true;
+}
+
+bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFound>& found, std::string& error,
+                                 CSilentPaymentSpentUnseen* defer_spends)
 {
     found.clear();
+    CSilentPaymentSpentUnseen unseen;
 
     bip352::CSilentPaymentsReceiver receiver;
     CKey spend_key;
@@ -416,10 +475,21 @@ bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFou
                 }
                 // Tell the wallet about this transaction now that we hold its key. BlockConnected
                 // already passed over it without the key and ignored it, so without this the key
-                // is present and the output invisible. Targeted, so neither caller needs a
-                // blanket rescan to see what it just found.
+                // is present and the output invisible.
                 AddToWalletIfInvolvingMe(block.vtx[entries[e].tx_index], pindex,
                                          (int)entries[e].tx_index, true);
+
+                // That covers the payment. An output the chain has spent and the wallet has no
+                // spender for was spent by a transaction the wallet passed over in the same way,
+                // and is looked for once the range is done. Asked of the chain and the wallet
+                // rather than of whether the key was new, so that a scan cut short after the
+                // import is put right by the next one. Heights only rise in this loop, so the
+                // first one recorded is the lowest.
+                const COutPoint outpoint(tx.GetHash(), (uint32_t)hits[h].vout);
+                if (!pcoinsTip->HaveCoin(outpoint) && !IsSpent(outpoint.hash, outpoint.n)) {
+                    unseen.scripts.insert(tx.vout[hits[h].vout].scriptPubKey);
+                    if (unseen.first_height < 0) unseen.first_height = height;
+                }
 
                 CSilentPaymentFound f;
                 f.txid = tx.GetHash();
@@ -431,7 +501,17 @@ bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFou
             }
         }
     }
-    return true;
+    batch.reset();
+
+    if (unseen.first_height < 0) return true;
+    if (defer_spends != NULL) {
+        defer_spends->scripts.insert(unseen.scripts.begin(), unseen.scripts.end());
+        if (defer_spends->first_height < 0 || unseen.first_height < defer_spends->first_height) {
+            defer_spends->first_height = unseen.first_height;
+        }
+        return true;
+    }
+    return PickUpSilentPaymentSpends(unseen.first_height, unseen.scripts, error);
 }
 
 bool CWallet::AddKeyPubKey(const CKey& secret, const CPubKey &pubkey)

@@ -748,6 +748,14 @@ public:
         int height;
     };
 
+    /** Outputs a scan found that the chain has spent and the wallet has no spender for: their
+     *  scripts, and the lowest block one of them was in. */
+    struct CSilentPaymentSpentUnseen {
+        std::set<CScript> scripts;
+        int first_height;
+        CSilentPaymentSpentUnseen() : first_height(-1) {}
+    };
+
     /**
      * Scan a height range of the tweak index for payments to this wallet, importing the key for
      * anything found so it becomes spendable.
@@ -756,8 +764,25 @@ public:
      * -tweakindex; a height the index never covered is an error rather than an empty result,
      * because reporting "no payments" for a range that was never scanned reads as "nobody paid
      * me". Returns false and sets error on any such problem.
+     *
+     * When it finds an output the chain has spent and the wallet has no spender for, the scan
+     * goes on to PickUpSilentPaymentSpends before it returns. A caller that scans in pieces
+     * passes defer_spends, collects what each piece left and makes that call once itself.
      */
-    bool ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFound>& found, std::string& error);
+    bool ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFound>& found, std::string& error,
+                            CSilentPaymentSpentUnseen* defer_spends = NULL);
+
+    /**
+     * Find the transactions that spent outputs a scan has found.
+     *
+     * A scan hands the wallet the payment. Anything that spent the payment since was seen
+     * without the key and ignored, so until it is found the wallet counts the output as its
+     * own, shows it in the balance and selects it. Looks at every block from the given height:
+     * with the basic block filter index a block is read only when its filter matches one of
+     * the scripts, since a basic filter covers what a block spends; without it every block is
+     * read, as a rescan would. The locks are taken a batch at a time.
+     */
+    bool PickUpSilentPaymentSpends(int from, const std::set<CScript>& scripts, std::string& error);
 
     /**
      * Build a scanning receiver carrying every label this wallet has handed out.

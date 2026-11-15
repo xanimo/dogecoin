@@ -3611,6 +3611,7 @@ UniValue scansilentpaymentsfiltered(const JSONRPCRequest& request)
 
     int64_t blocks_with_tweaks = 0, blocks_read = 0, candidates_queried = 0, false_positives = 0;
     UniValue found(UniValue::VARR);
+    CWallet::CSilentPaymentSpentUnseen unseen;
 
     for (int height = from; height <= to; ++height) {
         // Genesis holds one coinbase and nothing scannable.
@@ -3691,6 +3692,11 @@ UniValue scansilentpaymentsfiltered(const JSONRPCRequest& request)
                 }
                 pwalletMain->AddToWalletIfInvolvingMe(block.vtx[entries[e].tx_index], pindex,
                                                       (int)entries[e].tx_index, true);
+                const COutPoint outpoint(tx.GetHash(), (uint32_t)hits[h].vout);
+                if (!pcoinsTip->HaveCoin(outpoint) && !pwalletMain->IsSpent(outpoint.hash, outpoint.n)) {
+                    unseen.scripts.insert(tx.vout[hits[h].vout].scriptPubKey);
+                    if (unseen.first_height < 0) unseen.first_height = height;
+                }
                 UniValue o(UniValue::VOBJ);
                 o.pushKV("txid", tx.GetHash().GetHex());
                 o.pushKV("vout", (int)hits[h].vout);
@@ -3704,6 +3710,16 @@ UniValue scansilentpaymentsfiltered(const JSONRPCRequest& request)
         // The filter matched but nothing in the block was ours. Either a GCS collision or a
         // candidate script that belongs to somebody else's identical-looking output.
         if (found_here == 0) ++false_positives;
+    }
+
+    // What was found may have been spent since, by a transaction the wallet passed over when it
+    // did not hold the key. The filters are at hand, so only the blocks that touch one of the
+    // found scripts are read.
+    if (unseen.first_height >= 0) {
+        std::string error;
+        if (!pwalletMain->PickUpSilentPaymentSpends(unseen.first_height, unseen.scripts, error)) {
+            throw JSONRPCError(RPC_MISC_ERROR, error);
+        }
     }
 
     UniValue result(UniValue::VOBJ);
