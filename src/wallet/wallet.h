@@ -828,10 +828,11 @@ public:
     /**
      * Scan each newly connected block for silent payments, when -silentpaymentscan is on.
      *
-     * One block at a time rather than a range, so the locks are held for a block's worth of
-     * tweaks and no longer. The historical catch-up is deliberately not done here: a wallet
-     * that has fallen far behind should use scansilentpayments, where the caller chooses the
-     * range and knows it will take a while.
+     * Scans from the block after the last one scanned to the new tip, which is one block in
+     * the steady state and every block missed when the wallet was locked or the option was off.
+     * The locks are taken by ScanSilentPayments a batch at a time and are not held across the
+     * call, so catching up does not stop the node. History from before the option was first
+     * set is not scanned here: that is scansilentpayments, where the caller chooses the range.
      */
     void UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload) override;
     CBlockIndex* ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate = false);

@@ -195,52 +195,13 @@ bool CWallet::GetSilentPaymentsKeys(CKey& scan_key, CKey& spend_key) const
     return scan_key.IsValid() && spend_key.IsValid();
 }
 
-void CWallet::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload)
-{
-    if (fInitialDownload || !g_tweakindex || pindexNew == NULL) return;
-    if (!GetBoolArg("-silentpaymentscan", false)) return;
-
-    LOCK2(cs_main, cs_wallet);
-    if (IsLocked()) return;        // cannot derive without the seed; catch up on unlock
-
-    CWalletDB db(strWalletFile);
-    int scanned_to = -1;
-    if (!db.ReadSilentPaymentScanHeight(scanned_to)) {
-        // On first activation, scan the blocks represented by this notification.
-        // Marking its new tip scanned would silently skip the first payment.
-        // Earlier history remains an explicit scan requested by the caller.
-        scanned_to = pindexFork != NULL ? pindexFork->nHeight : pindexNew->nHeight - 1;
-        db.WriteSilentPaymentScanHeight(scanned_to);
-    }
-
-    // A reorg can move the tip below the watermark; resume from the fork rather than skipping
-    // the blocks that replaced the ones we had already scanned.
-    if (pindexFork != NULL && pindexFork->nHeight < scanned_to) scanned_to = pindexFork->nHeight;
-    if (scanned_to >= pindexNew->nHeight) return;
-
-    std::vector<CSilentPaymentFound> found;
-    std::string error;
-    for (int h = scanned_to + 1; h <= pindexNew->nHeight; h++) {
-        std::vector<CSilentPaymentFound> one;
-        if (!ScanSilentPayments(h, h, one, error)) {
-            LogPrintf("silent payments: stopping live scan at height %d: %s\n", h, error);
-            break;
-        }
-        found.insert(found.end(), one.begin(), one.end());
-        db.WriteSilentPaymentScanHeight(h);
-    }
-
-    if (!found.empty()) {
-        LogPrintf("silent payments: found %u output(s) in blocks %d-%d\n",
-                  (unsigned)found.size(), scanned_to + 1, pindexNew->nHeight);
-        for (size_t i = 0; i < found.size(); i++) {
-            NotifyTransactionChanged(this, found[i].txid, CT_NEW);
-        }
-    }
-}
-
 //! Blocks scanned per lock acquisition, so a long scan leaves gaps for everything else.
 static const int SILENT_PAYMENT_SCAN_BATCH = 500;
+
+//! The longest one acquisition is held, in milliseconds. Blocks are not equal work: a block
+//! with a thousand eligible transactions is a thousand ECDHs, and every label the wallet holds
+//! multiplies that, so a count of blocks alone lets one batch hold the locks for minutes.
+static const int64_t SILENT_PAYMENT_SCAN_BATCH_MS = 250;
 
 namespace {
 //! Holds cs_main and cs_wallet for the life of one batch.
@@ -249,6 +210,69 @@ struct CScanBatchLock {
     ~CScanBatchLock() { LEAVE_CRITICAL_SECTION(pwalletMain->cs_wallet); LEAVE_CRITICAL_SECTION(cs_main); }
 };
 } // namespace
+
+void CWallet::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload)
+{
+    if (fInitialDownload || !g_tweakindex || pindexNew == NULL) return;
+    if (!GetBoolArg("-silentpaymentscan", false)) return;
+
+    // The locks are taken to read where the scan stands and released before the scan. Both
+    // used to be held from here to the end of the function, and the scan below covers every
+    // block since the mark rather than this one: a wallet that had been locked, or run for a
+    // while without the option, caught up on the next block with the node stopped until it
+    // was done.
+    int scanned_to = -1;
+    {
+        LOCK2(cs_main, cs_wallet);
+        if (IsLocked()) return;        // cannot derive without the seed; catch up on unlock
+
+        CWalletDB db(strWalletFile);
+        if (!db.ReadSilentPaymentScanHeight(scanned_to)) {
+            // On first activation, scan the blocks represented by this notification.
+            // Marking its new tip scanned would silently skip the first payment.
+            // Earlier history remains an explicit scan requested by the caller.
+            scanned_to = pindexFork != NULL ? pindexFork->nHeight : pindexNew->nHeight - 1;
+            db.WriteSilentPaymentScanHeight(scanned_to);
+        }
+
+        // A reorg can move the tip below the watermark; resume from the fork rather than
+        // skipping the blocks that replaced the ones we had already scanned.
+        if (pindexFork != NULL && pindexFork->nHeight < scanned_to) scanned_to = pindexFork->nHeight;
+        if (scanned_to >= pindexNew->nHeight) return;
+    }
+
+    // ScanSilentPayments takes the locks a batch at a time, so the chain can move while this
+    // runs. That is safe here: notifications arrive one after another on a single thread, a
+    // reorg is the next one and carries its own fork point, and a height that has gone by the
+    // time the scan reaches it fails the scan with the mark still behind it.
+    std::vector<CSilentPaymentFound> found;
+    std::string error;
+    int from = scanned_to + 1;
+    const int to = pindexNew->nHeight;
+    while (from <= to) {
+        const int upto = std::min(to, from + SILENT_PAYMENT_SCAN_BATCH - 1);
+        std::vector<CSilentPaymentFound> some;
+        if (!ScanSilentPayments(from, upto, some, error)) {
+            LogPrintf("silent payments: stopping live scan in blocks %d-%d: %s\n", from, upto, error);
+            break;
+        }
+        found.insert(found.end(), some.begin(), some.end());
+        {
+            LOCK(cs_wallet);
+            CWalletDB(strWalletFile).WriteSilentPaymentScanHeight(upto);
+        }
+        from = upto + 1;
+    }
+
+    if (!found.empty()) {
+        LOCK(cs_wallet);
+        LogPrintf("silent payments: found %u output(s) in blocks %d-%d\n",
+                  (unsigned)found.size(), scanned_to + 1, pindexNew->nHeight);
+        for (size_t i = 0; i < found.size(); i++) {
+            NotifyTransactionChanged(this, found[i].txid, CT_NEW);
+        }
+    }
+}
 
 bool CWallet::BuildSilentPaymentsReceiver(bip352::CSilentPaymentsReceiver& out, CKey& spend_key, std::string& error)
 {
@@ -319,13 +343,17 @@ bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFou
     }
 
     std::unique_ptr<CScanBatchLock> batch;
+    int batch_first = from;
+    int64_t batch_started = 0;
 
     for (int height = from; height <= to; height++) {
         // Re-taken once per batch rather than held across the whole range: a whole-chain scan is
         // hours of disk reads and curve multiplication, and holding cs_main throughout makes the
         // node unresponsive for the duration. The chain can therefore move between batches, so
-        // that is checked rather than assumed away.
-        if ((height - from) % SILENT_PAYMENT_SCAN_BATCH == 0) {
+        // that is checked rather than assumed away. A batch ends on a count of blocks or on a
+        // length of time, whichever comes first, and never inside a block.
+        if (batch.get() == NULL || height - batch_first >= SILENT_PAYMENT_SCAN_BATCH ||
+            GetTimeMillis() - batch_started >= SILENT_PAYMENT_SCAN_BATCH_MS) {
             if (batch.get() != NULL) {
                 batch.reset();
                 // Releasing and immediately re-taking wins the race every time: cs_main is not
@@ -338,6 +366,8 @@ bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFou
                 return false;
             }
             batch.reset(new CScanBatchLock());
+            batch_first = height;
+            batch_started = GetTimeMillis();
             if (height > chainActive.Height()) {
                 error = strprintf("chain reorganised below height %d during the scan", height);
                 return false;
