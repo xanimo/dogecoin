@@ -985,6 +985,12 @@ bool AppInitParameterInteraction()
         nLocalServices = ServiceFlags(nLocalServices | NODE_SP_TWEAKS);
     }
 
+    // The live scanner reads the tweak index and returns at once without it. Starting anyway
+    // gave a wallet that was told to scan, found nothing and said nothing.
+    if (GetBoolArg("-silentpaymentscan", false) && !GetBoolArg("-tweakindex", DEFAULT_TWEAKINDEX)) {
+        return InitError(_("Cannot set -silentpaymentscan without -tweakindex."));
+    }
+
     // if using block pruning, then disallow txindex
     if (GetArg("-prune", 0)) {
         if (GetBoolArg("-txindex", DEFAULT_TXINDEX))

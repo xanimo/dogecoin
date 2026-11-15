@@ -13,7 +13,9 @@ so if the two disagree the output commits to a key neither holds. Regtest reache
 free because its coinbases are P2PK, which the receiver's P2PKH-only rule ignores.
 """
 
+import os
 import socket
+import subprocess
 import time
 
 from test_framework.test_framework import BitcoinTestFramework
@@ -235,8 +237,27 @@ class SilentPaymentsTest(BitcoinTestFramework):
         assert_equal(len(spendable), 1)
         assert_equal(spendable[0]['spendable'], True)
 
-        # Without the index there is nothing to scan, and saying so beats returning an empty set.
+        # The live scanner without the index is refused at startup. It used to start, scan
+        # nothing and say nothing, which is how a wallet nobody has paid looks too. Launched
+        # directly rather than through start_node, so the refusal on stderr is captured here
+        # and does not reach the aggregate runner, which fails a file that writes to stderr.
         self.stop_node(1)
+        wait_for_port_free(rpc_port(1))
+        proc = subprocess.Popen(
+            [os.getenv('DOGECOIND', 'dogecoind'),
+             '-datadir=' + os.path.join(self.options.tmpdir, 'node1'), '-server', '-keypool=1',
+             '-discover=0', '-usehd=1', '-silentpaymentscan'],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        try:
+            _, stderr = proc.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            raise AssertionError('node started with -silentpaymentscan and no -tweakindex')
+        assert_equal(proc.returncode, 1)
+        assert 'Cannot set -silentpaymentscan without -tweakindex' in stderr, stderr
+
+        # Without the index there is nothing to scan, and saying so beats returning an empty set.
         wait_for_port_free(rpc_port(1))
         self.nodes[1] = start_node(1, self.options.tmpdir, ['-usehd=1'])
         assert_raises_jsonrpc(-1, "needs -tweakindex",
