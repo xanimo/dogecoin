@@ -74,9 +74,9 @@ static constexpr int64_t GETDATA_TX_INTERVAL = 30 * 1000000; // 30 seconds
 static const unsigned int MAX_GETDATA_SZ = 1000;
 /** Maximum number of compact filters that may be requested with one getcfilters. See BIP 157. */
 static constexpr uint32_t MAX_GETCFILTERS_SIZE = 1000;
-/** Maximum number of blocks of scanning tweaks to serve for one getsptweaks. A block's
- *  tweaks are unbounded in principle, so this caps blocks rather than bytes; the send
- *  buffer limit is what actually bounds a peer that asks for dense history. */
+/** Maximum number of blocks one getsptweaks may name. A block's tweaks are unbounded in
+ *  principle, so this caps blocks rather than bytes. What is queued for the peer is bounded
+ *  where the answer is built, which stops once the send buffer is over its limit. */
 static constexpr uint32_t MAX_GETSPTWEAKS_SIZE = 1000;
 /** Maximum number of cf hashes that may be requested with one getcfheaders. See BIP 157. */
 static constexpr uint32_t MAX_GETCFHEADERS_SIZE = 2000;
@@ -1509,31 +1509,43 @@ static void ProcessGetSPTweaks(CNode* pfrom, CDataStream& vRecv, CConnman& connm
         return;
     }
 
-    std::vector<std::vector<CTweakEntry> > tweaks;
-    if (!g_tweakindex->LookupTweakRange(start_height, stop_index, tweaks)) {
-        // Not an error the peer caused: the index has not reached these heights yet. Saying
-        // nothing beats sending empty vectors, which read as "no payments in those blocks".
-        LogPrint("net", "sp tweak index has no entry in range %d..%d for peer %d\n",
-                 start_height, stop_height, pfrom->id);
-        return;
-    }
-
-    // Each answer names the block its entries were computed from. LookupTweakRange has checked
-    // the block recorded with every entry against this chain, walking back from the stop block,
-    // so the stop block's ancestor at each height is that block. Reading the hash off the
-    // active chain at send time named whatever was there by then: straight after a reorg that
-    // is the new block, while the index, which follows the chain from a queue, still held the
-    // old block's entries.
-    std::vector<uint256> hashes(tweaks.size());
+    // The blocks asked about, lowest first, each the stop block's ancestor at its height. An
+    // answer names the block its entries were computed from, and ReadBlock answers only when
+    // the index holds that block at that height. Reading the hash off the active chain at send
+    // time named whatever was there by then: straight after a reorg that is the new block,
+    // while the index, which follows the chain from a queue, still held the old block's
+    // entries.
+    std::vector<const CBlockIndex*> blocks(stop_height - start_height + 1);
     {
         LOCK(cs_main);
-        for (size_t i = 0; i < tweaks.size(); i++) {
-            hashes[i] = stop_index->GetAncestor((int)(start_height + i))->GetBlockHash();
+        for (size_t i = 0; i < blocks.size(); i++) {
+            blocks[i] = stop_index->GetAncestor((int)(start_height + i));
         }
     }
-    for (size_t i = 0; i < tweaks.size(); i++) {
+
+    // One block at a time, read as it is sent, and no further than the send buffer. The whole
+    // range used to be read into memory and queued in one go, and the send buffer limit does
+    // not bound that: it keeps the peer's next message from being handled, not this one from
+    // being queued. A peer that asked for a dense range and did not read kept all of it here
+    // until it timed out, as many megabytes as the range holds, on every connection it opened.
+    // An answer that stops early says so by stopping. Each message names its height and its
+    // block, so the client asks again from the first block it did not get.
+    for (size_t i = 0; i < blocks.size(); i++) {
+        std::vector<CTweakEntry> entries;
+        if (!g_tweakindex->ReadBlock(blocks[i], entries)) {
+            // Not an error the peer caused: the index has not reached this block yet. Saying
+            // nothing beats sending an empty vector, which reads as "no payments in it".
+            LogPrint("net", "sp tweak index has no entry for height %d, asked for by peer %d\n",
+                     blocks[i]->nHeight, pfrom->id);
+            return;
+        }
         connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(
-            NetMsgType::SPTWEAKS, (uint32_t)(start_height + i), hashes[i], tweaks[i]));
+            NetMsgType::SPTWEAKS, (uint32_t)blocks[i]->nHeight, blocks[i]->GetBlockHash(), entries));
+        if (pfrom->fPauseSend) {
+            LogPrint("net", "sp tweaks for peer %d stop at height %d of %d..%d: send buffer full\n",
+                     pfrom->id, blocks[i]->nHeight, start_height, stop_height);
+            return;
+        }
     }
 }
 
