@@ -40,6 +40,29 @@ CKey KeyFromHex(const std::string& hex)
     return key;
 }
 
+/**
+ * Encode an address at an arbitrary version, which the public encoder cannot do.
+ *
+ * extra appends that many trailing payload bytes, trim removes that many from the end, so a
+ * caller can build both the forward-compatible and the too-short cases.
+ */
+std::string AddressWithVersion(int version, const CKey& scan, const CKey& spend, size_t extra, int trim)
+{
+    /* Held by value: GetPubKey returns one, so calling it twice for begin and for begin + 33
+       would take the two iterators from two different temporaries. */
+    const CPubKey scan_pubkey = scan.GetPubKey(), spend_pubkey = spend.GetPubKey();
+    std::vector<unsigned char> payload;
+    payload.insert(payload.end(), scan_pubkey.begin(), scan_pubkey.begin() + CPubKey::COMPRESSED_SIZE);
+    payload.insert(payload.end(), spend_pubkey.begin(), spend_pubkey.begin() + CPubKey::COMPRESSED_SIZE);
+    for (size_t i = 0; i < extra; i++) payload.push_back((unsigned char)(0xde + i));
+    payload.resize(payload.size() + trim);
+
+    std::vector<unsigned char> values;
+    values.push_back((unsigned char)version);
+    BOOST_REQUIRE((ConvertBits<8, 5, true>(values, payload.begin(), payload.end())));
+    return bech32::Encode(bech32::Encoding::BECH32M, Params().SilentPaymentsHRP(), values);
+}
+
 CScript ScriptFromHex(const std::string& hex)
 {
     const std::vector<unsigned char> bytes = ParseHex(hex);
@@ -127,9 +150,25 @@ BOOST_AUTO_TEST_CASE(bip352_address_roundtrip)
     bip352::CSilentPaymentsAddress addr;
     BOOST_REQUIRE(bip352::CSilentPaymentsAddress::Create(addr, scan.GetPubKey(), spend.GetPubKey()));
     const std::string encoded = bip352::EncodeSilentPaymentsAddress(addr, Params());
-    BOOST_CHECK_EQUAL(encoded.substr(0, 4), "dsp1");
-    // 67 payload bytes do not fit the 90-character bech32 limit, which is why BIP352 raises it.
-    BOOST_CHECK(encoded.size() > 90);
+
+    BOOST_CHECK_EQUAL(encoded,
+        "dsp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xcvd33k5");
+    // 2 hrp + 1 separator + 1 version + 106 payload + 6 checksum is BIP352's 116, and "dsp"
+    // costs one more. Either way past the 90-character bech32 limit, which is why BIP352 raises
+    // it; a 116-character address here would mean a byte went missing from the payload.
+    BOOST_CHECK_EQUAL(encoded.size(), 117u);
+
+    // The keys above are BIP352's own first test vector, so only the prefix is Dogecoin's: the
+    // version character and the converted payload must come out exactly as the published
+    // address has them. The version is one 5-bit character ahead of the 66-byte payload rather
+    // than a byte converted along with it, and getting that wrong shifts every following bit
+    // while still round-tripping against itself, which is why this compares against the spec's
+    // string instead of only decoding what was just encoded.
+    const std::string bip352_reference =
+        "sp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc9pkqwv";
+    const size_t ours = encoded.find('1'), theirs = bip352_reference.find('1');
+    BOOST_CHECK_EQUAL(encoded.substr(ours + 1, encoded.size() - ours - 7),
+                      bip352_reference.substr(theirs + 1, bip352_reference.size() - theirs - 7));
 
     std::string error;
     bip352::CSilentPaymentsAddress decoded;
@@ -167,17 +206,43 @@ BOOST_AUTO_TEST_CASE(bip352_address_rejects_malformed)
     // Truncating the payload must be rejected on length, not accepted with a short key.
     BOOST_CHECK(!bip352::DecodeSilentPaymentsAddress(decoded, good.substr(0, good.size() - 8), Params(), error));
 
-    // An unknown version is refused rather than parsed under v0 rules, so coin is never sent to
-    // a payload this build does not understand.
-    std::vector<unsigned char> payload;
-    payload.push_back(1);
-    payload.insert(payload.end(), scan.GetPubKey().begin(), scan.GetPubKey().begin() + CPubKey::COMPRESSED_SIZE);
-    payload.insert(payload.end(), spend.GetPubKey().begin(), spend.GetPubKey().begin() + CPubKey::COMPRESSED_SIZE);
-    std::vector<unsigned char> values;
-    BOOST_REQUIRE((ConvertBits<8, 5, true>(values, payload.begin(), payload.end())));
-    const std::string v1 = bech32::Encode(bech32::Encoding::BECH32M, Params().SilentPaymentsHRP(), values);
-    BOOST_CHECK(!bip352::DecodeSilentPaymentsAddress(decoded, v1, Params(), error));
-    BOOST_CHECK(error.find("unknown address version") != std::string::npos);
+    // A v0 payload one byte short must fail on length rather than yield a truncated key.
+    BOOST_CHECK(!bip352::DecodeSilentPaymentsAddress(decoded, AddressWithVersion(0, scan, spend, 0, -1), Params(), error));
+    BOOST_CHECK(error.find("expected 66") != std::string::npos);
+}
+
+// BIP352's forward compatibility rule, which is the opposite of refusing what this build does
+// not recognise: versions 1 to 30 are defined to keep the two keys in the first 66 bytes, so
+// they stay payable and the trailing bytes are discarded. Only v31 is reserved for a change an
+// older sender must not attempt. Rejecting v1 to v30 would refuse addresses other wallets pay.
+BOOST_AUTO_TEST_CASE(bip352_address_unknown_version_is_payable)
+{
+    SelectParams(CBaseChainParams::MAIN);
+    const CKey scan = KeyFromHex("0f694e068028a717f8af6b9411f9a133dd3565258714cc226594b34db90c1f2c");
+    const CKey spend = KeyFromHex("9d6ad855ce3417ef84e836892e5a56392bfba05fa5d97ccea30e266f540e08b3");
+    bip352::CSilentPaymentsAddress decoded;
+    std::string error;
+
+    for (int version = 1; version <= 30; version++) {
+        const std::string exact = AddressWithVersion(version, scan, spend, 0, 0);
+        BOOST_REQUIRE_MESSAGE(bip352::DecodeSilentPaymentsAddress(decoded, exact, Params(), error), error);
+        BOOST_CHECK(decoded.GetScanPubKey() == scan.GetPubKey());
+        BOOST_CHECK(decoded.GetSpendPubKey() == spend.GetPubKey());
+        BOOST_CHECK_EQUAL((int)decoded.GetVersion(), version);
+
+        // Four bytes this build has no meaning for, which must be ignored rather than refused
+        // or folded into a key.
+        const std::string extended = AddressWithVersion(version, scan, spend, 4, 0);
+        BOOST_REQUIRE_MESSAGE(bip352::DecodeSilentPaymentsAddress(decoded, extended, Params(), error), error);
+        BOOST_CHECK(decoded.GetScanPubKey() == scan.GetPubKey());
+        BOOST_CHECK(decoded.GetSpendPubKey() == spend.GetPubKey());
+
+        // Still too short to hold two keys, whatever the version claims.
+        BOOST_CHECK(!bip352::DecodeSilentPaymentsAddress(decoded, AddressWithVersion(version, scan, spend, 0, -1), Params(), error));
+    }
+
+    BOOST_CHECK(!bip352::DecodeSilentPaymentsAddress(decoded, AddressWithVersion(31, scan, spend, 0, 0), Params(), error));
+    BOOST_CHECK(error.find("not backwards compatible") != std::string::npos);
 }
 
 // The reason the eligibility rule walks every scriptSig push instead of taking the last one.

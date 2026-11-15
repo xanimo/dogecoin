@@ -135,8 +135,10 @@ def convertbits(data, frombits, tobits, pad=True):
 
 
 def encode_address(hrp, scan_pubkey, spend_pubkey, version=0):
-    payload = bytes([version]) + scan_pubkey + spend_pubkey
-    return bech32m_encode(hrp, convertbits(payload, 8, 5))
+    # The version is a single 5-bit data value ahead of the converted payload, as in a segwit
+    # address, so only the 66 key bytes go through convertbits. Including it in the conversion
+    # shifts every following bit and lengthens the address by a character.
+    return bech32m_encode(hrp, [version] + convertbits(scan_pubkey + spend_pubkey, 8, 5))
 
 
 def is_p2pkh(spk_hex):
@@ -288,11 +290,21 @@ def port_case(case, hrp):
     out['expected']['input_privkey_sum'] = '%064x' % seckey_sum(vin)
 
     # The address the receiver publishes, plus one per label in use.
-    addresses = [encode_address(hrp, scan_pubkey, spend_pubkey)]
+    spend_keys = [spend_pubkey]
     for m in recv['given']['labels']:
         labeled = point_add(parse_point(spend_pubkey), point_mul(G, int.from_bytes(label_tweak(scan_key, m), 'big')))
-        addresses.append(encode_address(hrp, scan_pubkey, ser_compressed(labeled)))
-    out['expected']['addresses'] = addresses
+        spend_keys.append(ser_compressed(labeled))
+    out['expected']['addresses'] = [encode_address(hrp, scan_pubkey, k) for k in spend_keys]
+
+    # Only the prefix is Dogecoin's, so encoding the same keys under BIP352's own hrp must
+    # reproduce the addresses the upstream case already carries. Checked here rather than left
+    # to the C++, because an encoding that disagrees with the spec still round-trips against
+    # itself perfectly and these vectors would then pin the wrong layout.
+    upstream = recv['expected'].get('addresses', [])
+    if len(upstream) == len(spend_keys):
+        for k, theirs in zip(spend_keys, upstream):
+            ours = encode_address('sp', scan_pubkey, k)
+            assert ours == theirs, 'address layout differs from BIP352:\n  ours   %s\n  theirs %s' % (ours, theirs)
 
     # Walk k the way a receiver does, against the recipient set the sender was given.
     shared_secret = ser_compressed(point_mul(parse_point(pubkey_sum),

@@ -36,8 +36,24 @@ const char* TAG_INPUTS = "BIP0352/Inputs";
 const char* TAG_SHARED_SECRET = "BIP0352/SharedSecret";
 const char* TAG_LABEL = "BIP0352/Label";
 
-/** Serialized address payload: version || ser_p(B_scan) || ser_p(B_spend). */
-const size_t ADDRESS_PAYLOAD_SIZE = 1 + 2 * CPubKey::COMPRESSED_SIZE;
+/**
+ * The address payload, ser_p(B_scan) || ser_p(B_spend).
+ *
+ * The version is not part of it. BIP352 carries the version as a single bech32 data character
+ * ahead of the payload, the way a segwit address carries its witness version, so only these 66
+ * bytes go through the 8-to-5 bit conversion.
+ */
+const size_t ADDRESS_PAYLOAD_SIZE = 2 * CPubKey::COMPRESSED_SIZE;
+
+/**
+ * Highest address version that is a backwards-compatible extension of v0.
+ *
+ * BIP352 reserves v31 for a change that older senders must not try to pay, and defines every
+ * version below it to keep ser_p(B_scan) || ser_p(B_spend) in the first 66 bytes. So an unknown
+ * version in 1..30 is payable under v0 rules, which is what the spec requires of a v0 sender,
+ * and the trailing bytes it does not understand are discarded.
+ */
+const uint8_t ADDRESS_VERSION_MAX_COMPATIBLE = 30;
 
 void WriteBE32(std::vector<unsigned char>& out, uint32_t x)
 {
@@ -202,12 +218,15 @@ std::string EncodeSilentPaymentsAddress(const CSilentPaymentsAddress& address, c
     assert(address.IsValid());
     std::vector<unsigned char> payload;
     payload.reserve(ADDRESS_PAYLOAD_SIZE);
-    payload.push_back(address.GetVersion());
     payload.insert(payload.end(), address.GetScanPubKey().begin(), address.GetScanPubKey().begin() + CPubKey::COMPRESSED_SIZE);
     payload.insert(payload.end(), address.GetSpendPubKey().begin(), address.GetSpendPubKey().begin() + CPubKey::COMPRESSED_SIZE);
 
+    /* The version is its own 5-bit value, so it is not run through the conversion with the keys.
+       Folding it in as a byte instead shifts every following bit and yields a 117-character
+       address where BIP352 specifies 116. */
     std::vector<unsigned char> values;
-    values.reserve((ADDRESS_PAYLOAD_SIZE * 8 + 4) / 5);
+    values.reserve(1 + (ADDRESS_PAYLOAD_SIZE * 8 + 4) / 5);
+    values.push_back(address.GetVersion());
     const bool ok = ConvertBits<8, 5, true>(values, payload.begin(), payload.end());
     assert(ok);
     return bech32::Encode(bech32::Encoding::BECH32M, params.SilentPaymentsHRP(), values);
@@ -228,30 +247,40 @@ bool DecodeSilentPaymentsAddress(CSilentPaymentsAddress& out, const std::string&
         error = strprintf("address is for a different network (expected prefix %s, got %s)", params.SilentPaymentsHRP(), dec.hrp);
         return false;
     }
+    if (dec.data.empty()) {
+        error = "address has no version";
+        return false;
+    }
+    const uint8_t version = dec.data[0];
+
+    /* v31 is BIP352's escape hatch for a change a v0 sender must not attempt, so it is the one
+       unknown version that is refused. Every version below it keeps the two keys in the first 66
+       bytes, so it is payable, and refusing it would reject addresses other wallets pay. */
+    if (version > ADDRESS_VERSION_MAX_COMPATIBLE) {
+        error = strprintf("address version %u is not backwards compatible with version %u",
+                          (unsigned)version, (unsigned)ADDRESS_VERSION);
+        return false;
+    }
+
     std::vector<unsigned char> payload;
     payload.reserve(ADDRESS_PAYLOAD_SIZE);
-    if (!ConvertBits<5, 8, false>(payload, dec.data.begin(), dec.data.end())) {
+    if (!ConvertBits<5, 8, false>(payload, dec.data.begin() + 1, dec.data.end())) {
         error = "address payload is not a whole number of bytes";
         return false;
     }
-    if (payload.empty()) {
-        error = "address payload is empty";
-        return false;
-    }
-    // Unknown versions are rejected rather than ignored. A future version may change what the
-    // payload means, and paying it under v0 rules would send coin somewhere unspendable.
-    if (payload[0] != ADDRESS_VERSION) {
-        error = strprintf("unknown address version %u", (unsigned)payload[0]);
-        return false;
-    }
-    if (payload.size() != ADDRESS_PAYLOAD_SIZE) {
-        error = strprintf("address payload is %u bytes, expected %u", (unsigned)payload.size(), (unsigned)ADDRESS_PAYLOAD_SIZE);
+    /* v0 is exactly the two keys. A later version may append fields this build does not know,
+       and BIP352 has it read the first 66 bytes and discard the rest. */
+    const bool exact = (version == ADDRESS_VERSION);
+    if (exact ? payload.size() != ADDRESS_PAYLOAD_SIZE : payload.size() < ADDRESS_PAYLOAD_SIZE) {
+        error = strprintf("address payload is %u bytes, expected %s%u",
+                          (unsigned)payload.size(), exact ? "" : "at least ",
+                          (unsigned)ADDRESS_PAYLOAD_SIZE);
         return false;
     }
     CPubKey scan_pubkey, spend_pubkey;
-    scan_pubkey.Set(payload.begin() + 1, payload.begin() + 1 + CPubKey::COMPRESSED_SIZE);
-    spend_pubkey.Set(payload.begin() + 1 + CPubKey::COMPRESSED_SIZE, payload.end());
-    if (!CSilentPaymentsAddress::Create(out, scan_pubkey, spend_pubkey, payload[0])) {
+    scan_pubkey.Set(payload.begin(), payload.begin() + CPubKey::COMPRESSED_SIZE);
+    spend_pubkey.Set(payload.begin() + CPubKey::COMPRESSED_SIZE, payload.begin() + ADDRESS_PAYLOAD_SIZE);
+    if (!CSilentPaymentsAddress::Create(out, scan_pubkey, spend_pubkey, version)) {
         error = "address contains an invalid public key";
         return false;
     }
