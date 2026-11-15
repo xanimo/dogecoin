@@ -4,10 +4,17 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Port BIP352's send/receive test vectors to P2PKH outputs.
 
-Reads bitcoin/bitcoin's src/test/data/bip352_send_and_receive_vectors.json and writes the
-Dogecoin equivalent. The hash tags are unchanged, so input_hash, the shared secret and the output
-tweak carry over verbatim; what changes is that an output is hash160 of the compressed output key
+Reads the BIP's own bip-0352/send_and_receive_test_vectors.json and writes the Dogecoin
+equivalent. The hash tags are unchanged, so input_hash, the shared secret and the output tweak
+carry over verbatim; what changes is that an output is hash160 of the compressed output key
 rather than its x-only serialization.
+
+The source is the bips repository rather than bitcoin/bitcoin's copy of the same vectors, which
+lags it. The two disagreed on the scriptSig encodings until bips 04393c98c0e5, and a scriptSig
+is not an incidental detail here: the eligibility rule parses it, so the vectors have to carry
+what a real one looks like.
+
+  upstream: bips 04393c98c0e5, 2026-11-05, "bip-0352: fix input encodings in test vectors"
 
 The curve arithmetic here is deliberately a plain independent implementation rather than a binding
 to libsecp256k1, so that agreement between this file and src/bip352.cpp means two implementations
