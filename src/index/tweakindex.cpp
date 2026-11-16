@@ -70,8 +70,9 @@ bool CTweakIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex)
     if (pindex->nHeight > 0) {
         CBlockUndo block_undo;
         if (!UndoReadFromDisk(block_undo, pindex->GetUndoPos(), pindex->pprev->GetBlockHash())) {
-            return error("%s: UndoReadFromDisk failed for block=%s height=%d",
-                         __func__, pindex->GetBlockHash().ToString(), pindex->nHeight);
+            return error("%s: UndoReadFromDisk failed for block=%s height=%d undo_pos=%s",
+                         __func__, pindex->GetBlockHash().ToString(), pindex->nHeight,
+                         pindex->GetUndoPos().ToString());
         }
 
         /* vtxundo covers all but the coinbase, so vtxundo[i - 1] belongs to vtx[i]. */
