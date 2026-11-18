@@ -83,6 +83,31 @@ mw::Transaction PegInTo(const mw::wallet::StealthAddress& addr, CAmount pegin, m
     return Reassemble(plain.GetKernelOffset(), plain.GetStealthOffset(), {}, {sr.output}, plain.GetKernels());
 }
 
+// the same peg-in with the kernel the wallet built before the stealth blind fix: no stealth excess,
+// signed with the bare excess. `e` is the output's sender key and `off` the kernel offset.
+mw::Transaction BarePegInTo(const mw::wallet::StealthAddress& addr, CAmount pegin, const mw::SecretKey& e,
+                            const mw::BlindingFactor& off, mw::wallet::StealthResult& sr)
+{
+    const CAmount value = pegin - FEE;
+    sr = mw::wallet::Stealth::Send(addr, value, e);
+    const mw::Transaction built = mw::wallet::TxBuilder::Build(
+        {}, {MWEB::Wallet::StealthOutputCoin(value, sr.blind, e)}, FEE, pegin, {}, off);
+    const mw::Kernel& bk = built.GetKernels()[0];
+
+    // excess = output blind - offset; one output, no inputs
+    const mw::SecretKey x = mw::Keys::AddSecretKeys(mw::SecretKey(sr.blind.vec()),
+                                                    mw::Keys::NegateSecretKey(mw::SecretKey(off.vec())));
+    BOOST_REQUIRE(mw::Pedersen::Commit(0, mw::BlindingFactor(x.vec())) == bk.GetExcess());
+
+    const uint8_t features = bk.GetFeatures() & ~mw::Kernel::STEALTH_EXCESS_FEATURE_BIT;
+    const mw::Hash msg = mw::Kernel(features, bk.GetFee(), bk.GetPegIn(), bk.GetPegOuts(), bk.GetLockHeight(),
+                                    mw::PublicKey(), bk.GetExcess(), mw::Signature()).GetSignatureMessage();
+    const mw::Kernel bare(features, bk.GetFee(), bk.GetPegIn(), bk.GetPegOuts(), bk.GetLockHeight(),
+                          mw::PublicKey(), bk.GetExcess(), mw::Schnorr::Sign(x, msg.data()));
+    // with no blind term the stealth offset of a body with no inputs is the sender key
+    return Reassemble(off, mw::BlindingFactor(e.vec()), {}, {sr.output}, {bare});
+}
+
 // the extension block a miner with accumulator `state` builds from one transaction, at `height`,
 // on a parent whose header is `prev` (null when the parent carried no extension block).
 mw::Block::Ptr BlockOf(int height, const mw::Header::CPtr& prev, const mw::MWEBState& state, const mw::Transaction& tx)
@@ -134,32 +159,18 @@ BOOST_AUTO_TEST_CASE(wallet_shapes_after_the_stealth_blind_fix)
     BOOST_CHECK(!offsetIsOneTimeKey);
 }
 
-// the same peg-in with the kernel the wallet built before the fix: no stealth excess, signed with
-// the bare excess. nothing in consensus or policy asks for more, so what round one showed for
-// items 1 and 4 is still what the rules accept from any other wallet.
+// a peg-in with a bare kernel. nothing in consensus or policy asks for a stealth excess, so the
+// body is accepted. round one's item 4, moving its excess, is closed by the signed message.
 BOOST_AUTO_TEST_CASE(a_bare_kernel_is_accepted_but_its_excess_cannot_be_moved)
 {
     const Keys2 k;
-    const CAmount pegin = 10 * COIN, value = pegin - FEE;
-    const mw::SecretKey e = RandomKey();
+    const CAmount pegin = 10 * COIN;
     const mw::BlindingFactor off = RandomOffset();
-    const mw::wallet::StealthResult sr = mw::wallet::Stealth::Send(k.addr, value, e);
-    const mw::Transaction built = mw::wallet::TxBuilder::Build(
-        {}, {MWEB::Wallet::StealthOutputCoin(value, sr.blind, e)}, FEE, pegin, {}, off);
-    const mw::Kernel& bk = built.GetKernels()[0];
-
-    // excess = output blind - offset; one output, no inputs
-    const mw::SecretKey x = mw::Keys::AddSecretKeys(mw::SecretKey(sr.blind.vec()),
-                                                    mw::Keys::NegateSecretKey(mw::SecretKey(off.vec())));
-    BOOST_REQUIRE(mw::Pedersen::Commit(0, mw::BlindingFactor(x.vec())) == bk.GetExcess());
-
-    const uint8_t features = bk.GetFeatures() & ~mw::Kernel::STEALTH_EXCESS_FEATURE_BIT;
-    const mw::Hash msg = mw::Kernel(features, bk.GetFee(), bk.GetPegIn(), bk.GetPegOuts(), bk.GetLockHeight(),
-                                    mw::PublicKey(), bk.GetExcess(), mw::Signature()).GetSignatureMessage();
-    const mw::Kernel bare(features, bk.GetFee(), bk.GetPegIn(), bk.GetPegOuts(), bk.GetLockHeight(),
-                          mw::PublicKey(), bk.GetExcess(), mw::Schnorr::Sign(x, msg.data()));
-    // with no blind term the stealth offset of a body with no inputs is the sender key
-    const mw::Transaction tx = Reassemble(off, mw::BlindingFactor(e.vec()), {}, {sr.output}, {bare});
+    mw::wallet::StealthResult sr;
+    const mw::Transaction tx = BarePegInTo(k.addr, pegin, RandomKey(), off, sr);
+    const mw::Kernel bare = tx.GetKernels()[0];
+    const uint8_t features = bare.GetFeatures();
+    const mw::Hash msg = bare.GetSignatureMessage();
 
     bool validates = true;
     try { tx.Validate(); } catch (const std::exception& ex) { validates = false; printf("  rejected: %s\n", ex.what()); }
@@ -206,6 +217,87 @@ BOOST_AUTO_TEST_CASE(a_bare_kernel_is_accepted_but_its_excess_cannot_be_moved)
     BOOST_CHECK(nodeAccepts);
     BOOST_CHECK(!movedValidates);
     BOOST_CHECK(!(moved.GetKernelID() == bare.GetKernelID()));
+}
+
+// round one's item 1 on the same body, which the signed message does not reach: with no kernel
+// stealth excess the stealth offset is the sender key in the clear, and the sender key is what
+// signs the output. this pins what the rules accept from a wallet that leaves the excess out, not
+// what is wanted from them. TxBuilder never builds such a body.
+BOOST_AUTO_TEST_CASE(a_body_with_no_kernel_stealth_excess_can_be_readdressed)
+{
+    const Keys2 k;
+    const CAmount pegin = 10 * COIN, value = pegin - FEE;
+    mw::wallet::StealthResult sr;
+    const mw::Transaction tx = BarePegInTo(k.addr, pegin, RandomKey(), RandomOffset(), sr);
+    BOOST_REQUIRE_NO_THROW(tx.Validate());
+    BOOST_REQUIRE(mw::wallet::Stealth::IsMine(tx.GetOutputs()[0], k.scan, k.addr.spend));
+
+    // from here on only the transaction's bytes are used, and further down the address it pays
+    const mw::Output& out = tx.GetOutputs()[0];
+    const mw::Kernel& kernel = tx.GetKernels()[0];
+    const mw::SecretKey leaked(tx.GetStealthOffset().vec());
+    const bool offsetIsSenderKey = (mw::Keys::PublicKeyFrom(leaked) == out.GetSenderPubKey());
+
+    const mw::SecretKey other = K(0x66);
+    const mw::Output unsignedOut(out.GetCommitment(), out.GetSenderPubKey(), mw::Keys::PublicKeyFrom(other),
+                                 out.GetOutputMessage(), out.GetRangeProof(), mw::Signature());
+    const mw::Output moved(out.GetCommitment(), out.GetSenderPubKey(), mw::Keys::PublicKeyFrom(other),
+                           out.GetOutputMessage(), out.GetRangeProof(),
+                           mw::Schnorr::Sign(leaked, unsignedOut.GetSignatureMessage().data()));
+    const mw::Transaction tx2 = Reassemble(tx.GetKernelOffset(), tx.GetStealthOffset(), {}, {moved}, tx.GetKernels());
+    bool validates = true;
+    try { tx2.Validate(); } catch (const std::exception& ex) { validates = false; printf("  rejected: %s\n", ex.what()); }
+    const bool sameKernel = (tx2.GetKernels()[0].GetKernelID() == kernel.GetKernelID());
+
+    // the canonical peg-in output the sender signed names the kernel, which has not changed
+    CMutableTransaction mtx;
+    mtx.vin.emplace_back(COutPoint(uint256S("01"), 0));
+    mtx.vout.emplace_back(pegin, GetScriptForMWEBPegin(kernel.GetKernelID()));
+    mtx.mweb_tx = MWEB::Tx(std::make_shared<mw::Transaction>(tx2));
+    CValidationState st;
+    const bool nodeAccepts = MWEB::Node::CheckTransaction(CTransaction(mtx), st);
+    const bool ownerSeesIt = mw::wallet::Stealth::IsMine(moved, k.scan, k.addr.spend);
+
+    // with the address as well, the shared secret and so the blind
+    const mw::BlindingFactor blind(mw::Keys::ECDH(leaked, k.addr.scan).vec());
+    const bool opened = (mw::Pedersen::Commit(value, blind) == out.GetCommitment());
+
+    mw::MWEBState seed;
+    const mw::Block::Ptr block1 = BlockOf(1, nullptr, seed, tx2);
+    CMWEBStateDB db(1 << 20, /*fMemory=*/true, /*fWipe=*/true);
+    std::vector<UTXO> spent;
+    std::vector<mw::Hash> added;
+    BOOST_REQUIRE(db.ConnectBlock(*block1, nullptr, spent, added) == CMWEBStateDB::ConnectResult::OK);
+    BOOST_REQUIRE(seed.ApplyBlock(*block1));
+
+    mw::wallet::Coin in;
+    in.value = static_cast<uint64_t>(value);
+    in.blind = blind;
+    in.outputID = moved.GetOutputID();
+    in.spendKey = other;
+    const CScript anyone = CScript() << OP_TRUE;
+    const mw::Transaction spend = mw::wallet::TxBuilder::Build(
+        {in}, {}, FEE, 0, {mw::PegOutCoin(value - FEE, anyone)}, RandomOffset());
+    bool spendValidates = true;
+    try { spend.Validate(); } catch (const std::exception& ex) { spendValidates = false; printf("  rejected: %s\n", ex.what()); }
+    CMWEBStateDB::ConnectResult spendConnects = CMWEBStateDB::ConnectResult::INVALID;
+    if (spendValidates) {
+        const mw::Block::Ptr block2 = BlockOf(2, block1->GetHeader(), seed, spend);
+        spendConnects = db.ConnectBlock(*block2, block1->GetHeader(), spent, added);
+    }
+
+    printf("[bare body] offset*G == sender key %d; output re-addressed and signed with the offset: Transaction::Validate %d, IsStandard %d, same kernel id %d, MWEB::Node::CheckTransaction %d\n",
+           offsetIsSenderKey, validates, (int)tx2.IsStandard(), sameKernel, nodeAccepts);
+    printf("[bare body] the address it paid sees the output %d; with the address the commitment opens %d and a spend by the new key connects: %s\n",
+           ownerSeesIt, opened, Name(spendConnects));
+
+    BOOST_CHECK(offsetIsSenderKey);
+    BOOST_CHECK(validates);
+    BOOST_CHECK(sameKernel);
+    BOOST_CHECK(nodeAccepts);
+    BOOST_CHECK(!ownerSeesIt);
+    BOOST_CHECK(opened);
+    BOOST_CHECK(spendConnects == CMWEBStateDB::ConnectResult::OK);
 }
 
 // 75b001555 refuses a block that re-creates an output id. the refusal used to run UndoBlock with
