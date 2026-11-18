@@ -1,4 +1,5 @@
-// review tests against branch mweb-consensus-hardening (05a3a54ed), round two. not part of the branch.
+// Cases that pin what the second review round's fixes establish, in the state database and in
+// the kernel signature. Each was written to show a defect and now asserts that it is gone.
 
 #include "test/test_bitcoin.h"
 
@@ -51,16 +52,6 @@ mw::SecretKey RandomKey()
     return mw::SecretKey(v);
 }
 
-// Stealth::Tweak is private; this is the same derivation, written from the header.
-mw::SecretKey TweakOf(const mw::SecretKey& shared)
-{
-    CHashWriter ss(SER_GETHASH, 0);
-    ss.write(reinterpret_cast<const char*>(shared.data()), mw::SecretKey::SIZE);
-    ss << static_cast<uint8_t>('T');
-    const uint256 h = ss.GetHash();
-    return mw::SecretKey(std::vector<uint8_t>(h.begin(), h.end()));
-}
-
 mw::Transaction Reassemble(const mw::BlindingFactor& kernelOffset, const mw::BlindingFactor& stealthOffset,
                            std::vector<mw::Input> ins, std::vector<mw::Output> outs, std::vector<mw::Kernel> kers)
 {
@@ -90,30 +81,6 @@ mw::Transaction PegInTo(const mw::wallet::StealthAddress& addr, CAmount pegin, m
     const mw::Transaction plain = mw::wallet::TxBuilder::Build(
         {}, {MWEB::Wallet::StealthOutputCoin(pegin - FEE, sr.blind, e)}, FEE, pegin, RandomOffset());
     return Reassemble(plain.GetKernelOffset(), plain.GetStealthOffset(), {}, {sr.output}, plain.GetKernels());
-}
-
-// one coin (id, value, blind) as the peg-in rpc prints it and as the scripts hand it back
-struct Made { mw::Hash id; uint64_t value; mw::BlindingFactor blind; };
-
-// an extension-only spend of `coin` into `n` equal stealth outputs to `addr`, paying `fee`
-mw::Transaction SpendInto(const mw::wallet::Coin& coin, size_t n, CAmount fee, const mw::wallet::StealthAddress& addr,
-                          std::vector<Made>* made = nullptr)
-{
-    std::vector<mw::wallet::Coin> outs;
-    std::vector<mw::Output> stealth;
-    uint64_t left = coin.value - fee;
-    const uint64_t each = left / n;
-    for (size_t i = 0; i < n; i++) {
-        const uint64_t v = (i + 1 == n) ? left : each;
-        left -= v;
-        const mw::SecretKey e = RandomKey();
-        const mw::wallet::StealthResult sr = mw::wallet::Stealth::Send(addr, v, e);
-        outs.push_back(MWEB::Wallet::StealthOutputCoin(v, sr.blind, e));
-        stealth.push_back(sr.output);
-        if (made) made->push_back(Made{sr.output.GetOutputID(), v, sr.blind});
-    }
-    const mw::Transaction plain = mw::wallet::TxBuilder::Build({coin}, outs, fee, RandomOffset());
-    return Reassemble(plain.GetKernelOffset(), plain.GetStealthOffset(), plain.GetInputs(), stealth, plain.GetKernels());
 }
 
 // the extension block a miner with accumulator `state` builds from one transaction, at `height`,
@@ -241,9 +208,9 @@ BOOST_AUTO_TEST_CASE(a_bare_kernel_is_accepted_but_its_excess_cannot_be_moved)
     BOOST_CHECK(!(moved.GetKernelID() == bare.GetKernelID()));
 }
 
-// 75b001555 refuses a block that re-creates an output id. the refusal runs UndoBlock with the
-// block's output ids, and that drops the original from the accumulator's index.
-BOOST_AUTO_TEST_CASE(refusing_a_duplicate_output_drops_the_original)
+// 75b001555 refuses a block that re-creates an output id. the refusal used to run UndoBlock with
+// the block's output ids, which dropped the original from the accumulator's index.
+BOOST_AUTO_TEST_CASE(refusing_a_duplicate_output_keeps_the_original)
 {
     const Keys2 k;
     const CAmount pegin = 10 * COIN, value = pegin - FEE;
@@ -315,9 +282,9 @@ BOOST_AUTO_TEST_CASE(refusing_a_duplicate_output_drops_the_original)
     BOOST_CHECK(rclean == CMWEBStateDB::ConnectResult::OK);
 }
 
-// 05a3a54ed skips a block whose hash is the one recorded as applied. disconnecting does not
-// change the record, so the block that was just disconnected is skipped when it comes back.
-BOOST_AUTO_TEST_CASE(reconnect_after_disconnect_is_skipped)
+// 05a3a54ed skips a block whose hash is the one recorded as applied. disconnecting did not
+// change the record, so the block that was just disconnected was skipped when it came back.
+BOOST_AUTO_TEST_CASE(reconnect_after_disconnect_is_applied)
 {
     const Keys2 k;
     mw::wallet::StealthResult sr1, sr2;
@@ -361,9 +328,9 @@ BOOST_AUTO_TEST_CASE(reconnect_after_disconnect_is_skipped)
 
 // f1528b690 lets a block carry no extension block. validation.cpp hands ConnectBlock the parent's
 // mweb_header as prevHeader, and a parent with no extension block has none. the reject path
-// rewinds the accumulator to prevHeader's counts, so one block that fails after a gap rewinds
+// rewound the accumulator to prevHeader's counts, so one block that failed after a gap rewound
 // it to nothing.
-BOOST_AUTO_TEST_CASE(a_refused_block_after_a_gap_empties_the_accumulator)
+BOOST_AUTO_TEST_CASE(a_refused_block_after_a_gap_leaves_the_accumulator)
 {
     const Keys2 k;
     mw::wallet::StealthResult sr1, sr2, sr3;
@@ -452,150 +419,6 @@ BOOST_AUTO_TEST_CASE(replay_of_two_blocks_after_unclean_shutdown)
     BOOST_CHECK_EQUAL(o1, 2u);
     BOOST_CHECK(r2 == CMWEBStateDB::ConnectResult::INVALID);
     BOOST_CHECK_EQUAL(o2, 2u);
-}
-
-// helper for the functional scripts: emits hex the python side sends. driven by env.
-BOOST_AUTO_TEST_CASE(emit_poc_material)
-{
-    const char* mode = getenv("MWEB_POC");
-    if (!mode) return;
-    const std::string m(mode);
-    const Keys2 k; // the prototype wallet's fixed keys (mweb_rpc.cpp)
-
-    auto txhex = [](const mw::Transaction& t) {
-        CMutableTransaction mtx;
-        mtx.mweb_tx = MWEB::Tx(std::make_shared<mw::Transaction>(t));
-        return EncodeHexTx(CTransaction(mtx));
-    };
-
-    if (m == "fakeoutput") {
-        const mw::wallet::StealthResult sr = mw::wallet::Stealth::Send(k.addr, 1000000ULL * COIN, RandomKey());
-        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
-        ss << sr.output;
-        printf("HEX fakeoutput %s\n", HexStr(ss.begin(), ss.end()).c_str());
-        printf("HEX fakeoutputid %s\n", HexStr(sr.output.GetOutputID().vec()).c_str());
-    } else if (m == "forgedheader") {
-        const mw::Header h(0, mw::Hash(), mw::Hash(), mw::Hash(), mw::BlindingFactor(), mw::BlindingFactor(), 0, 0);
-        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
-        ss << h;
-        printf("HEX forgedheader %s\n", HexStr(ss.begin(), ss.end()).c_str());
-    } else if (m == "fakeinput") {
-        const mw::wallet::Coin ghost{2000000ULL * COIN, mw::BlindingFactor(RandomKey().vec()), mw::Hash(), RandomKey()};
-        const mw::Transaction t = mw::wallet::TxBuilder::Build(
-            {ghost}, {{1000000ULL * COIN, mw::BlindingFactor(RandomKey().vec())}}, 1000000ULL * COIN, RandomOffset());
-        printf("HEX fakeinput %s\n", txhex(t).c_str());
-    } else if (m == "heavy") {
-        // one extension-only transaction per coin listed in the file MWEB_POC_COINS ("id value blind"
-        // a line), each spending its coin into MWEB_POC_N outputs and paying MWEB_POC_FEE
-        const char* path = getenv("MWEB_POC_COINS");
-        const char* n = getenv("MWEB_POC_N");
-        const char* fee = getenv("MWEB_POC_FEE");
-        BOOST_REQUIRE(path && n && fee);
-        FILE* f = fopen(path, "r");
-        BOOST_REQUIRE(f != nullptr);
-        char id[80], bl[80];
-        long long val;
-        int i = 0;
-        while (fscanf(f, "%79s %lld %79s", id, &val, bl) == 3) {
-            const std::vector<uint8_t> blindBytes = ParseHex(bl);
-            const mw::SecretKey oneTime = mw::Keys::AddSecretKeys(k.spend, TweakOf(mw::SecretKey(blindBytes)));
-            const mw::wallet::Coin coin{static_cast<uint64_t>(val), mw::BlindingFactor(blindBytes), mw::Hash(uint256S(id)), oneTime};
-            const mw::Transaction t = SpendInto(coin, static_cast<size_t>(atoi(n)), atoll(fee), k.addr);
-            BOOST_REQUIRE_NO_THROW(t.Validate());
-            printf("HEX heavy%d %s\n", i++, txhex(t).c_str());
-            printf("NOTE heavy: %u outputs, weight %u, standard %d\n", (unsigned)t.GetOutputs().size(),
-                   (unsigned)Weight::Calculate(t.GetBody()), (int)t.IsStandard());
-        }
-        fclose(f);
-    } else if (m == "chain" || m == "wrongkey" || m == "spend" || m == "fan" || m == "variants") {
-        const char* id = getenv("MWEB_POC_ID");
-        const char* val = getenv("MWEB_POC_VALUE");
-        const char* bl = getenv("MWEB_POC_BLIND");
-        BOOST_REQUIRE(id && val && bl);
-        const std::vector<uint8_t> blindBytes = ParseHex(bl);
-        const mw::SecretKey shared(blindBytes); // Stealth::Send: blind == shared secret
-        const mw::SecretKey oneTime = mw::Keys::AddSecretKeys(k.spend, TweakOf(shared));
-        const mw::wallet::Coin coin{static_cast<uint64_t>(atoll(val)), mw::BlindingFactor(blindBytes),
-                                    mw::Hash(uint256S(id)), oneTime};
-        if (m == "wrongkey") {
-            // the real output, its real commitment, and an owner key that is not its one-time key
-            mw::wallet::Coin wrong = coin;
-            wrong.spendKey = RandomKey();
-            printf("HEX wrongkey %s\n", txhex(MWEB::Wallet::BuildStealthSpend(wrong, FEE, k.addr)).c_str());
-            return;
-        }
-        if (m == "fan") {
-            // the coin into MWEB_POC_N outputs, each listed so that a later call can spend it
-            const char* n = getenv("MWEB_POC_N");
-            BOOST_REQUIRE(n);
-            std::vector<Made> made;
-            const CAmount fanFee = getenv("MWEB_POC_FEE") ? atoll(getenv("MWEB_POC_FEE")) : FEE;
-            const mw::Transaction t = SpendInto(coin, static_cast<size_t>(atoi(n)), fanFee, k.addr, &made);
-            BOOST_REQUIRE_NO_THROW(t.Validate());
-            printf("HEX fan %s\n", txhex(t).c_str());
-            for (const Made& c : made)
-                printf("COIN %s %llu %s\n", c.id.GetHex().c_str(), (unsigned long long)c.value, HexStr(c.blind.vec()).c_str());
-            return;
-        }
-        if (m == "variants") {
-            // MWEB_POC_K transactions that spend the coin into the same MWEB_POC_N outputs and differ
-            // in the kernel alone: a fresh kernel offset moves the excess, which is one signature
-            // and no range proof. each is valid on its own; any two are a double spend.
-            const char* n = getenv("MWEB_POC_N");
-            const char* kc = getenv("MWEB_POC_K");
-            const char* fee = getenv("MWEB_POC_FEE");
-            BOOST_REQUIRE(n && kc && fee);
-            const CAmount nFee = atoll(fee);
-            std::vector<mw::wallet::Coin> outs;
-            std::vector<mw::Output> stealth;
-            mw::SecretKey sum = mw::Keys::NegateSecretKey(mw::SecretKey(coin.blind.vec()));
-            uint64_t left = coin.value - nFee;
-            const size_t count = static_cast<size_t>(atoi(n));
-            for (size_t i = 0; i < count; i++) {
-                const uint64_t v = (i + 1 == count) ? left : (coin.value - nFee) / count;
-                left -= v;
-                const mw::SecretKey e = RandomKey();
-                const mw::wallet::StealthResult sr = mw::wallet::Stealth::Send(k.addr, v, e);
-                outs.push_back(MWEB::Wallet::StealthOutputCoin(v, sr.blind, e));
-                stealth.push_back(sr.output);
-                sum = mw::Keys::AddSecretKeys(sum, mw::SecretKey(sr.blind.vec()));
-            }
-            // built once with a known stealth blind, for the signed input and for the stealth
-            // offset, which without a stealth excess is the builder's plus that blind
-            const mw::SecretKey sb = RandomKey();
-            const mw::Transaction plain = mw::wallet::TxBuilder::Build({coin}, outs, nFee, 0, {}, RandomOffset(), sb);
-            const mw::SecretKey bareStealth = mw::Keys::AddSecretKeys(mw::SecretKey(plain.GetStealthOffset().vec()), sb);
-            const uint8_t features = mw::Kernel::FEE_FEATURE_BIT;
-            for (int i = 0; i < atoi(kc); i++) {
-                const mw::BlindingFactor off = RandomOffset();
-                const mw::SecretKey x = mw::Keys::AddSecretKeys(sum, mw::Keys::NegateSecretKey(mw::SecretKey(off.vec())));
-                const mw::Commitment excess = mw::Pedersen::Commit(0, mw::BlindingFactor(x.vec()));
-                const mw::Hash msg = mw::Kernel(features, nFee, 0, std::vector<mw::PegOutCoin>{}, 0, mw::PublicKey(), excess,
-                                                mw::Signature()).GetSignatureMessage();
-                const mw::Kernel kernel(features, nFee, 0, std::vector<mw::PegOutCoin>{}, 0, mw::PublicKey(), excess,
-                                        mw::Schnorr::Sign(x, msg.data()));
-                const mw::Transaction t = Reassemble(off, mw::BlindingFactor(bareStealth.vec()), plain.GetInputs(), stealth, {kernel});
-                if (i == 0) {
-                    BOOST_REQUIRE_NO_THROW(t.Validate());
-                    printf("NOTE variants: %u outputs, weight %u, standard %d\n", (unsigned)t.GetOutputs().size(),
-                           (unsigned)Weight::Calculate(t.GetBody()), (int)t.IsStandard());
-                }
-                printf("HEX var%d %s\n", i, txhex(t).c_str());
-            }
-            return;
-        }
-        const mw::Transaction A = MWEB::Wallet::BuildStealthSpend(coin, FEE, k.addr);
-        if (m == "spend") {
-            printf("HEX spend %s\n", txhex(A).c_str());
-            return;
-        }
-        const mw::Output& oa = A.GetOutputs()[0];
-        const mw::wallet::Coin coinA{mw::wallet::Stealth::RecoverValue(oa, k.scan), mw::wallet::Stealth::RecoverBlind(oa, k.scan),
-                                     oa.GetOutputID(), mw::wallet::Stealth::RecoverSpendKey(oa, k.scan, k.spend)};
-        const mw::Transaction B = MWEB::Wallet::BuildStealthSpend(coinA, FEE, k.addr);
-        printf("HEX A %s\n", txhex(A).c_str());
-        printf("HEX B %s\n", txhex(B).c_str());
-    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()
