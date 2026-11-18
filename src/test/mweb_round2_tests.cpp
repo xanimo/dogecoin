@@ -20,6 +20,7 @@
 #include "mweb/mweb_node.h"
 #include "mweb/mweb_wallet.h"
 #include "mweb/mweb_db.h"
+#include "policy/policy.h"
 #include "script/standard.h"
 #include "consensus/validation.h"
 #include "crypto/sha256.h"
@@ -119,6 +120,16 @@ mw::Block::Ptr BlockOf(int height, const mw::Header::CPtr& prev, const mw::MWEBS
     return block;
 }
 
+// the canonical transaction a peg-in rides in: one input, and the output that names its kernel.
+CTransaction Carrying(const mw::Transaction& tx, CAmount pegin)
+{
+    CMutableTransaction mtx;
+    mtx.vin.emplace_back(COutPoint(uint256S("01"), 0));
+    mtx.vout.emplace_back(pegin, GetScriptForMWEBPegin(tx.GetKernels()[0].GetKernelID()));
+    mtx.mweb_tx = MWEB::Tx(std::make_shared<mw::Transaction>(tx));
+    return CTransaction(mtx);
+}
+
 struct Keys2 {
     mw::SecretKey scan, spend;
     mw::wallet::StealthAddress addr;
@@ -151,16 +162,25 @@ BOOST_AUTO_TEST_CASE(wallet_shapes_after_the_stealth_blind_fix)
     const mw::SecretKey neg = mw::Keys::NegateSecretKey(mw::SecretKey(pegout.GetStealthOffset().vec()));
     const bool offsetIsOneTimeKey = (mw::Keys::PublicKeyFrom(neg) == pegout.GetInputs()[0].GetOutputPubKey());
 
-    printf("[wallet] peg-in:  kernel has a stealth excess %d, offset*G == sender key %d\n",
-           (int)peg.tx.GetKernels()[0].HasStealthExcess(), offsetIsSenderKey);
-    printf("[wallet] peg-out: kernel has a stealth excess %d, -offset is the one-time key %d\n",
-           (int)pegout.GetKernels()[0].HasStealthExcess(), offsetIsOneTimeKey);
+    printf("[wallet] peg-in:  kernel has a stealth excess %d, IsStandard %d, offset*G == sender key %d\n",
+           (int)peg.tx.GetKernels()[0].HasStealthExcess(), (int)peg.tx.IsStandard(), offsetIsSenderKey);
+    printf("[wallet] peg-out: kernel has a stealth excess %d, IsStandard %d, -offset is the one-time key %d\n",
+           (int)pegout.GetKernels()[0].HasStealthExcess(), (int)pegout.IsStandard(), offsetIsOneTimeKey);
     BOOST_CHECK(!offsetIsSenderKey);
     BOOST_CHECK(!offsetIsOneTimeKey);
+    // what the wallet builds is what policy asks for
+    std::string reason;
+    const bool relayed = IsStandardTx(Carrying(peg.tx, 10 * COIN), reason, /*witnessEnabled=*/true);
+    printf("[wallet] peg-in in its canonical transaction: IsStandardTx %d %s\n", relayed, reason.c_str());
+    BOOST_CHECK(peg.tx.IsStandard());
+    BOOST_CHECK(funding.IsStandard());
+    BOOST_CHECK(pegout.IsStandard());
+    BOOST_CHECK(relayed);
 }
 
-// a peg-in with a bare kernel. nothing in consensus or policy asks for a stealth excess, so the
-// body is accepted. round one's item 4, moving its excess, is closed by the signed message.
+// a peg-in with a bare kernel. consensus does not ask for a stealth excess, so the body is valid;
+// policy does, so it is not relayed. round one's item 4, moving its excess, is closed by the signed
+// message.
 BOOST_AUTO_TEST_CASE(a_bare_kernel_is_accepted_but_its_excess_cannot_be_moved)
 {
     const Keys2 k;
@@ -175,12 +195,9 @@ BOOST_AUTO_TEST_CASE(a_bare_kernel_is_accepted_but_its_excess_cannot_be_moved)
     bool validates = true;
     try { tx.Validate(); } catch (const std::exception& ex) { validates = false; printf("  rejected: %s\n", ex.what()); }
 
-    CMutableTransaction mtx;
-    mtx.vin.emplace_back(COutPoint(uint256S("01"), 0));
-    mtx.vout.emplace_back(pegin, GetScriptForMWEBPegin(bare.GetKernelID()));
-    mtx.mweb_tx = MWEB::Tx(std::make_shared<mw::Transaction>(tx));
+    const CTransaction carrier = Carrying(tx, pegin);
     CValidationState st;
-    const bool nodeAccepts = MWEB::Node::CheckTransaction(CTransaction(mtx), st);
+    const bool nodeAccepts = MWEB::Node::CheckTransaction(carrier, st);
 
     const bool offsetIsSenderKey =
         (mw::Keys::PublicKeyFrom(mw::SecretKey(tx.GetStealthOffset().vec())) == sr.output.GetSenderPubKey());
@@ -204,16 +221,22 @@ BOOST_AUTO_TEST_CASE(a_bare_kernel_is_accepted_but_its_excess_cannot_be_moved)
     bool movedValidates = true;
     try { tx2.Validate(); } catch (const std::exception&) { movedValidates = false; }
 
-    printf("[bare kernel] Transaction::Validate %d, IsStandard %d, MWEB::Node::CheckTransaction %d\n",
-           validates, (int)tx.IsStandard(), nodeAccepts);
+    std::string reason;
+    const bool relayed = IsStandardTx(carrier, reason, /*witnessEnabled=*/true);
+
+    printf("[bare kernel] Transaction::Validate %d, IsStandard %d, MWEB::Node::CheckTransaction %d, IsStandardTx %d %s\n",
+           validates, (int)tx.IsStandard(), nodeAccepts, relayed, reason.c_str());
     printf("[bare kernel] offset*G == sender key %d; excess moved by a third party validates %d, kernel id changed %d\n",
            offsetIsSenderKey, movedValidates, (int)!(moved.GetKernelID() == bare.GetKernelID()));
 
-    // A kernel without a stealth excess is still valid, standard and accepted,
-    // as upstream has it. What it is not is malleable: the excess is in the
-    // signed message, so (R, s + H(R||msg)*d) over X + d*G no longer verifies.
+    // A kernel without a stealth excess is still valid, as upstream has it,
+    // and is not standard, which upstream does not ask. What it is not is
+    // malleable: the excess is in the signed message, so (R, s + H(R||msg)*d)
+    // over X + d*G no longer verifies.
     BOOST_CHECK(validates);
-    BOOST_CHECK(tx.IsStandard());
+    BOOST_CHECK(!tx.IsStandard());
+    BOOST_CHECK(!relayed);
+    BOOST_CHECK_EQUAL(reason, "mweb-nonstandard");
     BOOST_CHECK(nodeAccepts);
     BOOST_CHECK(!movedValidates);
     BOOST_CHECK(!(moved.GetKernelID() == bare.GetKernelID()));
@@ -221,8 +244,8 @@ BOOST_AUTO_TEST_CASE(a_bare_kernel_is_accepted_but_its_excess_cannot_be_moved)
 
 // round one's item 1 on the same body, which the signed message does not reach: with no kernel
 // stealth excess the stealth offset is the sender key in the clear, and the sender key is what
-// signs the output. this pins what the rules accept from a wallet that leaves the excess out, not
-// what is wanted from them. TxBuilder never builds such a body.
+// signs the output. this pins what consensus accepts from a wallet that leaves the excess out, not
+// what is wanted from it. policy refuses the body, and TxBuilder never builds one.
 BOOST_AUTO_TEST_CASE(a_body_with_no_kernel_stealth_excess_can_be_readdressed)
 {
     const Keys2 k;
@@ -292,6 +315,8 @@ BOOST_AUTO_TEST_CASE(a_body_with_no_kernel_stealth_excess_can_be_readdressed)
            ownerSeesIt, opened, Name(spendConnects));
 
     BOOST_CHECK(offsetIsSenderKey);
+    BOOST_CHECK(!tx.IsStandard());
+    BOOST_CHECK(!tx2.IsStandard());
     BOOST_CHECK(validates);
     BOOST_CHECK(sameKernel);
     BOOST_CHECK(nodeAccepts);

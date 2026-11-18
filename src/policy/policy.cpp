@@ -124,7 +124,8 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnes
         return false;
     }
 
-    // MWEB: Check that MWEB kernels are standard (no extra data fields)
+    // MWEB: Check that MWEB kernels are standard (no extra data fields, and a
+    // stealth excess on each)
     if (tx.HasMWEBTx() && !tx.mweb_tx.m_transaction->IsStandard()) {
         reason = "mweb-nonstandard";
         return false;

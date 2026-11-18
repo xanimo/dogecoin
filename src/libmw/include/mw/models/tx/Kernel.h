@@ -73,7 +73,11 @@ public:
     bool HasHeightLock() const { return m_features & HEIGHT_LOCK_FEATURE_BIT; }
     bool HasStealthExcess() const { return m_features & STEALTH_EXCESS_FEATURE_BIT; }
     bool HasExtraData() const { return m_features & EXTRA_DATA_FEATURE_BIT; }
-    bool IsStandard() const { return m_features < EXTRA_DATA_FEATURE_BIT; }
+    /// Relay policy, not consensus. Extra data is not relayed, and neither is a
+    /// kernel with no stealth excess: a body none of whose kernels carries one
+    /// has sum(sender keys) - sum(input owner keys) as its stealth offset, in
+    /// the clear.
+    bool IsStandard() const { return m_features < EXTRA_DATA_FEATURE_BIT && HasStealthExcess(); }
     const std::vector<uint8_t>& GetExtraData() const { return m_extraData; }
 
     /// A feature bit set with nothing behind it. Both fields serialize as a
