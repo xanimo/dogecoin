@@ -300,11 +300,14 @@ def port_case(case, hrp):
     # reproduce the addresses the upstream case already carries. Checked here rather than left
     # to the C++, because an encoding that disagrees with the spec still round-trips against
     # itself perfectly and these vectors would then pin the wrong layout.
+    # A case whose address list stops lining up with its labels fails here rather than going
+    # unchecked, since a skipped comparison and a passed one look the same in the output.
     upstream = recv['expected'].get('addresses', [])
-    if len(upstream) == len(spend_keys):
-        for k, theirs in zip(spend_keys, upstream):
-            ours = encode_address('sp', scan_pubkey, k)
-            assert ours == theirs, 'address layout differs from BIP352:\n  ours   %s\n  theirs %s' % (ours, theirs)
+    assert len(upstream) == len(spend_keys), \
+        'upstream lists %d addresses for %d keys, so the layout cannot be compared' % (len(upstream), len(spend_keys))
+    for k, theirs in zip(spend_keys, upstream):
+        ours = encode_address('sp', scan_pubkey, k)
+        assert ours == theirs, 'address layout differs from BIP352:\n  ours   %s\n  theirs %s' % (ours, theirs)
 
     # Walk k the way a receiver does, against the recipient set the sender was given.
     shared_secret = ser_compressed(point_mul(parse_point(pubkey_sum),
