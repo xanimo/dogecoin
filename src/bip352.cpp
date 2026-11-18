@@ -392,16 +392,31 @@ bool CreateOutputs(std::map<size_t, CScript>& outputs, const std::vector<CRecipi
     // a = sum of the eligible input private keys. The caller passes only the keys the rule
     // counts: an input that will reveal an uncompressed key is skipped by every receiver, so
     // its key must not be in this sum.
+    //
+    // Only the whole sum being zero is a failure. A running sum may pass through zero on the
+    // way to one that is not, two keys that cancel and then a third, and BIP352 has a vector
+    // for exactly that which expects the payment to be made. The receiver agrees, because it
+    // adds the public keys in one call. secp256k1_ec_seckey_tweak_add refuses a zero result,
+    // so a zero running sum is carried as a flag and the next key starts the sum again.
     unsigned char seckey_sum[32];
-    memcpy(seckey_sum, input_keys[0].begin(), 32);
-    if (!secp256k1_ec_seckey_verify(Ctx(), seckey_sum)) return false;
-    for (size_t i = 1; i < input_keys.size(); ++i) {
-        if (!input_keys[i].IsValid()) return false;
-        if (!secp256k1_ec_seckey_tweak_add(Ctx(), seckey_sum, input_keys[i].begin())) {
-            // The sum hit zero, so this input set cannot carry a silent payment at all.
+    bool sum_is_zero = true;
+    for (size_t i = 0; i < input_keys.size(); ++i) {
+        if (!input_keys[i].IsValid()) {
             memory_cleanse(seckey_sum, sizeof(seckey_sum));
             return false;
         }
+        if (sum_is_zero) {
+            memcpy(seckey_sum, input_keys[i].begin(), 32);
+            sum_is_zero = false;
+        } else if (!secp256k1_ec_seckey_tweak_add(Ctx(), seckey_sum, input_keys[i].begin())) {
+            // Both operands are valid scalars, so the only way to fail is a zero result.
+            sum_is_zero = true;
+        }
+    }
+    if (sum_is_zero) {
+        // The keys sum to zero, so this input set cannot carry a silent payment at all.
+        memory_cleanse(seckey_sum, sizeof(seckey_sum));
+        return false;
     }
 
     // A = a*G, always serialized compressed inside input_hash.

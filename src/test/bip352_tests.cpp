@@ -94,6 +94,46 @@ void BuildInputs(const UniValue& vin_json, std::vector<CTxIn>& vin, std::map<COu
     }
 }
 
+/** n - a, the key whose public key is the negation of a's. */
+CKey NegateKey(const CKey& key)
+{
+    static const unsigned char ORDER[32] = {
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE,
+        0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C, 0xD0, 0x36, 0x41, 0x41};
+    unsigned char out[32];
+    int borrow = 0;
+    for (int i = 31; i >= 0; i--) {
+        const int d = (int)ORDER[i] - (int)key.begin()[i] - borrow;
+        out[i] = (unsigned char)(d & 0xff);
+        borrow = d < 0 ? 1 : 0;
+    }
+    CKey negated;
+    negated.Set(out, out + 32, true);
+    BOOST_REQUIRE(negated.IsValid());
+    return negated;
+}
+
+/** Append a P2PKH input that reveals key's compressed public key, spending output n of one txid. */
+void AddP2PKHInput(const CKey& key, uint32_t n, std::vector<CTxIn>& vin, std::map<COutPoint, CScript>& spks)
+{
+    const COutPoint prevout(uint256S("a1075db55d416d3ca199f55b6084e2115b9345e16c5cf302fc80e9d5fbf5d48d"), n);
+    const CPubKey pubkey = key.GetPubKey();
+    CTxIn in(prevout);
+    // The eligibility rule matches the key push against the prevout's hash and does not look at
+    // the signature, so a placeholder of a signature's length stands in for one.
+    in.scriptSig = CScript() << std::vector<unsigned char>(72, 0x30) << ToByteVector(pubkey);
+    vin.push_back(in);
+    spks[prevout] = GetScriptForDestination(CTxDestination(pubkey.GetID()));
+}
+
+/** One recipient per requested output, all to the same address. */
+std::vector<bip352::CRecipient> Repeat(const bip352::CSilentPaymentsAddress& address, size_t n)
+{
+    std::vector<bip352::CRecipient> recipients;
+    for (size_t i = 0; i < n; i++) recipients.push_back(bip352::CRecipient(address, i));
+    return recipients;
+}
+
 } // namespace
 
 // The hash tags are BIP0352's, so this pins them against the BIP340 construction rather than
@@ -618,6 +658,126 @@ BOOST_AUTO_TEST_CASE(bip352_uncompressed_input_is_skipped)
     BOOST_REQUIRE(receiver.Scan(found, summary, vout));
     BOOST_REQUIRE_EQUAL(found.size(), 1U);
     BOOST_CHECK_EQUAL(HexStr(found[0].output_pubkey.begin() + 1, found[0].output_pubkey.end()), "67fee277da9e8542b5d2e6f32d660a9bbd3f0e107c2d53638ab1d869088882d6");
+}
+
+// BIP352's vector "Input keys intermediate sum is zero but final sum is non-zero". The BIP's
+// inputs are P2WPKH, so the porting script drops the case, but the rule is about keys and not
+// about script types: inputs a, -a and b pay exactly as input b alone does. A sender that adds
+// the private keys one at a time and gives up when the running sum is zero refuses a payment
+// every receiver would have found.
+BOOST_AUTO_TEST_CASE(bip352_partial_key_sum_through_zero_still_pays)
+{
+    SelectParams(CBaseChainParams::MAIN);
+    const CKey a = KeyFromHex("eadc78165ff1f8ea94ad7cfdc54990738a4c53f6e0507b42154201b8e5dff3b1");
+    const CKey b = KeyFromHex("93f5ed907ad5b2bdbbdcb5d9116ebc0a4e1f92f910d5260237fa45a9408aad16");
+    const CKey scan = KeyFromHex("0f694e068028a717f8af6b9411f9a133dd3565258714cc226594b34db90c1f2c");
+    const CKey spend = KeyFromHex("9d6ad855ce3417ef84e836892e5a56392bfba05fa5d97ccea30e266f540e08b3");
+    const CKey minus_a = NegateKey(a);
+
+    std::vector<CTxIn> vin;
+    std::map<COutPoint, CScript> spks;
+    AddP2PKHInput(a, 0, vin, spks);
+    AddP2PKHInput(minus_a, 1, vin, spks);
+    AddP2PKHInput(b, 2, vin, spks);
+    COutPoint smallest;
+    BOOST_REQUIRE(bip352::GetSmallestOutpoint(smallest, vin));
+
+    bip352::CSilentPaymentsAddress address;
+    BOOST_REQUIRE(bip352::CSilentPaymentsAddress::Create(address, scan.GetPubKey(), spend.GetPubKey()));
+
+    std::vector<CKey> keys;
+    keys.push_back(a);
+    keys.push_back(minus_a);
+    keys.push_back(b);
+    std::map<size_t, CScript> through_zero, alone;
+    BOOST_REQUIRE(bip352::CreateOutputs(through_zero, Repeat(address, 1), keys, smallest));
+    BOOST_REQUIRE(bip352::CreateOutputs(alone, Repeat(address, 1), std::vector<CKey>(1, b), smallest));
+    BOOST_CHECK(through_zero[0] == alone[0]);
+
+    // The order the keys arrive in must not matter either.
+    std::vector<CKey> reordered;
+    reordered.push_back(b);
+    reordered.push_back(a);
+    reordered.push_back(minus_a);
+    std::map<size_t, CScript> other_order;
+    BOOST_REQUIRE(bip352::CreateOutputs(other_order, Repeat(address, 1), reordered, smallest));
+    BOOST_CHECK(other_order[0] == alone[0]);
+
+    // And the receiver finds it: the three revealed keys sum to b's.
+    bip352::CPrevoutsSummary summary;
+    BOOST_REQUIRE(bip352::GetPrevoutsSummary(summary, vin, spks) == bip352::PREVOUTS_OK);
+    BOOST_CHECK(summary.pubkey_sum == b.GetPubKey());
+    const bip352::CSilentPaymentsReceiver receiver(scan, spend.GetPubKey());
+    std::vector<bip352::CFoundOutput> found;
+    BOOST_REQUIRE(receiver.Scan(found, summary, std::vector<CTxOut>(1, CTxOut(COIN, through_zero[0]))));
+    BOOST_CHECK_EQUAL(found.size(), 1U);
+}
+
+// BIP352's vector "Input keys sum up to zero / point at infinity: sending fails, receiver skips
+// tx", also dropped by the porting script for its P2WPKH inputs.
+BOOST_AUTO_TEST_CASE(bip352_key_sum_of_zero_carries_no_payment)
+{
+    SelectParams(CBaseChainParams::MAIN);
+    const CKey a = KeyFromHex("eadc78165ff1f8ea94ad7cfdc54990738a4c53f6e0507b42154201b8e5dff3b1");
+    const CKey b = KeyFromHex("93f5ed907ad5b2bdbbdcb5d9116ebc0a4e1f92f910d5260237fa45a9408aad16");
+    const CKey scan = KeyFromHex("0f694e068028a717f8af6b9411f9a133dd3565258714cc226594b34db90c1f2c");
+    const CKey spend = KeyFromHex("9d6ad855ce3417ef84e836892e5a56392bfba05fa5d97ccea30e266f540e08b3");
+    bip352::CSilentPaymentsAddress address;
+    BOOST_REQUIRE(bip352::CSilentPaymentsAddress::Create(address, scan.GetPubKey(), spend.GetPubKey()));
+
+    for (int n = 2; n <= 4; n += 2) {
+        std::vector<CTxIn> vin;
+        std::map<COutPoint, CScript> spks;
+        std::vector<CKey> keys;
+        keys.push_back(a);
+        if (n == 4) keys.push_back(b);
+        keys.push_back(NegateKey(a));
+        if (n == 4) keys.push_back(NegateKey(b));
+        for (size_t i = 0; i < keys.size(); i++) AddP2PKHInput(keys[i], (uint32_t)i, vin, spks);
+        COutPoint smallest;
+        BOOST_REQUIRE(bip352::GetSmallestOutpoint(smallest, vin));
+
+        std::map<size_t, CScript> outputs;
+        BOOST_CHECK(!bip352::CreateOutputs(outputs, Repeat(address, 1), keys, smallest));
+        BOOST_CHECK(outputs.empty());
+        bip352::CPrevoutsSummary summary;
+        BOOST_CHECK(bip352::GetPrevoutsSummary(summary, vin, spks) == bip352::PREVOUTS_NOT_ELIGIBLE);
+    }
+}
+
+// The per-group limit. BIP352's vector for it has a taproot input and is dropped by the porting
+// script, so neither side of the limit had a test: a sender must refuse the output a receiver
+// would stop short of, and a receiver must still reach the last one a sender may create.
+BOOST_AUTO_TEST_CASE(bip352_group_limit_is_the_same_on_both_sides)
+{
+    SelectParams(CBaseChainParams::MAIN);
+    const CKey b = KeyFromHex("93f5ed907ad5b2bdbbdcb5d9116ebc0a4e1f92f910d5260237fa45a9408aad16");
+    const CKey scan = KeyFromHex("0f694e068028a717f8af6b9411f9a133dd3565258714cc226594b34db90c1f2c");
+    const CKey spend = KeyFromHex("9d6ad855ce3417ef84e836892e5a56392bfba05fa5d97ccea30e266f540e08b3");
+    bip352::CSilentPaymentsAddress address;
+    BOOST_REQUIRE(bip352::CSilentPaymentsAddress::Create(address, scan.GetPubKey(), spend.GetPubKey()));
+
+    std::vector<CTxIn> vin;
+    std::map<COutPoint, CScript> spks;
+    AddP2PKHInput(b, 0, vin, spks);
+    COutPoint smallest;
+    BOOST_REQUIRE(bip352::GetSmallestOutpoint(smallest, vin));
+    const std::vector<CKey> keys(1, b);
+
+    std::map<size_t, CScript> outputs;
+    BOOST_CHECK(!bip352::CreateOutputs(outputs, Repeat(address, bip352::RECIPIENT_GROUP_LIMIT + 1), keys, smallest));
+    BOOST_CHECK(outputs.empty());
+    BOOST_REQUIRE(bip352::CreateOutputs(outputs, Repeat(address, bip352::RECIPIENT_GROUP_LIMIT), keys, smallest));
+    BOOST_REQUIRE_EQUAL(outputs.size(), (size_t)bip352::RECIPIENT_GROUP_LIMIT);
+
+    std::vector<CTxOut> vout;
+    for (size_t i = 0; i < outputs.size(); i++) vout.push_back(CTxOut(COIN, outputs[i]));
+    bip352::CPrevoutsSummary summary;
+    BOOST_REQUIRE(bip352::GetPrevoutsSummary(summary, vin, spks) == bip352::PREVOUTS_OK);
+    const bip352::CSilentPaymentsReceiver receiver(scan, spend.GetPubKey());
+    std::vector<bip352::CFoundOutput> found;
+    BOOST_REQUIRE(receiver.Scan(found, summary, vout));
+    BOOST_CHECK_EQUAL(found.size(), (size_t)bip352::RECIPIENT_GROUP_LIMIT);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
