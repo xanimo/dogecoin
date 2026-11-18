@@ -170,7 +170,7 @@ BOOST_AUTO_TEST_CASE(wallet_shapes_after_the_stealth_blind_fix)
 // the same peg-in with the kernel the wallet built before the fix: no stealth excess, signed with
 // the bare excess. nothing in consensus or policy asks for more, so what round one showed for
 // items 1 and 4 is still what the rules accept from any other wallet.
-BOOST_AUTO_TEST_CASE(rules_still_take_a_kernel_with_no_stealth_excess)
+BOOST_AUTO_TEST_CASE(a_bare_kernel_is_accepted_but_its_excess_cannot_be_moved)
 {
     const Keys2 k;
     const CAmount pegin = 10 * COIN, value = pegin - FEE;
@@ -230,6 +230,15 @@ BOOST_AUTO_TEST_CASE(rules_still_take_a_kernel_with_no_stealth_excess)
            validates, (int)tx.IsStandard(), nodeAccepts);
     printf("[bare kernel] offset*G == sender key %d; excess moved by a third party validates %d, kernel id changed %d\n",
            offsetIsSenderKey, movedValidates, (int)!(moved.GetKernelID() == bare.GetKernelID()));
+
+    // A kernel without a stealth excess is still valid, standard and accepted,
+    // as upstream has it. What it is not is malleable: the excess is in the
+    // signed message, so (R, s + H(R||msg)*d) over X + d*G no longer verifies.
+    BOOST_CHECK(validates);
+    BOOST_CHECK(tx.IsStandard());
+    BOOST_CHECK(nodeAccepts);
+    BOOST_CHECK(!movedValidates);
+    BOOST_CHECK(!(moved.GetKernelID() == bare.GetKernelID()));
 }
 
 // 75b001555 refuses a block that re-creates an output id. the refusal runs UndoBlock with the

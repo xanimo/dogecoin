@@ -113,9 +113,9 @@ public:
         return m_hash;
     }
 
-    // Serializes the signed portion of the kernel: every committed field except
-    // the excess commitment and the signature itself. This is what the kernel's
-    // signature covers, and what GetSignatureMessage() hashes.
+    // Serializes the kernel's committed fields except the excess commitment and
+    // the signature itself. Used by the wire format, and by GetSignatureMessage()
+    // which appends the excess to it.
     template<typename Stream>
     void SerializeSigMessage(Stream& s) const {
         s << m_features;
@@ -135,10 +135,14 @@ public:
         }
     }
 
-    /// The 32-byte message signed by the kernel's excess key.
+    /// The 32-byte message signed by the kernel's excess key. The excess is in
+    /// the message, as in litecoin: binding it through the verification key
+    /// alone leaves the signature malleable, since (R, s) over an unchanged
+    /// message becomes (R, s + H(R||msg)*d) over X + d*G without knowing x.
     mw::Hash GetSignatureMessage() const {
         CHashWriter ss(SER_GETHASH, 0);
         SerializeSigMessage(ss);
+        ss << m_excess;
         return mw::Hash(ss.GetHash());
     }
 
