@@ -83,8 +83,9 @@ class SPTweaksTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         # Two nodes so the client has somewhere other than the serving node to get headers
         # from. Checking an answer's block hash against the node that sent it only establishes
-        # that the node agrees with itself.
-        self.num_nodes = 2
+        # that the node agrees with itself. A third is started after the reorg, to build its
+        # index from the new chain alone.
+        self.num_nodes = 3
 
     def setup_network(self):
         self.nodes = [start_node(0, self.options.tmpdir,
@@ -93,7 +94,7 @@ class SPTweaksTest(BitcoinTestFramework):
         connect_nodes_bi(self.nodes, 0, 1)
         self.is_network_split = False
 
-    def wait_for_index(self, height, timeout=60):
+    def wait_for_index(self, height, timeout=60, node=0):
         """Wait until the tweak index has actually reached a height.
 
         getindexinfo reports synced once the first sync is over, after which the index follows
@@ -101,7 +102,7 @@ class SPTweaksTest(BitcoinTestFramework):
         """
         deadline = time.time() + timeout
         while time.time() < deadline:
-            info = self.nodes[0].getindexinfo('tweakindex').get('tweakindex', {})
+            info = self.nodes[node].getindexinfo('tweakindex').get('tweakindex', {})
             if info.get('synced') and info.get('best_block_height', -1) >= height:
                 return
             time.sleep(0.5)
@@ -126,16 +127,16 @@ class SPTweaksTest(BitcoinTestFramework):
                 assert_equal(len(tweak), 33)
                 assert tweak[0] in (2, 3), 'tweak is not a compressed point: %d' % tweak[0]
 
-    def connect(self, start_thread=False):
+    def connect(self, start_thread=False, node=0):
         """Attach a peer. Exactly one NetworkThread may run: it drives the shared asyncore map
         for every connection, and starting a second races it and corrupts reads."""
-        node = SPTweakP2PNode()
-        conn = NodeConn('127.0.0.1', p2p_port(0), self.nodes[0], node)
-        node.add_connection(conn)
+        peer = SPTweakP2PNode()
+        conn = NodeConn('127.0.0.1', p2p_port(node), self.nodes[node], peer)
+        peer.add_connection(conn)
         if start_thread:
             NetworkThread().start()
-        node.wait_for_verack()
-        return node
+        peer.wait_for_verack()
+        return peer
 
     def run_test(self):
         node0 = self.nodes[0]
@@ -202,6 +203,24 @@ class SPTweaksTest(BitcoinTestFramework):
         served = set("%064x" % m.block_hash for m in peer.sptweaks)
         assert not served & set(old_hashes), \
             'answer names a block that was reorged away: %s' % (served & set(old_hashes))
+
+        # The checks above bound an entry by the named block's transaction count, which an entry
+        # left over from the block that used to be at that height passes whenever the old block
+        # was no shorter than its replacement. So ask a node that was never on the old chain. It
+        # builds its index from the new chain alone, there is nothing older for its answer to
+        # carry, and the first node's answer has to equal it entry for entry.
+        assert any(m.entries for m in peer.sptweaks), 'the replacement blocks carry no tweak'
+        self.nodes.append(start_node(2, self.options.tmpdir,
+                                     ['-tweakindex', '-peersptweaks', '-usehd=1']))
+        connect_nodes_bi(self.nodes, 0, 2)
+        sync_blocks(self.nodes)
+        self.wait_for_index(new_tip, node=2)
+        fresh = self.connect(node=2)
+        fresh.send_message(msg_getsptweaks(start_height=reorg_from,
+                                           stop_hash=int(node0.getblockhash(new_tip), 16)))
+        fresh.sync_with_ping()
+        assert_equal([(m.height, m.block_hash, m.entries) for m in peer.sptweaks],
+                     [(m.height, m.block_hash, m.entries) for m in fresh.sptweaks])
 
         # A stop hash that is not on the active chain is refused rather than answered from a
         # stale branch, because a range has to describe one chain.
