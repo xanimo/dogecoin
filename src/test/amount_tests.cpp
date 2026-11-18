@@ -69,4 +69,21 @@ BOOST_AUTO_TEST_CASE(GetFeeTest)
     CFeeRate(MAX_MONEY, std::numeric_limits<size_t>::max() >> 1).GetFeePerK();
 }
 
+BOOST_AUTO_TEST_CASE(GetFeeOverflowTest)
+{
+    // A fee near MAX_MONEY does not survive being multiplied by 1000 and must
+    // not wrap. Ordinary rates are arrived at the same way as before.
+    BOOST_CHECK_EQUAL(CFeeRate(CAmount(1000), 1000).GetFeePerK(), CAmount(1000));
+    BOOST_CHECK_EQUAL(CFeeRate(CAmount(26), 789).GetFeePerK(), CAmount(32));
+
+    BOOST_CHECK(CFeeRate(MAX_MONEY, 1000).GetFeePerK() > 0);
+    BOOST_CHECK(CFeeRate(MAX_MONEY, 1).GetFeePerK() > 0);
+    BOOST_CHECK(CFeeRate(MAX_MONEY, std::numeric_limits<size_t>::max() >> 1).GetFeePerK() >= 0);
+
+    // And the rate itself, over a size that would take it out of range.
+    BOOST_CHECK(CFeeRate(MAX_MONEY).GetFee(1000) > 0);
+    BOOST_CHECK(CFeeRate(MAX_MONEY).GetFee(std::numeric_limits<size_t>::max() >> 1) > 0);
+    BOOST_CHECK(CFeeRate(-MAX_MONEY).GetFee(std::numeric_limits<size_t>::max() >> 1) < 0);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
