@@ -19,8 +19,14 @@
 #include "undo.h"
 #include "version.h"
 #include "pubkey.h"
+#include "bip352.h"
+#include "chainparams.h"
+#include "chainparamsbase.h"
+#include "key.h"
 
+#include <assert.h>
 #include <stdint.h>
+#include <string.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -45,6 +51,8 @@ enum TEST_ID {
     CBLOOMFILTER_DESERIALIZE,
     CDISKBLOCKINDEX_DESERIALIZE,
     CTXOUTCOMPRESSOR_DESERIALIZE,
+    BIP352_ADDRESS_DECODE,
+    BIP352_INPUT_PUBKEY,
     TEST_ID_END
 };
 
@@ -248,6 +256,63 @@ int main(int argc, char **argv)
                 ds >> toc;
             } catch (const std::ios_base::failure& e) {return 0;}
 
+            break;
+        }
+        case BIP352_ADDRESS_DECODE:
+        {
+            // The remaining bytes are the address string. Checking only that the decoder does
+            // not crash would miss the failure that matters, which is accepting something and
+            // handing back a key nobody holds, so this asserts what a caller is entitled to
+            // assume: a decoded address carries two valid compressed keys, and re-encoding it
+            // yields a string that decodes to the same address. An encoder and a decoder that
+            // share a mistake round-trip perfectly, so the keys are checked directly too.
+            const std::vector<unsigned char> raw(ds.begin(), ds.end());
+            const std::string str(raw.begin(), raw.end());
+
+            const std::string nets[] = {CBaseChainParams::MAIN, CBaseChainParams::TESTNET,
+                                        CBaseChainParams::REGTEST};
+            for (size_t i = 0; i < sizeof(nets) / sizeof(nets[0]); ++i) {
+                SelectParams(nets[i]);
+                bip352::CSilentPaymentsAddress addr;
+                std::string error;
+                if (!bip352::DecodeSilentPaymentsAddress(addr, str, Params(), error)) {
+                    assert(!error.empty());         // a refusal has to say why
+                    continue;
+                }
+                assert(addr.IsValid());
+                assert(addr.GetScanPubKey().IsFullyValid() && addr.GetScanPubKey().IsCompressed());
+                assert(addr.GetSpendPubKey().IsFullyValid() && addr.GetSpendPubKey().IsCompressed());
+                assert(addr.GetVersion() <= 30);    // 31 is reserved and must never decode
+
+                const std::string again = bip352::EncodeSilentPaymentsAddress(addr, Params());
+                bip352::CSilentPaymentsAddress rt;
+                assert(bip352::DecodeSilentPaymentsAddress(rt, again, Params(), error));
+                assert(rt == addr);
+            }
+            break;
+        }
+        case BIP352_INPUT_PUBKEY:
+        {
+            // Two scripts off the stream: the scriptSig and the prevout it spends. The rule is
+            // what both sides of a payment depend on agreeing about, so the postcondition is
+            // the whole point: a key it returns must be compressed, valid, and hash to the
+            // pubkey hash in that prevout. Anything else is an output neither party can spend.
+            std::vector<unsigned char> sig_bytes, spk_bytes;
+            try {
+                ds >> sig_bytes;
+                ds >> spk_bytes;
+            } catch (const std::ios_base::failure& e) {return 0;}
+            const CScript script_sig(sig_bytes.begin(), sig_bytes.end());
+            const CScript prevout_spk(spk_bytes.begin(), spk_bytes.end());
+
+            CPubKey key;
+            if (!bip352::GetPubKeyFromInput(key, script_sig, prevout_spk)) break;
+
+            assert(key.IsFullyValid());
+            assert(key.IsCompressed());
+            assert(prevout_spk.size() == 25);       // only the canonical P2PKH script is eligible
+            const CKeyID id = key.GetID();
+            assert(memcmp(&prevout_spk[3], id.begin(), 20) == 0);
             break;
         }
         default:
