@@ -123,6 +123,35 @@ bool CreateOutputTweak(uint256& out, const CPubKey& shared_secret, uint32_t k)
     return secp256k1_ec_seckey_verify(Ctx(), out.begin()) == 1;
 }
 
+/**
+ * tweak * G.
+ *
+ * Through CKey, so the multiplication goes to secp256k1_ec_pubkey_create and its constant time
+ * fixed-base table. A label tweak is a hash over the scan key, so the scalar is secret, and the
+ * tweak_add path reaches secp256k1_ecmult, which is variable time in it. This needs the signing
+ * context, which means an ECC_Start before any caller gets here.
+ */
+bool PubKeyFromTweak(CPubKey& out, const uint256& tweak)
+{
+    CKey key;
+    key.Set(tweak.begin(), tweak.end(), true);
+    if (!key.IsValid()) return false;
+    out = key.GetPubKey();
+    return out.IsFullyValid();
+}
+
+/** out = a + b, as curve points. No secret scalar, so nothing to leak through the addition. */
+bool AddPubKeys(CPubKey& out, const CPubKey& a, const CPubKey& b)
+{
+    secp256k1_pubkey pa, pb;
+    if (!LoadPubKey(pa, a) || !LoadPubKey(pb, b)) return false;
+    const secp256k1_pubkey* ins[2] = {&pa, &pb};
+    secp256k1_pubkey sum;
+    if (!secp256k1_ec_pubkey_combine(Ctx(), &sum, ins, 2)) return false;
+    out = SavePubKeyCompressed(sum);
+    return true;
+}
+
 /** P = base + tweak*G */
 bool TweakPubKeyAdd(CPubKey& out, const CPubKey& base, const uint256& tweak)
 {
@@ -489,7 +518,9 @@ CSilentPaymentsReceiver::CSilentPaymentsReceiver(const CKey& scan_key, const CPu
     if (!m_spend_pubkey.IsFullyValid() || !m_spend_pubkey.IsCompressed()) return;
     uint256 change_tweak;
     if (!CreateLabelTweak(change_tweak, CHANGE_LABEL_M)) return;
-    m_labels[CHANGE_LABEL_M] = change_tweak;
+    CPubKey change_point;
+    if (!PubKeyFromTweak(change_point, change_tweak)) return;
+    m_labels[CHANGE_LABEL_M] = CLabel(change_tweak, change_point);
     m_valid = true;
 }
 
@@ -513,20 +544,22 @@ bool CSilentPaymentsReceiver::GenerateLabeledAddress(CSilentPaymentsAddress& out
     if (!m_valid || m == CHANGE_LABEL_M) return false;
     uint256 tweak;
     if (!CreateLabelTweak(tweak, m)) return false;
+    CPubKey point;
+    if (!PubKeyFromTweak(point, tweak)) return false;
     CPubKey labeled_spend;
-    if (!TweakPubKeyAdd(labeled_spend, m_spend_pubkey, tweak)) return false;
+    if (!AddPubKeys(labeled_spend, m_spend_pubkey, point)) return false;
     if (!CSilentPaymentsAddress::Create(out, m_scan_key.GetPubKey(), labeled_spend)) return false;
-    m_labels[m] = tweak;
+    m_labels[m] = CLabel(tweak, point);
     return true;
 }
 
 bool CSilentPaymentsReceiver::GetChangeAddress(CSilentPaymentsAddress& out) const
 {
     if (!m_valid) return false;
-    const std::map<uint32_t, uint256>::const_iterator it = m_labels.find(CHANGE_LABEL_M);
+    const std::map<uint32_t, CLabel>::const_iterator it = m_labels.find(CHANGE_LABEL_M);
     assert(it != m_labels.end());
     CPubKey labeled_spend;
-    if (!TweakPubKeyAdd(labeled_spend, m_spend_pubkey, it->second)) return false;
+    if (!AddPubKeys(labeled_spend, m_spend_pubkey, it->second.point)) return false;
     return CSilentPaymentsAddress::Create(out, m_scan_key.GetPubKey(), labeled_spend);
 }
 
@@ -560,7 +593,7 @@ bool CSilentPaymentsReceiver::GetCandidateScripts(std::vector<CScript>& scripts,
     CPubKey shared_secret;
     if (!CreateSharedSecret(shared_secret, tweak_point, m_scan_key.begin())) return false;
 
-    const std::vector<std::pair<uint32_t, uint256> > labels(m_labels.begin(), m_labels.end());
+    const std::vector<std::pair<uint32_t, CLabel> > labels(m_labels.begin(), m_labels.end());
 
     for (uint32_t k = 0; k < std::min(k_max, RECIPIENT_GROUP_LIMIT); ++k) {
         uint256 t_k;
@@ -574,7 +607,7 @@ bool CSilentPaymentsReceiver::GetCandidateScripts(std::vector<CScript>& scripts,
         // and have to be enumerated. A receiver holding many labels queries a wider filter set.
         for (size_t i = 0; i < labels.size(); ++i) {
             CPubKey candidate;
-            if (!TweakPubKeyAdd(candidate, unlabeled, labels[i].second)) continue;
+            if (!AddPubKeys(candidate, unlabeled, labels[i].second.point)) continue;
             scripts.push_back(GetScriptForDestination(CTxDestination(candidate.GetID())));
         }
     }
@@ -609,7 +642,7 @@ bool CSilentPaymentsReceiver::ScanWithSecret(std::vector<CFoundOutput>& found, c
     if (p2pkh.empty()) return true;
 
     // Flatten the labels once, so the per-k walk below is a plain indexed loop.
-    std::vector<std::pair<uint32_t, uint256> > labels(m_labels.begin(), m_labels.end());
+    std::vector<std::pair<uint32_t, CLabel> > labels(m_labels.begin(), m_labels.end());
 
     const uint32_t k_max = std::min((uint32_t)p2pkh.size(), RECIPIENT_GROUP_LIMIT);
     std::vector<bool> consumed(p2pkh.size(), false);
@@ -631,9 +664,9 @@ bool CSilentPaymentsReceiver::ScanWithSecret(std::vector<CFoundOutput>& found, c
             if (attempt == 0) {
                 candidate = unlabeled;
             } else {
-                const std::pair<uint32_t, uint256>& label = labels[attempt - 1];
-                if (!TweakPubKeyAdd(candidate, unlabeled, label.second)) continue;
-                if (!secp256k1_ec_seckey_tweak_add(Ctx(), tweak.begin(), label.second.begin())) continue;
+                const std::pair<uint32_t, CLabel>& label = labels[attempt - 1];
+                if (!AddPubKeys(candidate, unlabeled, label.second.point)) continue;
+                if (!secp256k1_ec_seckey_tweak_add(Ctx(), tweak.begin(), label.second.tweak.begin())) continue;
                 with_label = true;
                 label_m = label.first;
             }
