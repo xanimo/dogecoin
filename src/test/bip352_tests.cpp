@@ -780,4 +780,83 @@ BOOST_AUTO_TEST_CASE(bip352_group_limit_is_the_same_on_both_sides)
     BOOST_CHECK_EQUAL(found.size(), (size_t)bip352::RECIPIENT_GROUP_LIMIT);
 }
 
+// A label is walked forward by adding its point to the unlabelled candidate, and two of those
+// sums are not ordinary additions. The candidate may be the label's point itself, which makes
+// the sum a doubling, or the negation of it, which makes the sum the point at infinity and no
+// key at all. Neither happens by chance, but the output tweak and the label tweak both come
+// from the scan key alone, so a spend key can be chosen to land on each. The doubling has to
+// be found and be spendable like any other labelled output. The label that sums to nothing
+// has to drop out of that one candidate set and leave the scan standing.
+BOOST_AUTO_TEST_CASE(bip352_label_sum_that_doubles_or_vanishes)
+{
+    SelectParams(CBaseChainParams::MAIN);
+    const CKey scan = KeyFromHex("0f694e068028a717f8af6b9411f9a133dd3565258714cc226594b34db90c1f2c");
+    const CKey any_spend = KeyFromHex("9d6ad855ce3417ef84e836892e5a56392bfba05fa5d97ccea30e266f540e08b3");
+    const CPubKey tweak_point = KeyFromHex("93f5ed907ad5b2bdbbdcb5d9116ebc0a4e1f92f910d5260237fa45a9408aad16").GetPubKey();
+    const uint32_t m = 7;
+
+    // t_0 for this tweak point, read back from a scan, and the tweak of label m. A receiver
+    // with any spend key gives both.
+    const bip352::CSilentPaymentsReceiver probe(scan, any_spend.GetPubKey());
+    std::vector<CScript> scripts;
+    std::vector<bip352::CFoundOutput> found;
+    BOOST_REQUIRE(probe.GetCandidateScripts(scripts, tweak_point, 1));
+    BOOST_REQUIRE(probe.ScanWithTweak(found, tweak_point, std::vector<CTxOut>(1, CTxOut(COIN, scripts[0]))));
+    BOOST_REQUIRE_EQUAL(found.size(), 1U);
+    BOOST_REQUIRE(!found[0].found_with_label);
+    CKey t_0, label_key;
+    t_0.Set(found[0].tweak.begin(), found[0].tweak.end(), true);
+    uint256 label_tweak;
+    BOOST_REQUIRE(probe.CreateLabelTweak(label_tweak, m));
+    label_key.Set(label_tweak.begin(), label_tweak.end(), true);
+
+    // b = l - t_0. The unlabelled candidate is then l*G, and label m's candidate is 2l*G.
+    {
+        CKey spend, twice, output_key;
+        BOOST_REQUIRE(bip352::CSilentPaymentsReceiver::DeriveSpendingKey(spend, NegateKey(t_0), label_tweak));
+        BOOST_REQUIRE(bip352::CSilentPaymentsReceiver::DeriveSpendingKey(twice, label_key, label_tweak));
+        bip352::CSilentPaymentsReceiver receiver(scan, spend.GetPubKey());
+        bip352::CSilentPaymentsAddress labeled;
+        BOOST_REQUIRE(receiver.GenerateLabeledAddress(labeled, m));
+
+        // The unlabelled candidate, the change label's, and label m's.
+        BOOST_REQUIRE(receiver.GetCandidateScripts(scripts, tweak_point, 1));
+        BOOST_REQUIRE_EQUAL(scripts.size(), 3U);
+        BOOST_CHECK(scripts[0] == GetScriptForDestination(CTxDestination(label_key.GetPubKey().GetID())));
+        BOOST_CHECK(scripts[2] == GetScriptForDestination(CTxDestination(twice.GetPubKey().GetID())));
+
+        BOOST_REQUIRE(receiver.ScanWithTweak(found, tweak_point, std::vector<CTxOut>(1, CTxOut(COIN, scripts[2]))));
+        BOOST_REQUIRE_EQUAL(found.size(), 1U);
+        BOOST_CHECK(found[0].found_with_label);
+        BOOST_CHECK_EQUAL(found[0].label_m, m);
+        BOOST_REQUIRE(bip352::CSilentPaymentsReceiver::DeriveSpendingKey(output_key, spend, found[0].tweak));
+        BOOST_CHECK(output_key.GetPubKey() == twice.GetPubKey());
+    }
+
+    // b = -(l + t_0). The unlabelled candidate is then -l*G, and adding label m's point to it
+    // leaves nothing.
+    {
+        CKey sum;
+        BOOST_REQUIRE(bip352::CSilentPaymentsReceiver::DeriveSpendingKey(sum, t_0, label_tweak));
+        const CKey spend = NegateKey(sum);
+        bip352::CSilentPaymentsReceiver receiver(scan, spend.GetPubKey());
+        bip352::CSilentPaymentsAddress labeled;
+        BOOST_REQUIRE(receiver.GenerateLabeledAddress(labeled, m));
+
+        // One fewer: label m has no candidate at this k.
+        BOOST_REQUIRE(receiver.GetCandidateScripts(scripts, tweak_point, 1));
+        BOOST_REQUIRE_EQUAL(scripts.size(), 2U);
+        BOOST_CHECK(scripts[0] == GetScriptForDestination(CTxDestination(NegateKey(label_key).GetPubKey().GetID())));
+
+        // The scan still answers, with nothing for an output that is somebody else's and with
+        // the unlabelled output when that is what was paid.
+        const CScript elsewhere = GetScriptForDestination(CTxDestination(any_spend.GetPubKey().GetID()));
+        BOOST_REQUIRE(receiver.ScanWithTweak(found, tweak_point, std::vector<CTxOut>(1, CTxOut(COIN, elsewhere))));
+        BOOST_CHECK(found.empty());
+        BOOST_REQUIRE(receiver.ScanWithTweak(found, tweak_point, std::vector<CTxOut>(1, CTxOut(COIN, scripts[0]))));
+        BOOST_REQUIRE_EQUAL(found.size(), 1U);
+        BOOST_CHECK(!found[0].found_with_label);
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()
