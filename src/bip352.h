@@ -20,8 +20,9 @@
  *     there is no y-parity negation step on either side.
  *   - A receiver cannot recover a label by subtracting the unlabeled output from the output key,
  *     the way BIP352 does, because the transaction only reveals hash160 of the output key. Labels
- *     must be walked forward instead, one hash160 per label per k. Scanning cost is therefore
- *     linear in the number of labels in use, and a receiver should hold only the change label.
+ *     must be walked forward instead, one point addition and one hash160 per label per k.
+ *     Scanning cost is therefore linear in the number of labels in use, and a receiver should
+ *     hold only the change label.
  *
  * Nothing here is consensus code. A mismatch between a sender's and a receiver's reading of these
  * rules does not fork the chain, it loses the payment.
@@ -228,6 +229,23 @@ struct CFoundOutput
 };
 
 /**
+ * A label the receiver holds: its tweak, and the tweak times the generator.
+ *
+ * The point is held because it is the same for the life of the label, where scanning wants it
+ * once per label per k on every transaction. Deriving it on each use means multiplying the
+ * generator by a secret scalar, a label tweak being a hash over the scan key, so holding it
+ * takes that multiplication out of the scanning loop as well as the work.
+ */
+struct CLabel
+{
+    uint256 tweak;
+    CPubKey point;
+
+    CLabel() {}
+    CLabel(const uint256& t, const CPubKey& p) : tweak(t), point(p) {}
+};
+
+/**
  * A receiver's scanning identity: its scan private key, its unlabeled spend public key, and the
  * labels it knows. The change label (m = 0) is always present.
  */
@@ -247,8 +265,9 @@ public:
     /**
      * Register label m and return the resulting address.
      *
-     * Each registered label costs one more hash160 per k on every transaction scanned, since a
-     * P2PKH output cannot be reduced to its key. Hand out labeled addresses sparingly.
+     * Each registered label costs one point addition and one hash160 per k on every
+     * transaction scanned, since a P2PKH output cannot be reduced to its key and so a label
+     * cannot be recovered by subtraction. Hand out labeled addresses sparingly.
      */
     bool GenerateLabeledAddress(CSilentPaymentsAddress& out, uint32_t m);
 
@@ -299,8 +318,8 @@ private:
 
     CKey m_scan_key;
     CPubKey m_spend_pubkey;
-    //! m -> label tweak, always containing m = 0.
-    std::map<uint32_t, uint256> m_labels;
+    //! m -> label, always containing m = 0.
+    std::map<uint32_t, CLabel> m_labels;
     bool m_valid;
 };
 
