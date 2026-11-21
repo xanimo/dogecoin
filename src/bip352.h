@@ -234,7 +234,8 @@ struct CFoundOutput
  * The point is held because it is the same for the life of the label, where scanning wants it
  * once per label per k on every transaction. Deriving it on each use means multiplying the
  * generator by a secret scalar, a label tweak being a hash over the scan key, so holding it
- * takes that multiplication out of the scanning loop as well as the work.
+ * takes that multiplication out of the scanning loop as well as the work. It is held
+ * uncompressed, so that loading it for an addition is not a square root each time.
  */
 struct CLabel
 {

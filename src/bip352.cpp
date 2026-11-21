@@ -124,42 +124,65 @@ bool CreateOutputTweak(uint256& out, const CPubKey& shared_secret, uint32_t k)
 }
 
 /**
- * tweak * G.
+ * tweak * G, uncompressed.
  *
  * Through CKey, so the multiplication goes to secp256k1_ec_pubkey_create and its constant time
  * fixed-base table. A label tweak is a hash over the scan key, so the scalar is secret, and the
  * tweak_add path reaches secp256k1_ecmult, which is variable time in it. This needs the signing
  * context, which means an ECC_Start before any caller gets here.
+ *
+ * Uncompressed because the point is only ever added to another. Loading 33 bytes recovers y
+ * with a square root, on every load, and a label's point is loaded once per k on every
+ * transaction scanned; loading 65 is a copy and a check that the point is on the curve.
  */
 bool PubKeyFromTweak(CPubKey& out, const uint256& tweak)
 {
     CKey key;
-    key.Set(tweak.begin(), tweak.end(), true);
+    key.Set(tweak.begin(), tweak.end(), false);
     if (!key.IsValid()) return false;
     out = key.GetPubKey();
     return out.IsFullyValid();
 }
 
-/** out = a + b, as curve points. No secret scalar, so nothing to leak through the addition. */
-bool AddPubKeys(CPubKey& out, const CPubKey& a, const CPubKey& b)
+/**
+ * out = a + b, as curve points, with a already loaded, so that a caller adding many points to
+ * one does not load it for each. No secret scalar, so nothing to leak through the addition.
+ */
+bool AddPubKeys(CPubKey& out, const secp256k1_pubkey& a, const CPubKey& b)
 {
-    secp256k1_pubkey pa, pb;
-    if (!LoadPubKey(pa, a) || !LoadPubKey(pb, b)) return false;
-    const secp256k1_pubkey* ins[2] = {&pa, &pb};
+    secp256k1_pubkey pb;
+    if (!LoadPubKey(pb, b)) return false;
+    const secp256k1_pubkey* ins[2] = {&a, &pb};
     secp256k1_pubkey sum;
     if (!secp256k1_ec_pubkey_combine(Ctx(), &sum, ins, 2)) return false;
     out = SavePubKeyCompressed(sum);
     return true;
 }
 
+/** out = a + b, as curve points. */
+bool AddPubKeys(CPubKey& out, const CPubKey& a, const CPubKey& b)
+{
+    secp256k1_pubkey pa;
+    return LoadPubKey(pa, a) && AddPubKeys(out, pa, b);
+}
+
+/**
+ * P = base + tweak*G, handed back serialized and also as loaded, for a caller about to add
+ * more points to it.
+ */
+bool TweakPubKeyAdd(CPubKey& out, secp256k1_pubkey& point, const CPubKey& base, const uint256& tweak)
+{
+    if (!LoadPubKey(point, base)) return false;
+    if (!secp256k1_ec_pubkey_tweak_add(Ctx(), &point, tweak.begin())) return false;
+    out = SavePubKeyCompressed(point);
+    return true;
+}
+
 /** P = base + tweak*G */
 bool TweakPubKeyAdd(CPubKey& out, const CPubKey& base, const uint256& tweak)
 {
-    secp256k1_pubkey p;
-    if (!LoadPubKey(p, base)) return false;
-    if (!secp256k1_ec_pubkey_tweak_add(Ctx(), &p, tweak.begin())) return false;
-    out = SavePubKeyCompressed(p);
-    return true;
+    secp256k1_pubkey point;
+    return TweakPubKeyAdd(out, point, base, tweak);
 }
 
 /** The P2PKH script committing to a public key. */
@@ -599,7 +622,8 @@ bool CSilentPaymentsReceiver::GetCandidateScripts(std::vector<CScript>& scripts,
         uint256 t_k;
         CPubKey unlabeled;
         if (!CreateOutputTweak(t_k, shared_secret, k)) return false;
-        if (!TweakPubKeyAdd(unlabeled, m_spend_pubkey, t_k)) return false;
+        secp256k1_pubkey unlabeled_point;
+        if (!TweakPubKeyAdd(unlabeled, unlabeled_point, m_spend_pubkey, t_k)) return false;
         scripts.push_back(GetScriptForDestination(CTxDestination(unlabeled.GetID())));
 
         // Every label is a separate script here, for the same reason it is a separate hash in
@@ -607,7 +631,7 @@ bool CSilentPaymentsReceiver::GetCandidateScripts(std::vector<CScript>& scripts,
         // and have to be enumerated. A receiver holding many labels queries a wider filter set.
         for (size_t i = 0; i < labels.size(); ++i) {
             CPubKey candidate;
-            if (!AddPubKeys(candidate, unlabeled, labels[i].second.point)) continue;
+            if (!AddPubKeys(candidate, unlabeled_point, labels[i].second.point)) continue;
             scripts.push_back(GetScriptForDestination(CTxDestination(candidate.GetID())));
         }
     }
@@ -650,7 +674,8 @@ bool CSilentPaymentsReceiver::ScanWithSecret(std::vector<CFoundOutput>& found, c
         uint256 t_k;
         CPubKey unlabeled;
         if (!CreateOutputTweak(t_k, shared_secret, k)) return false;
-        if (!TweakPubKeyAdd(unlabeled, m_spend_pubkey, t_k)) return false;
+        secp256k1_pubkey unlabeled_point;
+        if (!TweakPubKeyAdd(unlabeled, unlabeled_point, m_spend_pubkey, t_k)) return false;
 
         // A P2PKH output commits to hash160 of the key, not the key, so a label cannot be
         // recovered by subtracting the unlabeled output from it the way BIP352 does. Every known
@@ -665,7 +690,7 @@ bool CSilentPaymentsReceiver::ScanWithSecret(std::vector<CFoundOutput>& found, c
                 candidate = unlabeled;
             } else {
                 const std::pair<uint32_t, CLabel>& label = labels[attempt - 1];
-                if (!AddPubKeys(candidate, unlabeled, label.second.point)) continue;
+                if (!AddPubKeys(candidate, unlabeled_point, label.second.point)) continue;
                 if (!secp256k1_ec_seckey_tweak_add(Ctx(), tweak.begin(), label.second.tweak.begin())) continue;
                 with_label = true;
                 label_m = label.first;
