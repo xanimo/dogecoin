@@ -8,6 +8,7 @@
 
 #include "consensus/merkle.h"
 #include "primitives/block.h"
+#include "script/interpreter.h"
 #include "script/script.h"
 #include "script/standard.h"
 #include "addrman.h"
@@ -21,6 +22,7 @@
 #include "version.h"
 #include "pubkey.h"
 #include "bip352.h"
+#include "hash.h"
 #include "chainparams.h"
 #include "chainparamsbase.h"
 #include "key.h"
@@ -56,6 +58,20 @@ enum TEST_ID {
     BIP352_ADDRESS_DECODE,
     BIP352_INPUT_PUBKEY,
     TEST_ID_END
+};
+
+/**
+ * Takes every signature. A scriptSig that verifies against its prevout under this checker and
+ * no flags is one consensus would accept if its signature were good, so the set is a superset
+ * of the spends that can be on the chain, and nothing has to be signed to get into it.
+ */
+class AnySignatureChecker : public BaseSignatureChecker
+{
+public:
+    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
+    {
+        return true;
+    }
 };
 
 bool read_stdin(std::vector<char> &data) {
@@ -321,7 +337,37 @@ int main(int argc, char **argv)
             const CScript prevout_spk(spk_bytes.begin(), spk_bytes.end());
 
             CPubKey key;
-            if (!bip352::GetPubKeyFromInput(key, script_sig, prevout_spk)) break;
+            const bool got = bip352::GetPubKeyFromInput(key, script_sig, prevout_spk);
+
+            // BIP352's reference code does not parse the scriptSig. It slides a 33-byte window
+            // back from the end and takes the first that hashes to the prevout's pubkey hash and
+            // is a compressed key. The rule here walks the pushes instead. Another wallet may
+            // do either, and a key one side finds and the other does not is a payment sent to
+            // an output the receiver never derives, so the two are compared.
+            CPubKey ref;
+            bool ref_got = false;
+            if (prevout_spk.size() == 25 && prevout_spk[0] == OP_DUP && prevout_spk[1] == OP_HASH160 &&
+                prevout_spk[2] == 20 && prevout_spk[23] == OP_EQUALVERIFY && prevout_spk[24] == OP_CHECKSIG) {
+                const uint160 want(std::vector<unsigned char>(prevout_spk.begin() + 3, prevout_spk.begin() + 23));
+                for (size_t end = sig_bytes.size(); end >= 33 && !ref_got; --end) {
+                    const std::vector<unsigned char> window(sig_bytes.begin() + (end - 33), sig_bytes.begin() + end);
+                    if (Hash160(window) != want) continue;
+                    const CPubKey candidate(window);
+                    if (!candidate.IsCompressed() || !candidate.IsFullyValid()) continue;
+                    ref = candidate;
+                    ref_got = true;
+                }
+            }
+            // A push is 33 bytes in a row, so whatever the walk finds the window finds too.
+            if (got) assert(ref_got && ref == key);
+            // The other way round holds only for a spend that verifies. The window also
+            // matches a key buried in a longer push, or one behind bytes that do not parse,
+            // and neither can be what a valid spend leaves on the stack: with the splice
+            // opcodes disabled, 33 bytes get there by being pushed whole.
+            if (VerifyScript(script_sig, prevout_spk, NULL, SCRIPT_VERIFY_NONE, AnySignatureChecker())) {
+                assert(got == ref_got);
+            }
+            if (!got) break;
 
             assert(key.IsFullyValid());
             assert(key.IsCompressed());
