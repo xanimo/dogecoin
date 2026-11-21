@@ -9,6 +9,7 @@
 #include "consensus/merkle.h"
 #include "primitives/block.h"
 #include "script/script.h"
+#include "script/standard.h"
 #include "addrman.h"
 #include "chain.h"
 #include "coins.h"
@@ -23,6 +24,7 @@
 #include "chainparams.h"
 #include "chainparamsbase.h"
 #include "key.h"
+#include "utilstrencodings.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -268,6 +270,8 @@ int main(int argc, char **argv)
             // share a mistake round-trip perfectly, so the keys are checked directly too.
             const std::vector<unsigned char> raw(ds.begin(), ds.end());
             const std::string str(raw.begin(), raw.end());
+            std::string lower(str);
+            for (size_t c = 0; c < lower.size(); ++c) lower[c] = ToLower((unsigned char)lower[c]);
 
             const std::string nets[] = {CBaseChainParams::MAIN, CBaseChainParams::TESTNET,
                                         CBaseChainParams::REGTEST};
@@ -288,6 +292,17 @@ int main(int argc, char **argv)
                 bip352::CSilentPaymentsAddress rt;
                 assert(bip352::DecodeSilentPaymentsAddress(rt, again, Params(), error));
                 assert(rt == addr);
+
+                // Decoding the re-encoding only shows the decoder agrees with itself. One that
+                // stopped checking the prefix, took bech32 for bech32m, or kept reading past
+                // the keys of a version 0 address still hands back two good keys and still
+                // round-trips, so the string is compared as well. Version 0 is the two keys
+                // and nothing else and has one spelling, so encoding what was decoded gives the
+                // whole string back, in lower case. A later version may carry more than this
+                // build keeps, so there it is the prefix, the separator and the version.
+                const size_t same = addr.GetVersion() == 0 ? std::string::npos
+                                                           : Params().SilentPaymentsHRP().size() + 2;
+                assert(again.compare(0, same, lower, 0, same) == 0);
             }
             break;
         }
@@ -310,9 +325,10 @@ int main(int argc, char **argv)
 
             assert(key.IsFullyValid());
             assert(key.IsCompressed());
-            assert(prevout_spk.size() == 25);       // only the canonical P2PKH script is eligible
-            const CKeyID id = key.GetID();
-            assert(memcmp(&prevout_spk[3], id.begin(), 20) == 0);
+            // Only the canonical P2PKH script is eligible, and that is one script per key, so
+            // the whole prevout is compared. Its length and the twenty bytes in the middle
+            // leave the five opcode bytes to an implementation that stopped looking at them.
+            assert(prevout_spk == GetScriptForDestination(CTxDestination(key.GetID())));
             break;
         }
         default:
