@@ -189,6 +189,7 @@ testScripts = [
     'silentpayments-filtered.py',
     'silentpayments-restore.py',
     'silentpayments-encrypt.py',
+    'silentpayments-live-enable.py',
 ]
 if ENABLE_ZMQ:
     testScripts.append('zmq_test.py')
