@@ -853,15 +853,21 @@ PeerLogicValidation::PeerLogicValidation(CConnman* connmanIn) : connman(connmanI
 }
 
 void PeerLogicValidation::BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindex, const std::vector<CTransactionRef>& vtxConflicted) {
+    // Forget tracked announcements for transactions included in a block.
+    // (Taken before, not under, g_cs_orphans: elsewhere the order is cs_main -> g_cs_orphans.)
+    {
+        LOCK(cs_main);
+        for (const CTransactionRef& ptx : pblock->vtx) {
+            g_txrequest.ForgetTxHash(ptx->GetHash());
+        }
+    }
+
     LOCK(g_cs_orphans);
 
     std::vector<uint256> vOrphanErase;
 
     for (const CTransactionRef& ptx : pblock->vtx) {
         const CTransaction& tx = *ptx;
-
-        // Forget tracked announcements for transactions included in a block.
-        g_txrequest.ForgetTxHash(tx.GetHash());
 
         // Which orphan pool entries must we evict?
         for (size_t j = 0; j < tx.vin.size(); j++) {
