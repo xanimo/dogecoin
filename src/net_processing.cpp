@@ -71,6 +71,9 @@ static constexpr int64_t OVERLOADED_PEER_TX_DELAY = 2 * 1000000;
 static constexpr int64_t GETDATA_TX_INTERVAL = 30 * 1000000; // 30 seconds
 /** Limit to avoid sending big packets. Not used in processing incoming GETDATA for compatibility */
 static const unsigned int MAX_GETDATA_SZ = 1000;
+/** How far back a block may be and still be served to a peer that asks for it
+ *  while it is not on the active chain. */
+static const int STALE_RELAY_AGE_LIMIT = 30 * 24 * 60 * 60;
 /** Maximum number of compact filters that may be requested with one getcfilters. See BIP 157. */
 static constexpr uint32_t MAX_GETCFILTERS_SIZE = 1000;
 /** Maximum number of cf hashes that may be requested with one getcfheaders. See BIP 157. */
@@ -83,8 +86,10 @@ static constexpr uint32_t MAX_GETCFHEADERS_SIZE = 2000;
  *
  * This holds a single entry per filter type, so two peers alternating between
  * different stop hashes evict each other and every request pays the full walk.
- * That thrash is accepted: PrepareBlockFilterRequest only serves stop blocks on
- * the active chain, so in practice peers converge on the tip and share the entry.
+ * That thrash is accepted: peers following the chain converge on the tip and
+ * share the entry. Correctness does not rest on which chain the stop block is
+ * on. The entry is that block's own ancestors, each looked up by block, so it
+ * is a function of stop_hash alone.
  */
 namespace {
 struct CfCheckPtCacheEntry {
@@ -1087,6 +1092,21 @@ static void RelayAddress(const CAddress& addr, bool fReachable, CConnman& connma
     connman.ForEachNodeThen(std::move(sortfunc), std::move(pushfunc));
 }
 
+/**
+ * Whether a block may be served to a peer that asked for it: on the active
+ * chain, or valid, recent and close enough in work to the best header that
+ * serving it does not fingerprint which chain this node followed.
+ * Requires cs_main.
+ */
+static bool BlockRequestAllowed(const CBlockIndex* pindex, const Consensus::Params& consensusParams)
+{
+    AssertLockHeld(cs_main);
+    if (chainActive.Contains(pindex)) return true;
+    return pindex->IsValid(BLOCK_VALID_SCRIPTS) && (pindexBestHeader != NULL) &&
+        (pindexBestHeader->GetBlockTime() - pindex->GetBlockTime() < STALE_RELAY_AGE_LIMIT) &&
+        (GetBlockProofEquivalentTime(*pindexBestHeader, *pindex, *pindexBestHeader, consensusParams) < STALE_RELAY_AGE_LIMIT);
+}
+
 void static ProcessGetBlockData(CNode* pfrom, const Consensus::Params& consensusParams, const CInv& inv, CConnman& connman, const std::atomic<bool>& interruptMsgProc)
 {
     bool send = false;
@@ -1121,16 +1141,9 @@ void static ProcessGetBlockData(CNode* pfrom, const Consensus::Params& consensus
     CBlockIndex* pindex = LookupBlockIndex(inv.hash);
     if (pindex)
     {
-        if (chainActive.Contains(pindex)) {
-            send = true;
-        } else {
-            static const int nOneMonth = 30 * 24 * 60 * 60;
-            send = pindex->IsValid(BLOCK_VALID_SCRIPTS) && (pindexBestHeader != NULL) &&
-                (pindexBestHeader->GetBlockTime() - pindex->GetBlockTime() < nOneMonth) &&
-                (GetBlockProofEquivalentTime(*pindexBestHeader, *pindex, *pindexBestHeader, consensusParams) < nOneMonth);
-            if (!send) {
-                LogPrintf("%s: ignoring request from peer=%i for old block that isn't in the main chain\n", __func__, pfrom->GetId());
-            }
+        send = BlockRequestAllowed(pindex, consensusParams);
+        if (!send) {
+            LogPrintf("%s: ignoring request from peer=%i for old block that isn't in the main chain\n", __func__, pfrom->GetId());
         }
     }
     const CNetMsgMaker msgMaker(pfrom->GetSendVersion());
@@ -1420,13 +1433,7 @@ static bool PrepareBlockFilterRequest(CNode* pfrom, const CChainParams& chain_pa
         stop_index = LookupBlockIndex(stop_hash);
 
         // Check that the stop block exists and the peer would be allowed to fetch it.
-        //
-        // [dogecoin: stricter than upstream's BlockRequestAllowed(), which also serves
-        // stale-but-recent blocks. Requiring the stop block on the active chain is what
-        // makes keying the cfcheckpt cache on stop_hash alone sound -- don't relax this
-        // without changing that cache. Cost: a client whose tip just reorged out is
-        // disconnected rather than served.]
-        if (!stop_index || !chainActive.Contains(stop_index)) {
+        if (!stop_index || !BlockRequestAllowed(stop_index, chain_params.GetConsensus(stop_index->nHeight))) {
             LogPrint("net", "peer %d requested invalid block hash: %s\n",
                      pfrom->id, stop_hash.ToString());
             pfrom->fDisconnect = true;

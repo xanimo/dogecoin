@@ -321,6 +321,7 @@ class P2PBlockFiltersTest(BitcoinTestFramework):
         # That request also warmed the response cache for this stop hash.
         pre_reorg_headers = list(peer.cfcheckpt.headers)
         pre_reorg_tip = node.getbestblockhash()
+        pre_reorg_height = node.getblockcount()
 
         # 9. Reorg out the blocks below the second checkpoint.  A transaction
         #    is mined onto the replacement chain so that the filter at height
@@ -328,7 +329,8 @@ class P2PBlockFiltersTest(BitcoinTestFramework):
         #    differ from the pre-reorg one rather than differing only by an
         #    incidentally distinct coinbase.
         fork_height = 2 * CFCHECKPT_INTERVAL - 5
-        node.invalidateblock(node.getblockhash(fork_height + 1))
+        forked_block = node.getblockhash(fork_height + 1)
+        node.invalidateblock(forked_block)
         assert node.getblockcount() == fork_height
 
         node.sendtoaddress(node.getnewaddress(), 1)
@@ -344,8 +346,10 @@ class P2PBlockFiltersTest(BitcoinTestFramework):
         assert post_reorg_headers[0] == pre_reorg_headers[0]
         assert post_reorg_headers[1] != pre_reorg_headers[1]
 
-        # 10. A stop hash that is no longer on the active chain must be
-        #     rejected outright, not served from the cache or a stale index.
+        # 10. A stop hash that was invalidated must be rejected outright, not
+        #     served from the cache or a stale index. invalidateblock leaves it
+        #     failing BLOCK_VALID_SCRIPTS, which is what the gate turns on;
+        #     being off the active chain is not by itself a reason to refuse.
         peer = connect_peer()
         peer.send_message(msg_getcfcheckpt(0, int(pre_reorg_tip, 16)))
         assert peer.wait_for_disconnect()
@@ -358,6 +362,25 @@ class P2PBlockFiltersTest(BitcoinTestFramework):
         peer.send_and_ping(msg_getcfcheckpt(0, int(new_stop_hash, 16)))
         assert peer.cfcheckpt is not None
         assert peer.cfcheckpt.headers == post_reorg_headers
+
+        # 12. A stop block that is valid and recent but no longer on the active
+        #     chain is served rather than refused. Mine past the old tip first
+        #     so that clearing the invalid mark cannot reorg back onto it.
+        if node.getblockcount() <= pre_reorg_height:
+            node.generate(pre_reorg_height - node.getblockcount() + 1)
+        node.reconsiderblock(forked_block)
+        assert node.getbestblockhash() != pre_reorg_tip
+        wait_until(lambda: node.getindexinfo()["basic block filter index"]["synced"],
+                   timeout=120)
+
+        peer = connect_peer()
+        peer.clear_blockfilters()
+        peer.send_and_ping(msg_getcfcheckpt(0, int(stop_hash, 16)))
+        assert peer.cfcheckpt is not None
+        # The answer is that block's own ancestors, so it is the pre-reorg one
+        # even though the chain moved: the cache keys on stop_hash alone and
+        # the index still holds the header under the block's hash.
+        assert peer.cfcheckpt.headers == pre_reorg_headers
 
         # 12. getcfilters must follow the reorg as well: the block at the
         #     first post-fork height is a different block than it was.
