@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path.cwd() / 'qa/rpc-tests'))
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (start_nodes, start_node, connect_nodes_bi,
                                  sync_blocks, sync_mempools, assert_equal)
-from silentpayments import wait_for_port_free, wait_for_index_sync
+from silentpayments import wait_for_port_free, wait_for_index_sync, wait_for_credit
 from test_framework.util import rpc_port
 
 
@@ -63,12 +63,15 @@ class LiveEnableRegression(BitcoinTestFramework):
         sync_mempools(self.nodes)
         sender.generate(1)
         sync_blocks(self.nodes)
-        # Record first-block discovery, then check again after another tip notification.
-        live_first = [u for u in receiver.listunspent(0, 9999999)
-                      if u['txid'] == txid and u['amount'] == 100]
+        # The scan runs from the tip notification, which is queued behind the wallet's own
+        # handling of the block, and listunspent waits only for the second of those. So a read
+        # made straight after sync_blocks can land between the two with nothing wrong. Wait for
+        # the credit instead, and before anything else is mined: a scan that needs the next
+        # tip to find a payment in this one is a defect, and must not pass as lag.
+        live_first = wait_for_credit(receiver, txid, 100)
 
-        # Then again after another tip notification, which is what tells a lagging scan apart
-        # from one that skipped the height for good.
+        # Read again after another tip notification. This is not asserted. It is printed so a
+        # failure says whether the scan was a block behind or skipped the height for good.
         sender.generate(1)
         sync_blocks(self.nodes)
         live_next = [u for u in receiver.listunspent(0, 9999999)
@@ -84,15 +87,12 @@ class LiveEnableRegression(BitcoinTestFramework):
                          indent=2), flush=True)
         assert_equal(len(manual), 1)
         assert_equal(len(recovered), 1)
-        # The defect this guards is a payment live scanning never credits, recoverable only by
-        # an explicit scan. So what is asserted is that the scan found it unaided, not that it
-        # found it on a particular tip: sync_blocks waits for the receiver to hold the block,
-        # where the scan runs from the tip notification, so a loaded machine can be a
-        # notification behind with nothing wrong. On i686 in CI live_first was 0 and live_next
-        # 1, the payment credited before any scan was asked for. Asserting the first block
-        # instead made the test fail there for its timing rather than for its subject.
-        assert len(live_first) == 1 or len(live_next) == 1, \
-            'live scanning never credited the payment; only the explicit scan found it'
+        # The payment is credited by the tip that carried it, however long the scan took to
+        # get there. On i686 in CI a single read made straight after sync_blocks came back
+        # empty and the read after the next block did not, which is the lag above and is what
+        # the wait absorbs.
+        assert len(live_first) == 1, \
+            'live scanning did not credit the payment on the tip that carried it'
 
 
 if __name__ == '__main__':

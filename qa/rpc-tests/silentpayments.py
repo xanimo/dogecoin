@@ -80,6 +80,22 @@ def wait_for_index_sync(node, name, timeout=60):
     raise AssertionError('%s did not finish syncing: %s' % (name, node.getindexinfo(name)))
 
 
+def wait_for_credit(node, txid, amount, timeout=60):
+    """What the wallet lists of txid at that amount, once it lists anything, or [] at the timeout.
+
+    The live scan runs from the tip notification, which is queued behind the wallet's own
+    handling of the block, and listunspent waits only for the second of those. A read made
+    straight after sync_blocks can therefore land between the two with nothing wrong.
+    """
+    deadline = time.time() + timeout
+    while True:
+        found = [u for u in node.listunspent(0, 9999999)
+                 if u['txid'] == txid and u['amount'] == amount]
+        if found or time.time() >= deadline:
+            return found
+        time.sleep(0.25)
+
+
 class SilentPaymentsTest(BitcoinTestFramework):
 
     def __init__(self):
@@ -125,8 +141,8 @@ class SilentPaymentsTest(BitcoinTestFramework):
         # The receiver runs -silentpaymentscan, so the payment should already be spendable
         # without anyone calling the rpc. This is the whole point of live scanning: a wallet
         # notices it was paid when the block arrives, not when its owner thinks to ask.
-        live = [u for u in receiver.listunspent(0, 9999999)
-                if u['txid'] == txid and u['amount'] == 100]
+        # Waited for rather than read once, and with nothing else mined: see wait_for_credit.
+        live = wait_for_credit(receiver, txid, 100)
         assert_equal(len(live), 1)
         assert_equal(live[0]['spendable'], True)
 
