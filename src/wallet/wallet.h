@@ -796,7 +796,7 @@ public:
      * passes defer_spends, collects what each piece left and makes that call once itself.
      */
     bool ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFound>& found, std::string& error,
-                            CSilentPaymentSpentUnseen* defer_spends = NULL);
+                            CSilentPaymentSpentUnseen* defer_spends = NULL, uint256* last_block = NULL);
 
     /**
      * Find the transactions that spent outputs a scan has found.

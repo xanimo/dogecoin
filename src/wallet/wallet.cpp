@@ -240,17 +240,41 @@ void CWallet::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *p
         if (IsLocked()) return;        // cannot derive without the seed; catch up on unlock
 
         CWalletDB db(strWalletFile);
+        const CBlockIndex* resume = NULL;
         if (!db.ReadSilentPaymentScanHeight(scanned_to)) {
             // On first activation, scan the blocks represented by this notification.
             // Marking its new tip scanned would silently skip the first payment.
             // Earlier history remains an explicit scan requested by the caller.
-            scanned_to = pindexFork != NULL ? pindexFork->nHeight : pindexNew->nHeight - 1;
-            db.WriteSilentPaymentScanHeight(scanned_to);
+            resume = pindexFork != NULL ? pindexFork : pindexNew->pprev;
+            scanned_to = resume != NULL ? resume->nHeight : pindexNew->nHeight - 1;
+        }
+
+        // The mark is a height, and what was scanned is a block. This handler returns early
+        // while the wallet is locked, while the option is off and during initial download, and
+        // a reorganisation that goes by then is in no later notification. So the mark also
+        // names its block, and if that block has left the chain the scan resumes from where
+        // the two part, rather than from a height whose block was never looked at.
+        uint256 marked;
+        if (resume == NULL && db.ReadSilentPaymentScanBlock(marked)) {
+            BlockMap::const_iterator it = mapBlockIndex.find(marked);
+            if (it != mapBlockIndex.end() && !chainActive.Contains(it->second)) {
+                const CBlockIndex* fork = chainActive.FindFork(it->second);
+                if (fork != NULL && fork->nHeight < scanned_to) resume = fork;
+            }
         }
 
         // A reorg can move the tip below the watermark; resume from the fork rather than
         // skipping the blocks that replaced the ones we had already scanned.
-        if (pindexFork != NULL && pindexFork->nHeight < scanned_to) scanned_to = pindexFork->nHeight;
+        if (pindexFork != NULL && pindexFork->nHeight < (resume != NULL ? resume->nHeight : scanned_to))
+            resume = pindexFork;
+
+        // Written before the scan and not only after it, so that a scan which fails below
+        // leaves the mark at the fork and not above it.
+        if (resume != NULL) {
+            scanned_to = resume->nHeight;
+            db.WriteSilentPaymentScanHeight(scanned_to);
+            db.WriteSilentPaymentScanBlock(resume->GetBlockHash());
+        }
         if (scanned_to >= pindexNew->nHeight) return;
     }
 
@@ -266,14 +290,17 @@ void CWallet::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *p
     while (from <= to) {
         const int upto = std::min(to, from + SILENT_PAYMENT_SCAN_BATCH - 1);
         std::vector<CSilentPaymentFound> some;
-        if (!ScanSilentPayments(from, upto, some, error, &unseen)) {
+        uint256 last;
+        if (!ScanSilentPayments(from, upto, some, error, &unseen, &last)) {
             LogPrintf("silent payments: stopping live scan in blocks %d-%d: %s\n", from, upto, error);
             break;
         }
         found.insert(found.end(), some.begin(), some.end());
         {
             LOCK(cs_wallet);
-            CWalletDB(strWalletFile).WriteSilentPaymentScanHeight(upto);
+            CWalletDB db(strWalletFile);
+            db.WriteSilentPaymentScanHeight(upto);
+            db.WriteSilentPaymentScanBlock(last);
         }
         from = upto + 1;
     }
@@ -429,7 +456,7 @@ bool CWallet::PickUpSilentPaymentSpends(int from, const std::set<CScript>& scrip
 }
 
 bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFound>& found, std::string& error,
-                                 CSilentPaymentSpentUnseen* defer_spends)
+                                 CSilentPaymentSpentUnseen* defer_spends, uint256* last_block)
 {
     found.clear();
     CSilentPaymentSpentUnseen unseen;
@@ -494,6 +521,7 @@ bool CWallet::ScanSilentPayments(int from, int to, std::vector<CSilentPaymentFou
                               "finish syncing and scan again", height);
             return false;
         }
+        if (last_block != NULL) *last_block = pindex->GetBlockHash();
         if (entries.empty()) continue;
 
         CBlock block;

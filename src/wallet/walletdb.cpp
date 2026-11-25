@@ -165,6 +165,17 @@ bool CWalletDB::ReadSilentPaymentScanHeight(int& height)
     return Read(std::string("spscanheight"), height);
 }
 
+bool CWalletDB::WriteSilentPaymentScanBlock(const uint256& hash)
+{
+    nWalletDBUpdateCounter++;
+    return Write(std::string("spscanblock"), hash);
+}
+
+bool CWalletDB::ReadSilentPaymentScanBlock(uint256& hash)
+{
+    return Read(std::string("spscanblock"), hash);
+}
+
 bool CWalletDB::WriteSilentPaymentLabel(uint32_t m)
 {
     nWalletDBUpdateCounter++;
@@ -899,7 +910,8 @@ bool CWalletDB::RecoverKeysOnlyFilter(void *callbackData, CDataStream ssKey, CDa
     // next scan does not look for, so a payment to it is derived, confirmed and never seen, and
     // the same goes for a seed an address was given out under before it was replaced.
     if (!IsKeyType(strType) && strType != "hdchain" &&
-        strType != "splabel" && strType != "spseed" && strType != "spscanheight")
+        strType != "splabel" && strType != "spseed" && strType != "spscanheight" &&
+        strType != "spscanblock")
         return false;
     if (!fReadOK)
     {

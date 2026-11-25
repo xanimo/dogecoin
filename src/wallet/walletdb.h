@@ -147,6 +147,10 @@ public:
     //! Height this wallet has scanned the tweak index up to. Absent means never scanned.
     bool WriteSilentPaymentScanHeight(int height);
     bool ReadSilentPaymentScanHeight(int& height);
+    //! The block that height was scanned as. The height alone cannot tell a reorganisation
+    //! the live scan did not see from no reorganisation at all.
+    bool WriteSilentPaymentScanBlock(const uint256& hash);
+    bool ReadSilentPaymentScanBlock(uint256& hash);
 
     //! Labels handed out as silent payment addresses. A label not recorded here is a label the
     //! scanner will not look for, so payments to it are invisible.
