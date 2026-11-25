@@ -439,6 +439,84 @@ BOOST_AUTO_TEST_CASE(a_bare_spend_gives_its_input_to_whoever_paid_it)
     BOOST_CHECK(!guessMatches);
 }
 
+// 74ac9d64f made mempool acceptance apply the per-input rule that connect applies: the output
+// must exist unspent, and the input must carry that output's own commitment and one-time key.
+// Without it a transaction spending an output it did not match was accepted at the fee it
+// declared, mined into a block its own miner then refused, and mined again for as long as it sat
+// in the mempool. The two checks need the extension block state, so they only run where
+// g_mweb_state is installed, which is why nothing in the suite reached them before this case.
+BOOST_AUTO_TEST_CASE(the_mempool_applies_the_connect_rule_to_an_input)
+{
+    const Keys2 k;
+    const CAmount pegin = 10 * COIN, value = pegin - FEE;
+    mw::wallet::StealthResult sr;
+    const mw::Transaction paid = PegInTo(k.addr, pegin, sr);
+
+    mw::MWEBState seed;
+    const mw::Block::Ptr block1 = BlockOf(1, nullptr, seed, paid);
+    auto db = std::unique_ptr<CMWEBStateDB>(new CMWEBStateDB(1 << 20, /*fMemory=*/true, /*fWipe=*/true));
+    std::vector<UTXO> spent;
+    std::vector<mw::Hash> added;
+    BOOST_REQUIRE(db->ConnectBlock(*block1, nullptr, spent, added) == CMWEBStateDB::ConnectResult::OK);
+    BOOST_REQUIRE(seed.ApplyBlock(*block1));
+
+    // The mempool path consults the global, so install it for the duration and put back
+    // whatever was there, since the suite shares one process.
+    std::unique_ptr<CMWEBStateDB> previous = std::move(g_mweb_state);
+    g_mweb_state = std::move(db);
+    struct Restore {
+        std::unique_ptr<CMWEBStateDB>& slot;
+        std::unique_ptr<CMWEBStateDB> saved;
+        ~Restore() { slot = std::move(saved); }
+    } restore{g_mweb_state, std::move(previous)};
+
+    const mw::Output& out = paid.GetOutputs()[0];
+    const CScript owner = CScript() << OP_TRUE;
+    mw::wallet::Coin mine;
+    mine.value = static_cast<uint64_t>(value);
+    mine.blind = mw::wallet::Stealth::RecoverBlind(out, k.scan);
+    mine.outputID = out.GetOutputID();
+    mine.spendKey = mw::wallet::Stealth::RecoverSpendKey(out, k.scan, k.spend);
+
+    // the owner's own spend, which matches the output in every respect
+    const mw::Transaction good = mw::wallet::TxBuilder::Build(
+        {mine}, {}, FEE, 0, {mw::PegOutCoin(value - FEE, owner)}, RandomOffset());
+    CValidationState stGood;
+    const bool goodAccepted = MWEB::Node::CheckTransaction(Carrying(good, pegin), stGood);
+
+    // an input naming an output nobody created
+    mw::wallet::Coin absent = mine;
+    absent.outputID = mw::Hash(std::vector<uint8_t>(32, 0x5a));
+    const mw::Transaction missing = mw::wallet::TxBuilder::Build(
+        {absent}, {}, FEE, 0, {mw::PegOutCoin(value - FEE, owner)}, RandomOffset());
+    CValidationState stMissing;
+    const bool missingAccepted = MWEB::Node::CheckTransaction(Carrying(missing, pegin), stMissing);
+
+    // an input naming the real output but carrying another key, which is what connect refuses
+    mw::wallet::Coin wrongKey = mine;
+    wrongKey.spendKey = K(0x66);
+    const mw::Transaction mismatched = mw::wallet::TxBuilder::Build(
+        {wrongKey}, {}, FEE, 0, {mw::PegOutCoin(value - FEE, owner)}, RandomOffset());
+    CValidationState stMismatch;
+    const bool mismatchAccepted = MWEB::Node::CheckTransaction(Carrying(mismatched, pegin), stMismatch);
+
+    printf("[mempool input] the owner's own spend: accepted %d\n", goodAccepted);
+    printf("[mempool input] an output nobody created: accepted %d, reason '%s'\n",
+           missingAccepted, stMissing.GetRejectReason().c_str());
+    printf("[mempool input] the real output under another key: accepted %d, reason '%s'\n",
+           mismatchAccepted, stMismatch.GetRejectReason().c_str());
+
+    // Each taken alone is a valid transaction: an input is verified against the key it
+    // declares, so only the state says otherwise.
+    BOOST_CHECK_NO_THROW(mismatched.Validate());
+
+    BOOST_CHECK(goodAccepted);
+    BOOST_CHECK(!missingAccepted);
+    BOOST_CHECK_EQUAL(stMissing.GetRejectReason(), "bad-mweb-missing-input");
+    BOOST_CHECK(!mismatchAccepted);
+    BOOST_CHECK_EQUAL(stMismatch.GetRejectReason(), "bad-mweb-input-mismatch");
+}
+
 // 75b001555 refuses a block that re-creates an output id. the refusal used to run UndoBlock with
 // the block's output ids, which dropped the original from the accumulator's index.
 BOOST_AUTO_TEST_CASE(refusing_a_duplicate_output_keeps_the_original)
