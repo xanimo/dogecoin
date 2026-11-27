@@ -188,16 +188,27 @@ test_test_dogecoin_fuzzy_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 test_test_dogecoin_fuzzy_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 test_test_dogecoin_fuzzy_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
+# The daemon's set, in the daemon's order: the getsptweaks target reaches net_processing, which
+# pulls in members referencing the wallet, leveldb, univalue and libevent. ld resolves static
+# archives left to right, so the order is the part that matters.
 test_test_dogecoin_fuzzy_LDADD = \
-  $(LIBUNIVALUE) \
   $(LIBDOGECOIN_SERVER) \
   $(LIBDOGECOIN_COMMON) \
+  $(LIBUNIVALUE) \
   $(LIBDOGECOIN_UTIL) \
+  $(LIBDOGECOIN_WALLET) \
   $(LIBDOGECOIN_CONSENSUS) \
   $(LIBDOGECOIN_CRYPTO) \
+  $(LIBLEVELDB) \
+  $(LIBMEMENV) \
   $(LIBSECP256K1)
 
-test_test_dogecoin_fuzzy_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
+test_test_dogecoin_fuzzy_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) \
+  $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS)
+
+if ENABLE_ZMQ
+test_test_dogecoin_fuzzy_LDADD += $(LIBDOGECOIN_ZMQ) $(ZMQ_LIBS)
+endif
 #
 
 nodist_test_test_dogecoin_SOURCES = $(GENERATED_TEST_FILES)
