@@ -128,6 +128,7 @@ bool BlockFilterIndex::Init()
         m_next_filter_pos.nFile = 0;
         m_next_filter_pos.nPos = 0;
     }
+    LogPrint("index", "%s: initialized with next filter pos=%s\n", __func__, m_next_filter_pos.ToString());
     return BaseIndex::Init();
 }
 
@@ -222,12 +223,15 @@ bool BlockFilterIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex
 
     if (pindex->nHeight > 0) {
         if (!UndoReadFromDisk(block_undo, pindex->GetUndoPos(), pindex->pprev->GetBlockHash())) {
-            return false;
+            return error("%s: UndoReadFromDisk failed for block=%s height=%d undo_pos=%s",
+                         __func__, pindex->GetBlockHash().ToString(), pindex->nHeight,
+                         pindex->GetUndoPos().ToString());
         }
 
         std::pair<uint256, DBVal> read_out;
         if (!m_db->Read(DBHeightKey(pindex->nHeight - 1), read_out)) {
-            return false;
+            return error("%s: failed reading previous height entry=%d for block=%s",
+                         __func__, pindex->nHeight - 1, pindex->GetBlockHash().ToString());
         }
 
         uint256 expected_block_hash = pindex->pprev->GetBlockHash();
@@ -242,7 +246,11 @@ bool BlockFilterIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex
     BlockFilter filter(GetFilterType(), block, block_undo);
 
     size_t bytes_written = WriteFilterToDisk(m_next_filter_pos, filter);
-    if (bytes_written == 0) return false;
+    if (bytes_written == 0) {
+        return error("%s: WriteFilterToDisk returned 0 for block=%s height=%d pos=%s",
+                     __func__, pindex->GetBlockHash().ToString(), pindex->nHeight,
+                     m_next_filter_pos.ToString());
+    }
 
     std::pair<uint256, DBVal> value;
     value.first = pindex->GetBlockHash();
@@ -251,7 +259,8 @@ bool BlockFilterIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex
     value.second.pos = m_next_filter_pos;
 
     if (!m_db->Write(DBHeightKey(pindex->nHeight), value)) {
-        return false;
+        return error("%s: failed writing DBHeightKey=%d for block=%s",
+                     __func__, pindex->nHeight, pindex->GetBlockHash().ToString());
     }
 
     m_next_filter_pos.nPos += bytes_written;
