@@ -214,6 +214,12 @@ bool BlockFilterIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex
     CBlockUndo block_undo;
     uint256 prev_header;
 
+    if (GetFilterType() != BlockFilterType::BASIC) {
+        return error("%s: unsupported filter type value=%d while indexing block=%s height=%d",
+                     __func__, static_cast<int>(m_filter_type),
+                     pindex->GetBlockHash().ToString(), pindex->nHeight);
+    }
+
     if (pindex->nHeight > 0) {
         if (!UndoReadFromDisk(block_undo, pindex->GetUndoPos(), pindex->pprev->GetBlockHash())) {
             return false;
@@ -233,7 +239,7 @@ bool BlockFilterIndex::WriteBlock(const CBlock& block, const CBlockIndex* pindex
         prev_header = read_out.second.header;
     }
 
-    BlockFilter filter(m_filter_type, block, block_undo);
+    BlockFilter filter(GetFilterType(), block, block_undo);
 
     size_t bytes_written = WriteFilterToDisk(m_next_filter_pos, filter);
     if (bytes_written == 0) return false;
